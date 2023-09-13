@@ -1,2 +1,7 @@
 runs/
 sim_record/
+scripted_sim_demo/
+videos/
+wandb/
+sim_dataset/
+.vscode/
