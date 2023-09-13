@@ -5,3 +5,4 @@ videos/
 wandb/
 sim_dataset/
 .vscode/
+artifacts/

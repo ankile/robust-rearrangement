@@ -29,6 +29,7 @@ if __name__ == "__main__":
         pkl_only=True,
         save_failure=False,
         num_demos=args.num_demos,
+        pbar=True,
     )
 
     collector.collect()
