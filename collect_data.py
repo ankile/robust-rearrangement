@@ -13,7 +13,9 @@ if __name__ == "__main__":
     furniture = "one_leg"
     randomness = args.randomness
 
-    data_path = Path("scripted_sim_demo") / furniture / randomness
+    BASE = Path("/mnt/batch/tasks/shared/LS_root/mounts/clusters/lars-gpu/code/")
+
+    data_path = BASE / "scripted_sim_demo" / furniture / randomness
 
     collector = DataCollector(
         is_sim=True,
@@ -29,7 +31,8 @@ if __name__ == "__main__":
         pkl_only=True,
         save_failure=False,
         num_demos=args.num_demos,
-        pbar=True,
+        verbose=False,
+        show_pbar=True,
     )
 
     collector.collect()
