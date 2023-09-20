@@ -1,8 +1,12 @@
 runs/
 sim_record/
 scripted_sim_demo/
+scripted_sim_demo_state/
 videos/
 wandb/
 sim_dataset/
 .vscode/
 artifacts/
+*.zarr
+*.mp4
+*.pt
