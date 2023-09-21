@@ -7,6 +7,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--randomness", type=str, default="low")
     parser.add_argument("--num-demos", type=int, default=100)
+    parser.add_argument("--obs-type", type=str, default="state")
 
     args = parser.parse_args()
 
@@ -15,7 +16,9 @@ if __name__ == "__main__":
 
     BASE = Path(".")
 
-    data_path = BASE / "scripted_sim_demo_state" / furniture / randomness
+    data_path = BASE / f"scripted_sim_demo_{args.obs_type}" / furniture / randomness
+
+    encoder_type = "vip"
 
     collector = DataCollector(
         is_sim=True,
@@ -33,7 +36,8 @@ if __name__ == "__main__":
         num_demos=args.num_demos,
         verbose=False,
         show_pbar=True,
-        use_state=True,
+        obs_type=args.obs_type,
+        encoder_type=encoder_type,
     )
 
     collector.collect()
