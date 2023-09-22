@@ -30,7 +30,7 @@ import zarr
 from glob import glob
 import pickle
 
-device = torch.device("cuda")
+device = torch.device("cuda:0")
 
 # %%
 env = gym.make(
@@ -68,66 +68,6 @@ robot_state_dim = obs["robot_state"].shape[1]
 parts_poses_state_dim = obs["parts_poses"].shape[1]
 obs_dim = robot_state_dim + parts_poses_state_dim
 action_dim = action.shape[1]
-
-
-# %%
-file_paths = glob("scripted_sim_demo_state/**/*.pkl", recursive=True)
-n_state_action_pairs = len(file_paths)
-
-observations = []
-actions = []
-episode_ends = []
-
-end_index = 0
-for path in tqdm(file_paths):
-    with open(path, "rb") as f:
-        data = pickle.load(f)
-
-    for obs, action in zip(data["observations"], data["actions"]):
-        # Each observation is just a concatenation of the robot state and the object state.
-        # Collect the robot state.
-        robot_state = obs["robot_state"]
-        parts_poses = obs["parts_poses"]
-
-        # Add the observation to the overall list.
-        observation = np.concatenate((robot_state, parts_poses))
-        observations.append(observation)
-
-        # Add the action to the overall list.
-        actions.append(action)
-
-        # Increment the end index.
-        end_index += 1
-
-    # Add the end index to the overall list.
-    episode_ends.append(end_index)
-
-# Convert the lists to numpy arrays.
-observations = np.array(observations)
-actions = np.array(actions)
-episode_ends = np.array(episode_ends)
-
-# Save the data to a zarr file.
-zarr.save(
-    "demos.zarr", observations=observations, actions=actions, episode_ends=episode_ends
-)
-
-# %%
-dataset_root = zarr.open("demos.zarr", mode="r")
-
-dataset_root["observations"].shape, dataset_root["actions"].shape, dataset_root[
-    "episode_ends"
-].shape
-
-# %%
-dataset_root["observations"].shape[0] / dataset_root["episode_ends"].shape[0]
-
-# %%
-episode_ends = dataset_root["episode_ends"][:]
-episode_ends
-
-# %% [markdown]
-# ## Make dataset for training
 
 
 # %%
@@ -577,6 +517,7 @@ def rollout(
     inference_steps,
     config,
     max_steps=500,
+    pbar=True,
 ):
     # env.seed(10_000)
 
@@ -603,7 +544,7 @@ def rollout(
     done = False
     step_idx = 0
 
-    with tqdm(total=max_steps, desc="Eval OneLeg State Env") as pbar:
+    with tqdm(total=max_steps, desc="Eval OneLeg State Env", disable=not pbar) as pbar:
         while not done:
             B = 1
             # stack the last obs_horizon (2) number of observations
@@ -710,28 +651,82 @@ def render_mp4(ims1, ims2, filename=None):
     ani.save(filename)
 
 
+def calculate_success_rate(
+    env,
+    noise_pred_net,
+    stats,
+    config,
+    epoch_idx,
+):
+    n_success = 0
+
+    tbl = wandb.Table(columns=["rollout", "success"])
+    for rollout_idx in trange(config.n_rollouts, desc="Performing rollouts"):
+        # Perform a rollout with the current model
+        rewards, imgs1, imgs2 = rollout(
+            env,
+            noise_pred_net,
+            stats,
+            config.inference_steps,
+            config,
+            pbar=False,
+        )
+
+        # Calculate the success rate
+        success = np.sum(rewards) > 0
+        n_success += int(success)
+
+        # Stack the images into a single tensor
+        video1 = (
+            torch.stack(imgs1, dim=0).squeeze(1).cpu().numpy().transpose((0, 3, 1, 2))
+        )
+        video2 = (
+            torch.stack(imgs2, dim=0).squeeze(1).cpu().numpy().transpose((0, 3, 1, 2))
+        )
+
+        # Stack the two videoes side by side into a single video
+        video = np.concatenate((video1, video2), axis=3)
+
+        tbl.add_data(wandb.Video(video, fps=10), success)
+
+    # Log the videos to wandb table
+    wandb.log(
+        {
+            "rollouts": tbl,
+            "epoch": epoch_idx,
+        }
+    )
+
+    # Log the success rate to wandb
+    wandb.log({"success_rate": n_success / config.n_rollouts, "epoch": epoch_idx})
+
+    return n_success / config.n_rollouts
+
+
 # %%
 # config for wandb
 config = dict(
     pred_horizon=16,
-    obs_horizon=3,
-    action_horizon=6,
-    down_dims=[256, 512, 1024, 2048],
-    batch_size=2048,
+    obs_horizon=2,
+    action_horizon=4,
+    down_dims=[256, 512, 1024],
+    batch_size=512,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
     clip_sample=True,
     prediction_type="epsilon",
-    lr=1e-4,
+    lr=5e-4,
     weight_decay=1e-6,
     ema_power=0.75,
     lr_scheduler_type="cosine",
     lr_scheduler_warmup_steps=500,
     dataloader_workers=8,
-    rollout_every=5,
+    rollout_every=1,
+    n_rollouts=10,
     inference_steps=10,
     ema_model=False,
+    dataset_path="demos_top_100.zarr",
 )
 
 # Init wandb
@@ -739,7 +734,7 @@ wandb.init(project="furniture-diffusion", entity="ankile", config=config)
 config = wandb.config
 
 dataset = OneLegStateDataset(
-    dataset_path="demos.zarr",
+    dataset_path=config.dataset_path,
     pred_horizon=config.pred_horizon,
     obs_horizon=config.obs_horizon,
     action_horizon=config.action_horizon,
@@ -811,6 +806,7 @@ lr_scheduler = get_scheduler(
 )
 
 tglobal = tqdm(range(config.num_epochs), desc="Epoch")
+best_success_rate = 0.0
 
 # epoch loop
 for epoch_idx in tglobal:
@@ -866,43 +862,27 @@ for epoch_idx in tglobal:
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
+
     tglobal.set_postfix(loss=np.mean(epoch_loss))
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
     if epoch_idx % config.rollout_every == 0:
-        # save model every 10 epochs
-        torch.save(
-            noise_pred_net.state_dict(),
-            f"noise_pred_net{wandb.run.name}-{epoch_idx}.pt",
-        )
-        wandb.save(f"noise_pred_net{wandb.run.name}-{epoch_idx}.pt")
-
-        # Perform a rollout with the current model
-        rewards, imgs1, imgs2 = rollout(
+        success_rate = calculate_success_rate(
             env,
             noise_pred_net,
             stats,
-            config.inference_steps,
             config,
+            epoch_idx,
         )
 
-        # Make a video of the rollout
-        filename = f"rollout-{wandb.run.name}-{epoch_idx}.mp4"
-        render_mp4(imgs1, imgs2, filename=filename)
+        if success_rate > best_success_rate:
+            best_success_rate = success_rate
+            torch.save(
+                noise_pred_net.state_dict(),
+                f"noise_pred_net.pth",
+            )
 
-        # Log the video to wandb
-        wandb.log(
-            {
-                "rollout": wandb.Video(
-                    filename,
-                    fps=10,
-                    format="mp4",
-                    caption=f"Epoch {epoch_idx}",
-                ),
-                "epoch": epoch_idx,
-            }
-        )
-
+            wandb.save("noise_pred_net.pth")
 
 tglobal.close()
 wandb.finish()

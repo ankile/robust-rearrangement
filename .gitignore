@@ -9,4 +9,5 @@ artifacts/
 *.zarr
 *.mp4
 *.pt
+*.pth
 training-artifacts/
