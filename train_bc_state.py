@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 
 import random
 import math
@@ -21,7 +22,7 @@ from tqdm import tqdm, trange
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 
-# from diffusers.training_utils import EMAModel
+from diffusers.training_utils import EMAModel
 from diffusers.optimization import get_scheduler
 
 import wandb
@@ -725,8 +726,10 @@ config = dict(
     rollout_every=1,
     n_rollouts=10,
     inference_steps=10,
-    ema_model=False,
+    ema_model=True,
     dataset_path="demos_top_100.zarr",
+    mixed_precision=True,
+    clip_grad_norm=True,
 )
 
 # Init wandb
@@ -788,7 +791,8 @@ wandb.watch(noise_pred_net)
 # Exponential Moving Average
 # accelerates training and improves stability
 # holds a copy of the model weights
-# ema = EMAModel(parameters=noise_pred_net.parameters(), power=config.ema_power)
+ema = EMAModel(parameters=noise_pred_net.parameters(), power=config.ema_power)
+scaler = GradScaler()
 
 # AdamW optimizer
 optimizer = torch.optim.AdamW(
@@ -838,27 +842,35 @@ for epoch_idx in tglobal:
             # (this is the forward diffusion process)
             noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
 
-            # predict the noise residual
-            noise_pred = noise_pred_net(noisy_actions, timesteps, global_cond=obs_cond)
-
-            # L2 loss
-            loss = nn.functional.mse_loss(noise_pred, noise)
-
-            # optimize
-            loss.backward()
-            optimizer.step()
             optimizer.zero_grad()
-            # step lr scheduler every batch
-            # this is different from standard pytorch behavior
-            wandb.log({"lr": lr_scheduler.get_last_lr()[0]})
-            lr_scheduler.step()
 
-            # update Exponential Moving Average of the model weights
-            # ema.step(noise_pred_net.parameters())
+            with autocast(enabled=config.mixed_precision):
+                # predict the noise residual
+                noise_pred = noise_pred_net(
+                    noisy_actions, timesteps, global_cond=obs_cond
+                )
+
+                # L2 loss
+                loss = nn.functional.mse_loss(noise_pred, noise)
+
+            # Backward pass with gradient scaling
+            scaler.scale(loss).backward()
+
+            # Gradient clipping
+            if config.clip_grad_norm:
+                torch.nn.utils.clip_grad_norm_(noise_pred_net.parameters(), max_norm=1)
+
+            # Optimizer step and update scaler
+            scaler.step(optimizer)
+            scaler.update()
+
+            # Update EMA
+            ema.step(noise_pred_net.parameters())
 
             # logging
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
+            wandb.log({"lr": lr_scheduler.get_last_lr()[0]})
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
@@ -867,6 +879,10 @@ for epoch_idx in tglobal:
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
     if epoch_idx % config.rollout_every == 0:
+        # Swap the EMA weights with the current model weights
+        ema.swap(noise_pred_net.parameters())
+
+        # Perform a rollout with the current model
         success_rate = calculate_success_rate(
             env,
             noise_pred_net,
@@ -883,6 +899,9 @@ for epoch_idx in tglobal:
             )
 
             wandb.save("noise_pred_net.pth")
+
+        # Swap the EMA weights back
+        ema.swap(noise_pred_net.parameters())
 
 tglobal.close()
 wandb.finish()

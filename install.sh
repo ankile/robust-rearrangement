@@ -20,7 +20,7 @@ rm -rf ~/miniconda3/miniconda.sh
 ~/miniconda3/bin/conda init bash
 
 # Create conda environment
-conda create -n rlgpu python=3.8
+conda create -n rlgpu python=3.8 -y
 
 # Activate conda environment
 conda activate rlgpu
