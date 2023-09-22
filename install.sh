@@ -5,9 +5,6 @@ curl -Lb ./cookie.txt "https://drive.google.com/uc?export=download&confirm=$(awk
 # Download Furniture-benchmark
 git clone git@github.com:ankile/furniture-bench.git
 
-# Download Furniture-diffusion
-git clone git@github.com:ankile/furniture-diffusion.git
-
 # Install miniconda
 mkdir -p ~/miniconda3
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
