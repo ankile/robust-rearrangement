@@ -1,6 +1,12 @@
+# Go one level up
+cd ..
+
 # Download Isaac Gym
 curl -c ./cookie.txt -s -L "https://drive.google.com/uc?export=download&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" > /dev/null
 curl -Lb ./cookie.txt "https://drive.google.com/uc?export=download&confirm=$(awk '/confirm/ {print $NF}' ./cookie.txt)&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" -o isaacgym.tar.gz
+
+# Extract Isaac Gym
+tar -xzf isaacgym.tar.gz
 
 # Download Furniture-benchmark
 git clone git@github.com:ankile/furniture-bench.git
