@@ -8,6 +8,7 @@ if __name__ == "__main__":
     parser.add_argument("--randomness", type=str, default="low")
     parser.add_argument("--num-demos", type=int, default=100)
     parser.add_argument("--obs-type", type=str, default="state")
+    parser.add_argument("--gpu-id", type=int, default=1)
 
     args = parser.parse_args()
 
@@ -30,7 +31,7 @@ if __name__ == "__main__":
         manual_label=True,
         scripted=True,
         randomness=randomness,
-        gpu_id=1,
+        gpu_id=args.gpu_id,
         pkl_only=True,
         save_failure=False,
         num_demos=args.num_demos,

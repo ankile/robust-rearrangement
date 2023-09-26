@@ -71,9 +71,7 @@ def rollout(
     env,
     noise_pred_net,
     stats,
-    inference_steps,
     config,
-    max_steps=500,
     pbar=True,
 ):
     def get_obs(obs, obs_type):
@@ -118,7 +116,9 @@ def rollout(
     done = False
     step_idx = 0
 
-    with tqdm(total=max_steps, desc="Eval OneLeg State Env", disable=not pbar) as pbar:
+    with tqdm(
+        total=config.rollout_max_steps, desc="Eval OneLeg State Env", disable=not pbar
+    ) as pbar:
         while not done:
             B = 1
             # stack the last obs_horizon (2) number of observations
@@ -141,7 +141,7 @@ def rollout(
                 naction = noisy_action
 
                 # init scheduler
-                noise_scheduler.set_timesteps(inference_steps)
+                noise_scheduler.set_timesteps(config.inference_steps)
 
                 for k in noise_scheduler.timesteps:
                     # predict noise
@@ -182,7 +182,7 @@ def rollout(
                 step_idx += 1
                 pbar.update(1)
                 pbar.set_postfix(reward=reward)
-                if step_idx > max_steps:
+                if step_idx > config.rollout_max_steps:
                     done = True
                 if done:
                     break
@@ -217,7 +217,6 @@ def calculate_success_rate(
             env,
             noise_pred_net,
             stats,
-            config.inference_steps,
             config,
             pbar=False,
         )
@@ -253,8 +252,8 @@ config = dict(
     pred_horizon=16,
     obs_horizon=2,
     action_horizon=6,
-    down_dims=[256, 512, 1024],
-    batch_size=512,
+    down_dims=[512, 1024, 2048],
+    batch_size=1024,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -267,21 +266,25 @@ config = dict(
     lr_scheduler_warmup_steps=500,
     dataloader_workers=16,
     rollout_every=4,
-    n_rollouts=10,
+    n_rollouts=5,
     inference_steps=10,
     ema_model=False,
     dataset_path="demos_feature.zarr",
     mixed_precision=False,
     clip_grad_norm=False,
-    gpu_id=0,
+    gpu_id=1,
     furniture="one_leg",
     observation_type="feature",
+    rollout_max_steps=750,
 )
 
 
 # Init wandb
 wandb.init(project="furniture-diffusion", entity="ankile", config=config)
 config = wandb.config
+
+if config.mixed_precision:
+    raise NotImplementedError("Mixed precision training not supported yet")
 
 device = torch.device(f"cuda:{config.gpu_id}")
 
@@ -400,30 +403,19 @@ for epoch_idx in tglobal:
             # (this is the forward diffusion process)
             noisy_actions = noise_scheduler.add_noise(naction, noise, timesteps)
 
+            # forward pass
             optimizer.zero_grad()
+            noise_pred = noise_pred_net(noisy_actions, timesteps, global_cond=obs_cond)
+            loss = nn.functional.mse_loss(noise_pred, noise)
 
-            with autocast(enabled=config.mixed_precision):
-                # predict the noise residual
-                noise_pred = noise_pred_net(
-                    noisy_actions, timesteps, global_cond=obs_cond
-                )
-
-                # L2 loss
-                loss = nn.functional.mse_loss(noise_pred, noise)
-
-            # Backward pass with gradient scaling
-            scaler.scale(loss).backward()
+            # backward pass
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
 
             # Gradient clipping
             if config.clip_grad_norm:
                 torch.nn.utils.clip_grad_norm_(noise_pred_net.parameters(), max_norm=1)
-
-            # Optimizer step and update scaler
-            scaler.step(optimizer)
-            scaler.update()
-
-            # Update EMA
-            # ema.step(noise_pred_net.parameters())
 
             # logging
             loss_cpu = loss.item()
@@ -432,12 +424,11 @@ for epoch_idx in tglobal:
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
-            break
 
     tglobal.set_postfix(loss=np.mean(epoch_loss))
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
-    if epoch_idx % config.rollout_every == 0:
+    if (epoch_idx + 1) % config.rollout_every == 0:
         # Swap the EMA weights with the current model weights
         # ema.swap(noise_pred_net.parameters())
 

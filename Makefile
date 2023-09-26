@@ -5,9 +5,9 @@
 #################################################################################
 
 PROJECT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-BUCKET = s3://furniture-diffusion
+BUCKET = furniture-diffusion
 PROFILE = default
-PROJECT_NAME = furniture-diff
+PROJECT_NAME = furniture-diffusion
 PYTHON_INTERPRETER = python3
 
 ifeq (,$(shell which conda))
