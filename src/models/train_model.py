@@ -22,32 +22,49 @@ import wandb
 from src.data.dataset import SimpleFurnitureDataset, normalize_data, unnormalize_data
 from src.models.networks import ConditionalUnet1D
 
-cuda_id = 1
 
-device = torch.device(f"cuda:{cuda_id}")
+def get_env(gpu_id, obs_type="state", furniture="one_leg"):
+    if obs_type == "state":
+        return gym.make(
+            "FurnitureSim-v0",
+            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
+            num_envs=1,  # Number of parallel environments.
+            resize_img=True,  # If true, images are resized to 224 x 224.
+            concat_robot_state=True,  # If true, robot state is concatenated to the observation.
+            obs_keys=DEFAULT_STATE_OBS
+            + ["color_image1", "color_image2"],  # Specifies the observation keys.
+            headless=True,  # If true, simulation runs without GUI.
+            compute_device_id=gpu_id,
+            graphics_device_id=gpu_id,
+            init_assembled=False,  # If true, the environment is initialized with assembled furniture.
+            np_step_out=False,  # If true, env.step() returns Numpy arrays.
+            channel_first=False,  # If true, images are returned in channel first format.
+            randomness="low",  # Level of randomness in the environment [low | med | high].
+            high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
+            save_camera_input=False,  # If true, the initial camera inputs are saved.
+            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
+            max_env_steps=3000,  # Maximum number of steps per episode.
+            act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
+        )
 
-
-env = gym.make(
-    "FurnitureSim-v0",
-    furniture="one_leg",  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
-    num_envs=1,  # Number of parallel environments.
-    resize_img=True,  # If true, images are resized to 224 x 224.
-    concat_robot_state=True,  # If true, robot state is concatenated to the observation.
-    obs_keys=DEFAULT_STATE_OBS
-    + ["color_image1", "color_image2"],  # Specifies the observation keys.
-    headless=True,  # If true, simulation runs without GUI.
-    compute_device_id=cuda_id,
-    graphics_device_id=cuda_id,
-    init_assembled=False,  # If true, the environment is initialized with assembled furniture.
-    np_step_out=False,  # If true, env.step() returns Numpy arrays.
-    channel_first=False,  # If true, images are returned in channel first format.
-    randomness="low",  # Level of randomness in the environment [low | med | high].
-    high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
-    save_camera_input=False,  # If true, the initial camera inputs are saved.
-    record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
-    max_env_steps=3000,  # Maximum number of steps per episode.
-    act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
-)
+    elif obs_type == "feature":
+        return gym.make(
+            "FurnitureSimImageFeature-v0",
+            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
+            encoder_type="vip",
+            include_raw_images=True,
+            num_envs=1,  # Number of parallel environments.
+            headless=True,  # If true, simulation runs without GUI.
+            compute_device_id=gpu_id,
+            graphics_device_id=gpu_id,
+            init_assembled=False,  # If true, the environment is initialized with assembled furniture.
+            randomness="low",  # Level of randomness in the environment [low | med | high].
+            high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
+            save_camera_input=False,  # If true, the initial camera inputs are saved.
+            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
+            max_env_steps=3000,  # Maximum number of steps per episode.
+            act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
+        )
 
 
 def rollout(
@@ -59,6 +76,22 @@ def rollout(
     max_steps=500,
     pbar=True,
 ):
+    def get_obs(obs, obs_type):
+        if obs_type == "state":
+            return torch.cat([obs["robot_state"], obs["parts_poses"]], dim=-1).cpu()
+        elif obs_type == "feature":
+            return np.concatenate(
+                [obs["robot_state"], obs["image1"], obs["image2"]], axis=-1
+            )
+        else:
+            raise NotImplementedError
+
+    def unpack_reward(reward):
+        if isinstance(reward, torch.Tensor):
+            reward = reward.cpu()
+
+        return reward.item()
+
     # env.seed(10_000)
 
     noise_scheduler = DDIMScheduler(
@@ -72,11 +105,12 @@ def rollout(
     obs = env.reset()
 
     # keep a queue of last 2 steps of observations
+    obs_type = "feature"
     obs_deque = collections.deque(
-        [torch.cat([obs["robot_state"], obs["parts_poses"]], dim=-1).cpu()]
-        * config.obs_horizon,
+        [get_obs(obs, obs_type)] * config.obs_horizon,
         maxlen=config.obs_horizon,
     )
+
     # save visualization and rewards
     imgs1 = [obs["color_image1"]]
     imgs2 = [obs["color_image2"]]
@@ -138,11 +172,9 @@ def rollout(
                 # stepping env
                 obs, reward, done, info = env.step(action[i])
                 # save observations
-                obs_deque.append(
-                    torch.cat([obs["robot_state"], obs["parts_poses"]], dim=-1).cpu()
-                )
+                obs_deque.append(get_obs(obs, obs_type))
                 # and reward/vis
-                rewards.append(reward.cpu().item())
+                rewards.append(unpack_reward(reward))
                 imgs1.append(obs["color_image1"])
                 imgs2.append(obs["color_image2"])
 
@@ -165,6 +197,17 @@ def calculate_success_rate(
     config,
     epoch_idx,
 ):
+    def stack_frames(frames):
+        if isinstance(frames[0], torch.Tensor):
+            return (
+                torch.stack(frames, dim=0)
+                .squeeze(1)
+                .cpu()
+                .numpy()
+                .transpose((0, 3, 1, 2))
+            )
+        return np.stack(frames, axis=0)
+
     n_success = 0
 
     tbl = wandb.Table(columns=["rollout", "success"])
@@ -184,12 +227,8 @@ def calculate_success_rate(
         n_success += int(success)
 
         # Stack the images into a single tensor
-        video1 = (
-            torch.stack(imgs1, dim=0).squeeze(1).cpu().numpy().transpose((0, 3, 1, 2))
-        )
-        video2 = (
-            torch.stack(imgs2, dim=0).squeeze(1).cpu().numpy().transpose((0, 3, 1, 2))
-        )
+        video1 = stack_frames(imgs1)
+        video2 = stack_frames(imgs2)
 
         # Stack the two videoes side by side into a single video
         video = np.concatenate((video1, video2), axis=3)
@@ -215,7 +254,7 @@ config = dict(
     obs_horizon=2,
     action_horizon=6,
     down_dims=[256, 512, 1024],
-    batch_size=4096,
+    batch_size=512,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -226,19 +265,30 @@ config = dict(
     ema_power=0.75,
     lr_scheduler_type="cosine",
     lr_scheduler_warmup_steps=500,
-    dataloader_workers=8,
-    rollout_every=1,
+    dataloader_workers=16,
+    rollout_every=4,
     n_rollouts=10,
     inference_steps=10,
     ema_model=False,
-    dataset_path="demos.zarr",
-    mixed_precision=True,
+    dataset_path="demos_feature.zarr",
+    mixed_precision=False,
     clip_grad_norm=False,
+    gpu_id=0,
+    furniture="one_leg",
+    observation_type="feature",
 )
+
 
 # Init wandb
 wandb.init(project="furniture-diffusion", entity="ankile", config=config)
 config = wandb.config
+
+device = torch.device(f"cuda:{config.gpu_id}")
+
+# create env
+env = get_env(
+    config.gpu_id, obs_type=config.observation_type, furniture=config.furniture
+)
 
 dataset = SimpleFurnitureDataset(
     dataset_path=config.dataset_path,
@@ -382,6 +432,7 @@ for epoch_idx in tglobal:
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
+            break
 
     tglobal.set_postfix(loss=np.mean(epoch_loss))
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
