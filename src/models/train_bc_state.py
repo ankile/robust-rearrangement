@@ -31,7 +31,9 @@ import zarr
 from glob import glob
 import pickle
 
-device = torch.device("cuda:0")
+cuda_id = 1
+
+device = torch.device(f"cuda:{cuda_id}")
 
 # %%
 env = gym.make(
@@ -43,8 +45,8 @@ env = gym.make(
     obs_keys=DEFAULT_STATE_OBS
     + ["color_image1", "color_image2"],  # Specifies the observation keys.
     headless=True,  # If true, simulation runs without GUI.
-    compute_device_id=0,  # GPU device ID for simulation.
-    graphics_device_id=0,  # GPU device ID for rendering.
+    compute_device_id=cuda_id,
+    graphics_device_id=cuda_id,
     init_assembled=False,  # If true, the environment is initialized with assembled furniture.
     np_step_out=False,  # If true, env.step() returns Numpy arrays.
     channel_first=False,  # If true, images are returned in channel first format.
@@ -709,9 +711,9 @@ def calculate_success_rate(
 config = dict(
     pred_horizon=16,
     obs_horizon=2,
-    action_horizon=4,
+    action_horizon=6,
     down_dims=[256, 512, 1024],
-    batch_size=512,
+    batch_size=4096,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -726,10 +728,10 @@ config = dict(
     rollout_every=1,
     n_rollouts=10,
     inference_steps=10,
-    ema_model=True,
-    dataset_path="demos_top_100.zarr",
+    ema_model=False,
+    dataset_path="demos.zarr",
     mixed_precision=True,
-    clip_grad_norm=True,
+    clip_grad_norm=False,
 )
 
 # Init wandb
@@ -791,7 +793,7 @@ wandb.watch(noise_pred_net)
 # Exponential Moving Average
 # accelerates training and improves stability
 # holds a copy of the model weights
-ema = EMAModel(parameters=noise_pred_net.parameters(), power=config.ema_power)
+# ema = EMAModel(parameters=noise_pred_net.parameters(), power=config.ema_power)
 scaler = GradScaler()
 
 # AdamW optimizer
@@ -865,7 +867,7 @@ for epoch_idx in tglobal:
             scaler.update()
 
             # Update EMA
-            ema.step(noise_pred_net.parameters())
+            # ema.step(noise_pred_net.parameters())
 
             # logging
             loss_cpu = loss.item()
@@ -880,7 +882,7 @@ for epoch_idx in tglobal:
 
     if epoch_idx % config.rollout_every == 0:
         # Swap the EMA weights with the current model weights
-        ema.swap(noise_pred_net.parameters())
+        # ema.swap(noise_pred_net.parameters())
 
         # Perform a rollout with the current model
         success_rate = calculate_success_rate(
@@ -901,7 +903,7 @@ for epoch_idx in tglobal:
             wandb.save("noise_pred_net.pth")
 
         # Swap the EMA weights back
-        ema.swap(noise_pred_net.parameters())
+        # ema.swap(noise_pred_net.parameters())
 
 tglobal.close()
 wandb.finish()
