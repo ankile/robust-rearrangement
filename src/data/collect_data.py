@@ -17,7 +17,13 @@ if __name__ == "__main__":
 
     BASE = Path(".")
 
-    data_path = BASE / f"scripted_sim_demo_{args.obs_type}" / furniture / randomness
+    data_path = (
+        BASE
+        / f"/home/larsankile/furniture-diffusion/data/raw/sim"
+        / args.obs_type
+        / furniture
+        / randomness
+    )
 
     encoder_type = "vip"
 

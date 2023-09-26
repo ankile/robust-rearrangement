@@ -72,7 +72,7 @@ def process_demos(input_path, output_path):
 
     # Save the data to a zarr file.
     zarr.save(
-        output_path,
+        f"{output_path}/data.zarr",
         observations=observations,
         actions=actions,
         episode_ends=episode_ends,
