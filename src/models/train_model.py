@@ -256,8 +256,8 @@ config = dict(
     pred_horizon=16,
     obs_horizon=2,
     action_horizon=6,
-    down_dims=[512, 1024, 2048],
-    batch_size=64,
+    down_dims=[128, 512, 1024],
+    batch_size=256,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -282,7 +282,6 @@ config = dict(
     rollout_max_steps=1_000,
     demo_source="real",
 )
-
 
 # Init wandb
 wandb.init(project="furniture-diffusion", entity="ankile", config=config)
@@ -328,9 +327,9 @@ dataloader = torch.utils.data.DataLoader(
     num_workers=config.dataloader_workers,
     shuffle=True,
     # accelerate cpu-gpu transfer
-    # pin_memory=True,
+    pin_memory=True,
     # don't kill worker process afte each epoch
-    # persistent_workers=True,
+    persistent_workers=True,
 )
 
 # create network object
@@ -429,6 +428,7 @@ for epoch_idx in tglobal:
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
+            break
 
     tglobal.set_postfix(loss=np.mean(epoch_loss))
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
