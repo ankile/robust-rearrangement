@@ -257,7 +257,7 @@ config = dict(
     obs_horizon=2,
     action_horizon=6,
     down_dims=[512, 1024, 2048],
-    batch_size=256,
+    batch_size=64,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -269,17 +269,18 @@ config = dict(
     lr_scheduler_type="cosine",
     lr_scheduler_warmup_steps=500,
     dataloader_workers=16,
-    rollout_every=4,
+    rollout_every=10,
     n_rollouts=5,
     inference_steps=10,
     ema_model=False,
-    dataset_path="data/processed/sim/feature/one_leg/data.zarr",
+    dataset_path="data/processed/real/feature/low/lamp/data.zarr",
     mixed_precision=False,
     clip_grad_norm=False,
     gpu_id=0,
-    furniture="one_leg",
+    furniture="lamp",
     observation_type="feature",
-    rollout_max_steps=750,
+    rollout_max_steps=1_000,
+    demo_source="real",
 )
 
 
@@ -385,8 +386,8 @@ for epoch_idx in tglobal:
         for nbatch in tepoch:
             # data normalized in dataset
             # device transfer
-            nobs = nbatch["obs"].to(device)
-            naction = nbatch["action"].to(device)
+            nobs = nbatch["obs"].float().to(device)
+            naction = nbatch["action"].float().to(device)
             B = nobs.shape[0]
 
             # observation as FiLM conditioning
