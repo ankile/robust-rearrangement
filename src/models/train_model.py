@@ -211,7 +211,10 @@ def calculate_success_rate(
     n_success = 0
 
     tbl = wandb.Table(columns=["rollout", "success"])
-    for rollout_idx in trange(config.n_rollouts, desc="Performing rollouts"):
+    pbar = trange(
+        config.n_rollouts, desc="Performing rollouts", postfix=dict(success=0)
+    )
+    for rollout_idx in pbar:
         # Perform a rollout with the current model
         rewards, imgs1, imgs2 = rollout(
             env,
@@ -224,6 +227,7 @@ def calculate_success_rate(
         # Calculate the success rate
         success = np.sum(rewards) > 0
         n_success += int(success)
+        pbar.set_postfix(success=n_success)
 
         # Stack the images into a single tensor
         video1 = stack_frames(imgs1)
