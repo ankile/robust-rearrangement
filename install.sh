@@ -29,6 +29,6 @@ conda activate rlgpu
 cd isaacgym
 pip install -e python
 
-cd ../furnture-bench
+cd ../furniture-bench
 pip install -e .
 

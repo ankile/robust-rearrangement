@@ -253,7 +253,7 @@ config = dict(
     obs_horizon=2,
     action_horizon=6,
     down_dims=[512, 1024, 2048],
-    batch_size=1024,
+    batch_size=256,
     num_epochs=100,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
@@ -323,9 +323,9 @@ dataloader = torch.utils.data.DataLoader(
     num_workers=config.dataloader_workers,
     shuffle=True,
     # accelerate cpu-gpu transfer
-    pin_memory=True,
+    # pin_memory=True,
     # don't kill worker process afte each epoch
-    persistent_workers=True,
+    # persistent_workers=True,
 )
 
 # create network object
