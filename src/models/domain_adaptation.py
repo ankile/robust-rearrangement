@@ -10,6 +10,7 @@
 
 
 import torch
+from torch import nn
 from torch.autograd import Function
 
 
@@ -35,10 +36,27 @@ class GradientReversalFunction(Function):
         return dx, None
 
 
-class GradientReversal(torch.nn.Module):
+class GradientReversal(nn.Module):
     def __init__(self, lambda_=1):
         super(GradientReversal, self).__init__()
         self.lambda_ = lambda_
 
     def forward(self, x):
         return GradientReversalFunction.apply(x, self.lambda_)
+
+
+class DomainClassifier(nn.Module):
+    def __init__(self, input_dim):
+        super(DomainClassifier, self).__init__()
+
+        self.net = nn.Sequential(
+            GradientReversal(),
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, x):
+        return self.net(x)

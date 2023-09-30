@@ -81,7 +81,6 @@ def unnormalize_data(ndata, stats):
     return data
 
 
-# dataset
 class SimpleFurnitureDataset(torch.utils.data.Dataset):
     def __init__(self, dataset_path, pred_horizon, obs_horizon, action_horizon):
         # read from zarr dataset
@@ -149,4 +148,83 @@ class SimpleFurnitureDataset(torch.utils.data.Dataset):
 
         # discard unused observations
         nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
+        return nsample
+
+
+class FurnitureImageDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        dataset_path: str,
+        pred_horizon: int,
+        obs_horizon: int,
+        action_horizon: int,
+    ):
+        # read from zarr dataset
+        dataset = zarr.open(dataset_path, "r")
+
+        # (N, D)
+        train_data = {
+            # first two dims of state vector are agent (i.e. gripper) locations
+            "agent_pos": dataset["agent_pos"][:],
+            "actions": dataset["actions"][:],
+        }
+        self.episode_ends = dataset["episode_ends"][:]
+
+        # compute start and end of each state-action sequence
+        # also handles padding
+        indices = create_sample_indices(
+            episode_ends=self.episode_ends,
+            sequence_length=pred_horizon,
+            pad_before=obs_horizon - 1,
+            pad_after=action_horizon - 1,
+        )
+
+        # compute statistics and normalized data to [-1,1]
+        stats = dict()
+        normalized_train_data = dict()
+        for key, data in train_data.items():
+            stats[key] = get_data_stats(data)
+            normalized_train_data[key] = normalize_data(data, stats[key])
+
+        # int8, [0,255], (N,224,224,3) --> (N,3,224,224)
+        normalized_train_data["image1"] = np.moveaxis(dataset["image1"][:], -1, 1)
+        normalized_train_data["image2"] = np.moveaxis(dataset["image2"][:], -1, 1)
+
+        self.indices = indices
+        self.stats = stats
+        self.normalized_train_data = normalized_train_data
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+
+        # Add action and observation dimensions to the dataset
+        self.action_dim = train_data["actions"].shape[-1]
+        self.agent_pos_dim = train_data["agent_pos"].shape[-1]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        # get the start/end indices for this datapoint
+        (
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+        ) = self.indices[idx]
+
+        # get nomralized data using these indices
+        nsample = sample_sequence(
+            train_data=self.normalized_train_data,
+            sequence_length=self.pred_horizon,
+            buffer_start_idx=buffer_start_idx,
+            buffer_end_idx=buffer_end_idx,
+            sample_start_idx=sample_start_idx,
+            sample_end_idx=sample_end_idx,
+        )
+
+        # discard unused observations
+        nsample["image1"] = nsample["image1"][: self.obs_horizon, :]
+        nsample["image2"] = nsample["image2"][: self.obs_horizon, :]
+        nsample["agent_pos"] = nsample["agent_pos"][: self.obs_horizon, :]
         return nsample
