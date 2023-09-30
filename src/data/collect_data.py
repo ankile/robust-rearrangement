@@ -8,7 +8,7 @@ if __name__ == "__main__":
     parser.add_argument("--randomness", type=str, default="low")
     parser.add_argument("--num-demos", type=int, default=100)
     parser.add_argument("--obs-type", type=str, default="state")
-    parser.add_argument("--gpu-id", type=int, default=1)
+    parser.add_argument("--gpu-id", type=int, default=0)
 
     args = parser.parse_args()
 
