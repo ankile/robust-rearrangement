@@ -3,7 +3,7 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import autocast, GradScaler
+from torch.cuda.amp import GradScaler
 
 import collections
 
@@ -21,50 +21,8 @@ import wandb
 
 from src.data.dataset import SimpleFurnitureDataset, normalize_data, unnormalize_data
 from src.models.networks import ConditionalUnet1D
-
-
-def get_env(gpu_id, obs_type="state", furniture="one_leg"):
-    if obs_type == "state":
-        return gym.make(
-            "FurnitureSim-v0",
-            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
-            num_envs=1,  # Number of parallel environments.
-            resize_img=True,  # If true, images are resized to 224 x 224.
-            concat_robot_state=True,  # If true, robot state is concatenated to the observation.
-            obs_keys=DEFAULT_STATE_OBS
-            + ["color_image1", "color_image2"],  # Specifies the observation keys.
-            headless=True,  # If true, simulation runs without GUI.
-            compute_device_id=gpu_id,
-            graphics_device_id=gpu_id,
-            init_assembled=False,  # If true, the environment is initialized with assembled furniture.
-            np_step_out=False,  # If true, env.step() returns Numpy arrays.
-            channel_first=False,  # If true, images are returned in channel first format.
-            randomness="low",  # Level of randomness in the environment [low | med | high].
-            high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
-            save_camera_input=False,  # If true, the initial camera inputs are saved.
-            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
-            max_env_steps=3000,  # Maximum number of steps per episode.
-            act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
-        )
-
-    elif obs_type == "feature":
-        return gym.make(
-            "FurnitureSimImageFeature-v0",
-            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
-            encoder_type="vip",
-            include_raw_images=True,
-            num_envs=1,  # Number of parallel environments.
-            headless=True,  # If true, simulation runs without GUI.
-            compute_device_id=gpu_id,
-            graphics_device_id=gpu_id,
-            init_assembled=False,  # If true, the environment is initialized with assembled furniture.
-            randomness="low",  # Level of randomness in the environment [low | med | high].
-            high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
-            save_camera_input=False,  # If true, the initial camera inputs are saved.
-            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
-            max_env_steps=3000,  # Maximum number of steps per episode.
-            act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
-        )
+from src.gym import get_env
+from src.eval import calculate_success_rate
 
 
 def rollout(
@@ -257,8 +215,8 @@ config = dict(
     obs_horizon=2,
     action_horizon=6,
     down_dims=[128, 512, 1024],
-    batch_size=256,
-    num_epochs=100,
+    batch_size=512,
+    num_epochs=500,
     num_diffusion_iters=100,
     beta_schedule="squaredcos_cap_v2",
     clip_sample=True,
@@ -269,7 +227,7 @@ config = dict(
     lr_scheduler_type="cosine",
     lr_scheduler_warmup_steps=500,
     dataloader_workers=16,
-    rollout_every=10,
+    rollout_every=25,
     n_rollouts=5,
     inference_steps=10,
     ema_model=False,
@@ -428,7 +386,6 @@ for epoch_idx in tglobal:
             wandb.log({"batch_loss": loss_cpu})
 
             tepoch.set_postfix(loss=loss_cpu)
-            break
 
     tglobal.set_postfix(loss=np.mean(epoch_loss))
     wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
