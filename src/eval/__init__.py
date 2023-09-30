@@ -28,6 +28,8 @@ def rollout(
             return np.concatenate(
                 [obs["robot_state"], obs["image1"], obs["image2"]], axis=-1
             )
+        elif obs_type == "image":
+            return np.concatenate([obs["image1"], obs["image2"]], axis=-1)
         else:
             raise NotImplementedError
 
@@ -50,7 +52,7 @@ def rollout(
     obs = env.reset()
 
     # keep a queue of last 2 steps of observations
-    obs_type = "feature"
+    obs_type = config.obs_type
     obs_deque = collections.deque(
         [get_obs(obs, obs_type)] * config.obs_horizon,
         maxlen=config.obs_horizon,

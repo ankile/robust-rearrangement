@@ -25,7 +25,7 @@ def main(config: dict):
         project="furniture-diffusion",
         entity="ankile",
         config=config,
-        mode="disabled",
+        # mode="disabled",
     )
     config = wandb.config
 
@@ -33,7 +33,9 @@ def main(config: dict):
 
     # create env
     env = get_env(
-        config.gpu_id, obs_type=config.observation_type, furniture=config.furniture
+        config.gpu_id,
+        obs_type=config.observation_type,
+        furniture=config.furniture,
     )
 
     data_real = FurnitureImageDataset(
@@ -318,7 +320,7 @@ if __name__ == "__main__":
         action_horizon=6,
         down_dims=[128, 512, 1024],
         batch_size=16,
-        num_epochs=500,
+        num_epochs=200,
         num_diffusion_iters=100,
         beta_schedule="squaredcos_cap_v2",
         clip_sample=True,
@@ -331,7 +333,7 @@ if __name__ == "__main__":
         lr_scheduler_type="cosine",
         lr_scheduler_warmup_steps=500,
         dataloader_workers=16,
-        rollout_every=25,
+        rollout_every=-1,
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
@@ -341,9 +343,9 @@ if __name__ == "__main__":
         clip_grad_norm=False,
         gpu_id=0,
         furniture="one_leg",
-        observation_type="feature",
+        observation_type="image",
         rollout_max_steps=1_000,
-        demo_source="real",
+        demo_source="mix",
         adv_lambda=1.0,
     )
 

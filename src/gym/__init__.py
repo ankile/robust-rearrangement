@@ -5,7 +5,7 @@ import gym
 
 
 def get_env(gpu_id, obs_type="state", furniture="one_leg"):
-    if obs_type == "state":
+    if obs_type in ["state", "image"]:
         return gym.make(
             "FurnitureSim-v0",
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
