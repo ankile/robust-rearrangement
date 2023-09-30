@@ -10,9 +10,8 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 from src.data.dataset import SimpleFurnitureDataset, normalize_data, unnormalize_data
 from src.eval import calculate_success_rate
 from src.gym import get_env
-from src.models.networks import ConditionalUnet1D
+from src.models.unet import ConditionalUnet1D
 from tqdm import tqdm
-
 
 
 def main(config: dict):
