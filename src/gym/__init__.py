@@ -46,3 +46,5 @@ def get_env(gpu_id, obs_type="state", furniture="one_leg"):
             max_env_steps=3000,  # Maximum number of steps per episode.
             act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
         )
+    else:
+        raise ValueError(f"Unknown observation type: {obs_type}")

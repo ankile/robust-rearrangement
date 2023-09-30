@@ -3,6 +3,7 @@ from datetime import datetime
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import torch
+from tqdm import tqdm
 
 
 def render_mp4(ims1, ims2, filename=None):
@@ -29,7 +30,14 @@ def render_mp4(ims1, ims2, filename=None):
 
     frame_indices = range(0, len(ims1), 1)
 
-    ani = animation.FuncAnimation(fig, update, frames=tqdm(frame_indices), interval=100)
+    framerate_hz = 10
+
+    ani = animation.FuncAnimation(
+        fig,
+        update,
+        frames=tqdm(frame_indices),
+        interval=1000 // framerate_hz,
+    )
 
     if not filename:
         filename = f"render-{datetime.now()}.mp4"
