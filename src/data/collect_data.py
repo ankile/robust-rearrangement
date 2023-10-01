@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 
 from furniture_bench.data.data_collector import DataCollector
@@ -15,15 +16,10 @@ if __name__ == "__main__":
     furniture = "one_leg"
     randomness = args.randomness
 
-    BASE = Path(".")
+    BASE = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
 
-    data_path = (
-        BASE
-        / f"/home/larsankile/furniture-diffusion/data/raw/sim"
-        / args.obs_type
-        / furniture
-        / randomness
-    )
+    data_path = BASE / "raw/sim" / args.obs_type / furniture / randomness
+    print(f"Saving data to {data_path}")
 
     encoder_type = "vip"
 
