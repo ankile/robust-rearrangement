@@ -15,18 +15,6 @@ def rollout(
     config,
     pbar=True,
 ):
-    def get_obs(obs, obs_type):
-        if obs_type == "state":
-            return torch.cat([obs["robot_state"], obs["parts_poses"]], dim=-1).cpu()
-        elif obs_type == "feature":
-            return np.concatenate(
-                [obs["robot_state"], obs["image1"], obs["image2"]], axis=-1
-            )
-        elif obs_type == "image":
-            return np.concatenate([obs["image1"], obs["image2"]], axis=-1)
-        else:
-            raise NotImplementedError
-
     def unpack_reward(reward):
         if isinstance(reward, torch.Tensor):
             reward = reward.cpu()
@@ -37,9 +25,8 @@ def rollout(
     obs = env.reset()
 
     # keep a queue of last 2 steps of observations
-    obs_type = config.observation_type
     obs_deque = collections.deque(
-        [get_obs(obs, obs_type)] * config.obs_horizon,
+        [obs] * config.obs_horizon,
         maxlen=config.obs_horizon,
     )
 
@@ -58,7 +45,8 @@ def rollout(
             obs_seq = np.stack(obs_deque)
 
             # Get the next actions from the actor
-            action_pred = actor.action(obs_seq)
+            with torch.no_grad():
+                action_pred = actor.action(obs_seq)
 
             # only take action_horizon number of actions
             start = config.obs_horizon - 1
@@ -70,9 +58,9 @@ def rollout(
             # without replanning
             for i in range(len(action)):
                 # stepping env
-                obs, reward, done, info = env.step(action[i])
+                obs, reward, done, _ = env.step(action[i])
                 # save observations
-                obs_deque.append(get_obs(obs, obs_type))
+                obs_deque.append(obs)
                 # and reward/vis
                 rewards.append(unpack_reward(reward))
                 imgs1.append(obs["color_image1"])

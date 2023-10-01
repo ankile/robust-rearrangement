@@ -1,5 +1,4 @@
 import furniture_bench
-import ml_collections
 import numpy as np
 import torch
 import torch.nn as nn
@@ -247,10 +246,16 @@ def main(config: dict):
                 noisy_action, timesteps, global_cond=obs_cond.float()
             )
             diffusion_loss = nn.functional.mse_loss(noise_pred, noise)
+
             adv_loss = nn.functional.binary_cross_entropy_with_logits(
                 domain_pred, domain_y
             )
-            loss = diffusion_loss + config.adv_lambda * adv_loss
+            ratio = diffusion_loss / (adv_loss + 1e-8)
+            dynamic_lambda = config.adv_lambda * ratio
+
+            adv_loss = dynamic_lambda * adv_loss
+
+            loss = diffusion_loss + adv_loss
 
             adv_accuracy = (domain_pred > 0.5).eq(domain_y).sum().item() / (
                 domain_pred.shape[0] * domain_pred.shape[1]
@@ -260,10 +265,10 @@ def main(config: dict):
             loss.backward()
             opt_noise.step()
 
-            if adv_accuracy > 0.25:
+            if adv_accuracy > 0.5:
                 opt_encoder.step()
 
-            if adv_accuracy < 0.75:
+            if adv_accuracy < 0.7:
                 opt_domain.step()
 
             lr_scheduler.step()
@@ -286,7 +291,6 @@ def main(config: dict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
-            break
 
         tepoch.close()
 
@@ -354,7 +358,7 @@ if __name__ == "__main__":
         observation_type="image",
         rollout_max_steps=1_000,
         demo_source="mix",
-        adv_lambda=1.0,
+        adv_lambda=0.5,
     )
 
     main(config)

@@ -1,6 +1,7 @@
 import torch
 from src.data.dataset import normalize_data, unnormalize_data
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+import ipdb
 
 
 class Actor:
@@ -23,11 +24,7 @@ class Actor:
 
     @torch.no_grad()
     def action(self, obs):
-        nobs = self._normalized_obs(obs)
-
-        # infer action
-        # reshape observation to (B,obs_horizon*obs_dim)
-        obs_cond = nobs.unsqueeze(0).flatten(start_dim=1)
+        obs_cond = self._normalized_obs(obs)
 
         # initialize action from Guassian noise
         noisy_action = torch.randn(
@@ -70,13 +67,16 @@ class ImageActor(Actor):
         self.encoder = encoder
 
     def _normalized_obs(self, obs):
-        agent_pos = obs["agent_pos"]
-        nobs = normalize_data(agent_pos, stats=self.stats["agent_pos"])
-
-        feature1 = self.encoder(obs["image1"])
-        feature2 = self.encoder(obs["image2"])
-        nobs = torch.cat([nobs, feature1, feature2], dim=-1).to(
-            self.device, dtype=torch.float32
+        agent_pos = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
+        nobs = normalize_data(agent_pos.cpu(), stats=self.stats["agent_pos"]).to(
+            self.device
         )
+        img1 = torch.cat([o["color_image1"] for o in obs], dim=0).transpose(3, 1)
+        img2 = torch.cat([o["color_image2"] for o in obs], dim=0).transpose(3, 1)
+
+        feature1 = self.encoder(img1).reshape(self.B, self.config.obs_horizon, -1)
+        feature2 = self.encoder(img2).reshape(self.B, self.config.obs_horizon, -1)
+
+        nobs = torch.cat([nobs, feature1, feature2], dim=-1).flatten(start_dim=1)
 
         return nobs
