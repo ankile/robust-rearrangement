@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 import furniture_bench
 import numpy as np
 import torch
@@ -103,6 +105,17 @@ def main(config: dict):
     # Get the VIP encoder output dimension
     vip_out_dim = vip.convnet.fc.out_features
     config.encoding_dim = vip_out_dim
+
+    for param in vip.parameters():
+        param.requires_grad = False
+
+    if config.unfreeze_encoder_layers is not None:
+        for name, param in vip.named_parameters():
+            if any(
+                [name.startswith(layer) for layer in config.unfreeze_encoder_layers]
+            ):
+                print(f"Unfreezing {name}")
+                param.requires_grad = True
 
     # create network object
     noise_pred_net = ConditionalUnet1D(
@@ -333,6 +346,9 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    data_base_dir = Path(os.environ.get("FURNITURE_DATADIR", "/data"))
+    print(f"Using data from {data_base_dir}")
+
     config = dict(
         pred_horizon=16,
         obs_horizon=2,
@@ -346,6 +362,7 @@ if __name__ == "__main__":
         prediction_type="epsilon",
         actor_lr=1e-5,
         encoder_lr=1e-6,
+        unfreeze_encoder_layers=["layer4", "fc"],
         domain_lr=1e-5,
         weight_decay=1e-6,
         ema_power=0.75,
@@ -356,8 +373,8 @@ if __name__ == "__main__":
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
-        datareal_path="data/processed/real/image/low/one_leg/data.zarr",
-        datasim_path="data/processed/sim/image/low/one_leg/data.zarr",
+        datareal_path=data_base_dir / "processed/real/image/low/one_leg/data.zarr",
+        datasim_path=data_base_dir / "processed/sim/image/low/one_leg/data.zarr",
         mixed_precision=False,
         clip_grad_norm=False,
         gpu_id=args.gpu_id,
