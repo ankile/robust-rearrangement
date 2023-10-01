@@ -108,11 +108,10 @@ def main(config: dict):
 
     for param in vip.parameters():
         param.requires_grad = False
-
     if config.unfreeze_encoder_layers is not None:
         for name, param in vip.named_parameters():
             if any(
-                [name.startswith(layer) for layer in config.unfreeze_encoder_layers]
+                [layer in name for layer in config.unfreeze_encoder_layers]
             ):
                 print(f"Unfreezing {name}")
                 param.requires_grad = True
@@ -155,7 +154,7 @@ def main(config: dict):
     opt_encoder = torch.optim.AdamW(
         params=vip.parameters(),
         lr=config.encoder_lr,
-        weight_decay=config.weight_decay,
+        weight_decay=1e-8,
     )
 
     # AdamW optimizer for domain classifier
@@ -353,7 +352,7 @@ if __name__ == "__main__":
         pred_horizon=16,
         obs_horizon=2,
         action_horizon=6,
-        down_dims=[128, 512, 1024],
+        down_dims=[512, 1024, 2048],
         batch_size=args.batch_size,
         num_epochs=200,
         num_diffusion_iters=100,
@@ -361,15 +360,15 @@ if __name__ == "__main__":
         clip_sample=True,
         prediction_type="epsilon",
         actor_lr=1e-5,
-        encoder_lr=1e-6,
+        encoder_lr=1e-7,
         unfreeze_encoder_layers=["layer4", "fc"],
-        domain_lr=1e-5,
+        domain_lr=1e-6,
         weight_decay=1e-6,
         ema_power=0.75,
         lr_scheduler_type="cosine",
         lr_scheduler_warmup_steps=500,
-        dataloader_workers=16,
-        rollout_every=1,
+        dataloader_workers=24,
+        rollout_every=5,
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
