@@ -250,7 +250,7 @@ def main(config: dict):
             adv_loss = nn.functional.binary_cross_entropy_with_logits(
                 domain_pred, domain_y
             )
-            ratio = diffusion_loss / (adv_loss + 1e-8)
+            ratio = diffusion_loss.item() / (adv_loss.item() + 1e-8)
             dynamic_lambda = config.adv_lambda * ratio
 
             adv_loss = dynamic_lambda * adv_loss
@@ -265,7 +265,7 @@ def main(config: dict):
             loss.backward()
             opt_noise.step()
 
-            if adv_accuracy > 0.5:
+            if adv_accuracy > 0.55:
                 opt_encoder.step()
 
             if adv_accuracy < 0.7:
@@ -331,7 +331,7 @@ if __name__ == "__main__":
         obs_horizon=2,
         action_horizon=6,
         down_dims=[128, 512, 1024],
-        batch_size=16,
+        batch_size=8,
         num_epochs=200,
         num_diffusion_iters=100,
         beta_schedule="squaredcos_cap_v2",
@@ -339,7 +339,7 @@ if __name__ == "__main__":
         prediction_type="epsilon",
         lr=1e-5,
         encoder_lr=1e-6,
-        domain_lr=1e-4,
+        domain_lr=1e-5,
         weight_decay=1e-6,
         ema_power=0.75,
         lr_scheduler_type="cosine",
@@ -358,7 +358,7 @@ if __name__ == "__main__":
         observation_type="image",
         rollout_max_steps=1_000,
         demo_source="mix",
-        adv_lambda=0.5,
+        adv_lambda=1.0,
     )
 
     main(config)
