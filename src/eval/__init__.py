@@ -52,7 +52,7 @@ def rollout(
     obs = env.reset()
 
     # keep a queue of last 2 steps of observations
-    obs_type = config.obs_type
+    obs_type = config.observation_type
     obs_deque = collections.deque(
         [get_obs(obs, obs_type)] * config.obs_horizon,
         maxlen=config.obs_horizon,

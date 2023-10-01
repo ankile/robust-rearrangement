@@ -249,11 +249,19 @@ def main(config: dict):
             )
             loss = diffusion_loss + config.adv_lambda * adv_loss
 
+            adv_accuracy = (domain_pred > 0.5).eq(domain_y).sum().item() / (
+                domain_pred.shape[0] * domain_pred.shape[1]
+            )
+
             # backward pass
             loss.backward()
             opt_noise.step()
-            opt_encoder.step()
-            opt_domain.step()
+
+            if adv_accuracy > 0.25:
+                opt_encoder.step()
+
+            if adv_accuracy < 0.75:
+                opt_domain.step()
 
             lr_scheduler.step()
 
@@ -262,9 +270,6 @@ def main(config: dict):
                 torch.nn.utils.clip_grad_norm_(noise_pred_net.parameters(), max_norm=1)
 
             # logging
-            adv_accuracy = (domain_pred > 0.5).eq(domain_y).sum().item() / (
-                domain_pred.shape[0] * domain_pred.shape[1]
-            )
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
             wandb.log(
@@ -284,7 +289,7 @@ def main(config: dict):
         tglobal.set_postfix(loss=np.mean(epoch_loss))
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
-        if (epoch_idx + 1) % config.rollout_every == 0:
+        if config.rollout_every != -1 and (epoch_idx + 1) % config.rollout_every == 0:
             # Swap the EMA weights with the current model weights
             # ema.swap(noise_pred_net.parameters())
 
@@ -325,7 +330,7 @@ if __name__ == "__main__":
         beta_schedule="squaredcos_cap_v2",
         clip_sample=True,
         prediction_type="epsilon",
-        lr=1e-4,
+        lr=1e-5,
         encoder_lr=1e-6,
         domain_lr=1e-4,
         weight_decay=1e-6,
