@@ -166,7 +166,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
             "agent_pos": dataset["agent_pos"][:],
-            "actions": dataset["actions"][:],
+            "action": dataset["actions"][:],
         }
         self.episode_ends = dataset["episode_ends"][:]
 
@@ -198,7 +198,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.obs_horizon = obs_horizon
 
         # Add action and observation dimensions to the dataset
-        self.action_dim = train_data["actions"].shape[-1]
+        self.action_dim = train_data["action"].shape[-1]
         self.agent_pos_dim = train_data["agent_pos"].shape[-1]
 
     def __len__(self):

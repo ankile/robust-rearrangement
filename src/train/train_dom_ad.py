@@ -14,6 +14,7 @@ from src.models.unet import ConditionalUnet1D
 from src.models.domain_adaptation import DomainClassifier
 from tqdm import tqdm
 import ipdb
+from src.models.actor import ImageActor
 
 
 from vip import load_vip
@@ -111,6 +112,8 @@ def main(config: dict):
         down_dims=config.down_dims,
     ).to(device)
 
+    actor = ImageActor(noise_pred_net, vip, config, stats_sim)
+
     # create domain classifier
     domain_classifier = DomainClassifier(input_dim=vip_out_dim * 2).to(device)
 
@@ -177,9 +180,9 @@ def main(config: dict):
             pos_sim = batch_sim["agent_pos"].to(device)
             pos = torch.cat((pos_real, pos_sim), dim=0)
 
-            actions_real = batch_sim["actions"].to(device)
-            actions_sim = batch_sim["actions"].to(device)
-            actions = torch.cat((actions_real, actions_sim), dim=0)
+            action_real = batch_sim["action"].to(device)
+            action_sim = batch_sim["action"].to(device)
+            action = torch.cat((action_real, action_sim), dim=0)
 
             img1_real = batch_real["image1"].to(device)
             img1_sim = batch_sim["image1"].to(device)
@@ -223,7 +226,7 @@ def main(config: dict):
             obs_cond = obs_cond.flatten(start_dim=1)
 
             # sample noise to add to actions
-            noise = torch.randn(actions.shape, device=device)
+            noise = torch.randn(action.shape, device=device)
 
             # sample a diffusion iteration for each data point
             timesteps = torch.randint(
@@ -232,7 +235,7 @@ def main(config: dict):
 
             # add noise to the clean images according to the noise magnitude at each diffusion iteration
             # (this is the forward diffusion process)
-            noisy_actions = noise_scheduler.add_noise(actions, noise, timesteps)
+            noisy_action = noise_scheduler.add_noise(action, noise, timesteps)
 
             # Zero out the gradients
             opt_noise.zero_grad()
@@ -241,7 +244,7 @@ def main(config: dict):
 
             # forward pass
             noise_pred = noise_pred_net(
-                noisy_actions, timesteps, global_cond=obs_cond.float()
+                noisy_action, timesteps, global_cond=obs_cond.float()
             )
             diffusion_loss = nn.functional.mse_loss(noise_pred, noise)
             adv_loss = nn.functional.binary_cross_entropy_with_logits(
@@ -283,6 +286,7 @@ def main(config: dict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
+            break
 
         tepoch.close()
 
@@ -296,8 +300,7 @@ def main(config: dict):
             # Perform a rollout with the current model
             success_rate = calculate_success_rate(
                 env,
-                noise_pred_net,
-                stats_sim,
+                actor,
                 config,
                 epoch_idx,
             )
@@ -338,7 +341,7 @@ if __name__ == "__main__":
         lr_scheduler_type="cosine",
         lr_scheduler_warmup_steps=500,
         dataloader_workers=16,
-        rollout_every=-1,
+        rollout_every=1,
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
@@ -346,7 +349,7 @@ if __name__ == "__main__":
         datasim_path="data/processed/sim/image/low/one_leg/data.zarr",
         mixed_precision=False,
         clip_grad_norm=False,
-        gpu_id=0,
+        gpu_id=1,
         furniture="one_leg",
         observation_type="image",
         rollout_max_steps=1_000,
