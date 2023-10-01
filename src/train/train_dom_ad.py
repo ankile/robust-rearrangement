@@ -14,6 +14,7 @@ from src.models.domain_adaptation import DomainClassifier
 from tqdm import tqdm
 import ipdb
 from src.models.actor import ImageActor
+import argparse
 
 
 from vip import load_vip
@@ -133,7 +134,7 @@ def main(config: dict):
     # AdamW optimizer for noise_pred_net
     opt_noise = torch.optim.AdamW(
         params=noise_pred_net.parameters(),
-        lr=config.lr,
+        lr=config.actor_lr,
         weight_decay=config.weight_decay,
     )
 
@@ -253,9 +254,7 @@ def main(config: dict):
             ratio = diffusion_loss.item() / (adv_loss.item() + 1e-8)
             dynamic_lambda = config.adv_lambda * ratio
 
-            adv_loss = dynamic_lambda * adv_loss
-
-            loss = diffusion_loss + adv_loss
+            loss = diffusion_loss + dynamic_lambda * adv_loss
 
             adv_accuracy = (domain_pred > 0.5).eq(domain_y).sum().item() / (
                 domain_pred.shape[0] * domain_pred.shape[1]
@@ -265,10 +264,12 @@ def main(config: dict):
             loss.backward()
             opt_noise.step()
 
-            if adv_accuracy > 0.55:
+            # If the vision encoder produces easily classifiable features, train it
+            if adv_accuracy > config.adversarial_accuracy_threshold:
                 opt_encoder.step()
 
-            if adv_accuracy < 0.7:
+            # If domain classifier is not accurate enough, train it
+            if adv_accuracy <= config.adversarial_accuracy_threshold:
                 opt_domain.step()
 
             lr_scheduler.step()
@@ -326,18 +327,24 @@ def main(config: dict):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gpu-id", "-g", type=int, default=0)
+    parser.add_argument("--batch-size", "-b", type=int, default=8)
+
+    args = parser.parse_args()
+
     config = dict(
         pred_horizon=16,
         obs_horizon=2,
         action_horizon=6,
         down_dims=[128, 512, 1024],
-        batch_size=8,
+        batch_size=args.batch_size,
         num_epochs=200,
         num_diffusion_iters=100,
         beta_schedule="squaredcos_cap_v2",
         clip_sample=True,
         prediction_type="epsilon",
-        lr=1e-5,
+        actor_lr=1e-5,
         encoder_lr=1e-6,
         domain_lr=1e-5,
         weight_decay=1e-6,
@@ -353,12 +360,13 @@ if __name__ == "__main__":
         datasim_path="data/processed/sim/image/low/one_leg/data.zarr",
         mixed_precision=False,
         clip_grad_norm=False,
-        gpu_id=1,
+        gpu_id=args.gpu_id,
         furniture="one_leg",
         observation_type="image",
         rollout_max_steps=1_000,
         demo_source="mix",
         adv_lambda=1.0,
+        adversarial_accuracy_threshold=0.75,
     )
 
     main(config)
