@@ -346,7 +346,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    data_base_dir = Path(os.environ.get("FURNITURE_DATADIR", "/data"))
+    data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     print(f"Using data from {data_base_dir}")
 
     config = dict(
