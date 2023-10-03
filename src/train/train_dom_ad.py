@@ -192,7 +192,7 @@ def main(config: dict):
             pos_sim = batch_sim["agent_pos"].to(device)
             pos = torch.cat((pos_real, pos_sim), dim=0)
 
-            action_real = batch_sim["action"].to(device)
+            action_real = batch_real["action"].to(device)
             action_sim = batch_sim["action"].to(device)
             action = torch.cat((action_real, action_sim), dim=0)
 
@@ -256,7 +256,7 @@ def main(config: dict):
 
             # forward pass
             noise_pred = noise_pred_net(
-                noisy_action, timesteps, global_cond=obs_cond.float()
+                noisy_action.float(), timesteps.float(), global_cond=obs_cond.float()
             )
             diffusion_loss = nn.functional.mse_loss(noise_pred, noise)
 
