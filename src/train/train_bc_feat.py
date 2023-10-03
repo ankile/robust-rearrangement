@@ -181,9 +181,6 @@ def main(config: dict):
 
                 wandb.save("noise_pred_net.pth")
 
-            # Swap the EMA weights back
-            # ema.swap(noise_pred_net.parameters())
-
     tglobal.close()
     wandb.finish()
 

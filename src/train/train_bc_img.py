@@ -18,6 +18,8 @@ import ipdb
 from src.models.actor import ImageActor
 import argparse
 
+from torchvision import transforms
+
 
 from vip import load_vip
 
@@ -28,7 +30,7 @@ def main(config: dict):
         project="furniture-diffusion",
         entity="ankile",
         config=config,
-        # mode="disabled",
+        mode="disabled",
     )
     config = wandb.config
 
@@ -41,14 +43,7 @@ def main(config: dict):
         furniture=config.furniture,
     )
 
-    data_real = FurnitureImageDataset(
-        dataset_path=config.datareal_path,
-        pred_horizon=config.pred_horizon,
-        obs_horizon=config.obs_horizon,
-        action_horizon=config.action_horizon,
-    )
-
-    data_sim = FurnitureImageDataset(
+    dataset = FurnitureImageDataset(
         dataset_path=config.datasim_path,
         pred_horizon=config.pred_horizon,
         obs_horizon=config.obs_horizon,
@@ -56,22 +51,18 @@ def main(config: dict):
     )
 
     # Update the config object with the action and observation dimensions
-    config.action_dim = data_real.action_dim
-    config.agent_pos_dim = data_real.agent_pos_dim
+    config.action_dim = dataset.action_dim
+    config.agent_pos_dim = dataset.agent_pos_dim
 
     # save training data statistics (min, max) for each dim
-    stats_real = data_real.stats
-    stats_sim = data_sim.stats
+    stats = dataset.stats
 
     # save stats to wandb
     wandb.log(
         {
-            "real.num_samples": len(data_real),
-            "real.num_episodes": len(data_real.episode_ends),
-            "real.stats": stats_real,
-            "sim.num_samples": len(data_sim),
-            "sim.num_episodes": len(data_sim.episode_ends),
-            "sim.stats": stats_sim,
+            "num_samples": len(dataset),
+            "num_episodes": len(dataset.episode_ends),
+            "stats": stats,
         }
     )
 
@@ -79,18 +70,8 @@ def main(config: dict):
     half_workers = config.dataloader_workers // 2
 
     # create dataloader
-    loader_real = torch.utils.data.DataLoader(
-        data_real,
-        batch_size=half_batch,
-        num_workers=half_workers,
-        shuffle=True,
-        pin_memory=True,
-        drop_last=True,
-        # persistent_workers=True,
-    )
-
-    loader_sim = torch.utils.data.DataLoader(
-        data_sim,
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
         batch_size=half_batch,
         num_workers=half_workers,
         shuffle=True,
@@ -100,19 +81,16 @@ def main(config: dict):
     )
 
     # load pretrained VIP encoder
-    vip = load_vip(device_id=config.gpu_id).module
+    enc = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14").eval().to(device)
 
     # Get the VIP encoder output dimension
-    vip_out_dim = vip.convnet.fc.out_features
-    config.encoding_dim = vip_out_dim
+    config.encoding_dim = enc.num_features
 
-    for param in vip.parameters():
-        param.requires_grad = False
-    if config.unfreeze_encoder_layers is not None:
-        for name, param in vip.named_parameters():
-            if any([layer in name for layer in config.unfreeze_encoder_layers]):
-                print(f"Unfreezing {name}")
-                param.requires_grad = True
+    IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
+    IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
+    normalize = transforms.Normalize(
+        mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD
+    )
 
     # create network object
     noise_pred_net = ConditionalUnet1D(
@@ -122,10 +100,7 @@ def main(config: dict):
         down_dims=config.down_dims,
     ).to(device)
 
-    actor = ImageActor(noise_pred_net, vip, config, stats_sim)
-
-    # create domain classifier
-    domain_classifier = DomainClassifier(input_dim=vip_out_dim * 2).to(device)
+    actor = ImageActor(noise_pred_net, enc, config, stats)
 
     # for this demo, we use DDPMScheduler with 100 diffusion iterations
     noise_scheduler = DDPMScheduler(
@@ -139,8 +114,6 @@ def main(config: dict):
         prediction_type=config.prediction_type,
     )
 
-    wandb.watch(noise_pred_net)
-
     # AdamW optimizer for noise_pred_net
     opt_noise = torch.optim.AdamW(
         params=noise_pred_net.parameters(),
@@ -148,21 +121,7 @@ def main(config: dict):
         weight_decay=config.weight_decay,
     )
 
-    # AdamW optimizer for VIP encoder
-    opt_encoder = torch.optim.AdamW(
-        params=vip.parameters(),
-        lr=config.encoder_lr,
-        weight_decay=1e-8,
-    )
-
-    # AdamW optimizer for domain classifier
-    opt_domain = torch.optim.AdamW(
-        params=domain_classifier.parameters(),
-        lr=config.domain_lr,
-        weight_decay=config.weight_decay,
-    )
-
-    n_batches = min(len(loader_real), len(loader_sim))
+    n_batches = len(dataloader)
 
     # Cosine LR schedule with linear warmup
     lr_scheduler = get_scheduler(
@@ -178,52 +137,25 @@ def main(config: dict):
     # epoch loop
     for epoch_idx in tglobal:
         epoch_loss = list()
-        batches = zip(loader_real, loader_sim)
+
         # batch loop
-        tepoch = tqdm(batches, desc="Batch", leave=False, total=n_batches)
-        for batch_real, batch_sim in tepoch:
-            # data normalized in dataset
-            # device transfer
-            # Concat along batch dimension for real and sim data
-            # Batch has keys "agent_pos", "action", "image1", "image2"
-            pos_real = batch_real["agent_pos"].to(device)
-            pos_sim = batch_sim["agent_pos"].to(device)
-            pos = torch.cat((pos_real, pos_sim), dim=0)
+        tepoch = tqdm(dataloader, desc="Batch", leave=False, total=n_batches)
+        for batch in tepoch:
+            pos = batch["agent_pos"].to(device)
+            action = batch["action"].to(device)
 
-            action_real = batch_real["action"].to(device)
-            action_sim = batch_sim["action"].to(device)
-            action = torch.cat((action_real, action_sim), dim=0)
+            img1 = normalize((batch["image1"].to(device).float() / 255.0))
+            img2 = normalize((batch["image2"].to(device).float() / 255.0))
 
-            img1_real = batch_real["image1"].to(device)
-            img1_sim = batch_sim["image1"].to(device)
-            img1 = torch.cat((img1_real, img1_sim), dim=0)
-
-            feat1 = vip(img1.reshape(-1, 3, 224, 224)).reshape(
-                -1, config.obs_horizon, vip_out_dim
+            feat1 = enc(img1.reshape(-1, 3, 224, 224)).reshape(
+                -1, config.obs_horizon, config.encoding_dim
             )
-
-            img2_real = batch_real["image2"].to(device)
-            img2_sim = batch_sim["image2"].to(device)
-            img2 = torch.cat((img2_real, img2_sim), dim=0)
-            feat2 = vip(img2.reshape(-1, 3, 224, 224)).reshape(
-                -1, config.obs_horizon, vip_out_dim
+            feat2 = enc(img2.reshape(-1, 3, 224, 224)).reshape(
+                -1, config.obs_horizon, config.encoding_dim
             )
 
             # Concat features along the feature dimension to go from 2 * (B, obs_horizon, 1024) to (B, obs_horizon, 2048)
             feat = torch.cat((feat1, feat2), dim=2)
-
-            # Takes in (B, obs_horizon, 2048) and outputs (B, obs_horizon, 1) squeeze to --> (B, obs_horizon)
-            domain_pred = domain_classifier(feat).squeeze()
-
-            # Create domain labels of size (B, obs_horizon)
-            domain_y = (
-                torch.cat(
-                    [torch.ones(img1_real.shape[0]), torch.zeros(img1_sim.shape[0])]
-                )
-                .repeat(config.obs_horizon, 1)
-                .T.to(device)
-            )
-            # ipdb.set_trace()
 
             # Todo: Add the image features
             B = pos.shape[0]
@@ -249,38 +181,16 @@ def main(config: dict):
 
             # Zero out the gradients
             opt_noise.zero_grad()
-            opt_encoder.zero_grad()
-            opt_domain.zero_grad()
 
             # forward pass
             noise_pred = noise_pred_net(
-                noisy_action.float(), timesteps.float(), global_cond=obs_cond.float()
+                noisy_action, timesteps, global_cond=obs_cond.float()
             )
-            diffusion_loss = nn.functional.mse_loss(noise_pred, noise)
-
-            adv_loss = nn.functional.binary_cross_entropy_with_logits(
-                domain_pred, domain_y
-            )
-            ratio = diffusion_loss.item() / (adv_loss.item() + 1e-8)
-            dynamic_lambda = config.adv_lambda * ratio
-
-            loss = diffusion_loss + dynamic_lambda * adv_loss
-
-            adv_accuracy = (domain_pred > 0.5).eq(domain_y).sum().item() / (
-                domain_pred.shape[0] * domain_pred.shape[1]
-            )
+            loss = nn.functional.mse_loss(noise_pred, noise)
 
             # backward pass
             loss.backward()
             opt_noise.step()
-
-            # If the vision encoder produces easily classifiable features, train it
-            if adv_accuracy > config.adversarial_accuracy_threshold:
-                opt_encoder.step()
-
-            # If domain classifier is not accurate enough, train it
-            if adv_accuracy <= config.adversarial_accuracy_threshold:
-                opt_domain.step()
 
             lr_scheduler.step()
 
@@ -295,9 +205,6 @@ def main(config: dict):
                 dict(
                     lr=lr_scheduler.get_last_lr()[0],
                     batch_loss=loss_cpu,
-                    adv_loss=adv_loss.item(),
-                    diffusion_loss=diffusion_loss.item(),
-                    adv_accuracy=adv_accuracy,
                 )
             )
 
@@ -336,7 +243,7 @@ def main(config: dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--batch-size", "-b", type=int, default=8)
+    parser.add_argument("--batch-size", "-b", type=int, default=128)
 
     args = parser.parse_args()
 
@@ -347,7 +254,7 @@ if __name__ == "__main__":
         pred_horizon=16,
         obs_horizon=2,
         action_horizon=6,
-        down_dims=[512, 1024, 2048],
+        down_dims=[256, 512, 1024],
         batch_size=args.batch_size,
         num_epochs=200,
         num_diffusion_iters=100,
@@ -355,9 +262,6 @@ if __name__ == "__main__":
         clip_sample=True,
         prediction_type="epsilon",
         actor_lr=1e-5,
-        encoder_lr=1e-7,
-        unfreeze_encoder_layers=["layer4", "fc"],
-        domain_lr=1e-6,
         weight_decay=1e-6,
         ema_power=0.75,
         lr_scheduler_type="cosine",
@@ -367,7 +271,6 @@ if __name__ == "__main__":
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
-        datareal_path=data_base_dir / "processed/real/image/low/one_leg/data.zarr",
         datasim_path=data_base_dir / "processed/sim/image/low/one_leg/data.zarr",
         mixed_precision=False,
         clip_grad_norm=False,
@@ -375,9 +278,7 @@ if __name__ == "__main__":
         furniture="one_leg",
         observation_type="image",
         rollout_max_steps=1_000,
-        demo_source="mix",
-        adv_lambda=1.0,
-        adversarial_accuracy_threshold=0.75,
+        demo_source="sim",
     )
 
     main(config)
