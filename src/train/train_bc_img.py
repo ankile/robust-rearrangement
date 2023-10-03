@@ -18,30 +18,24 @@ import ipdb
 from src.models.actor import ImageActor
 import argparse
 
-from torchvision import transforms
+from src.models.vision import DinoEncoder
+from ml_collections import ConfigDict
+from accelerate import Accelerator
 
 
-from vip import load_vip
+def main(config: ConfigDict):
+    env = None
 
-
-def main(config: dict):
     # Init wandb
     wandb.init(
         project="furniture-diffusion",
         entity="ankile",
-        config=config,
-        # mode="disabled",
+        config=config.to_dict(),
+        mode="online" if not config.dryrun else "disabled",
     )
     config = wandb.config
 
     device = torch.device(f"cuda:{config.gpu_id}")
-
-    # create env
-    env = get_env(
-        config.gpu_id,
-        obs_type=config.observation_type,
-        furniture=config.furniture,
-    )
 
     dataset = FurnitureImageDataset(
         dataset_path=config.datasim_path,
@@ -76,18 +70,8 @@ def main(config: dict):
         drop_last=False,
         persistent_workers=True,
     )
-
-    # load pretrained VIP encoder
-    enc = torch.hub.load("facebookresearch/dinov2", "dinov2_vitl14").eval().to(device)
-
-    # Get the VIP encoder output dimension
-    config.encoding_dim = enc.num_features
-
-    IMAGENET_DEFAULT_MEAN = (0.485, 0.456, 0.406)
-    IMAGENET_DEFAULT_STD = (0.229, 0.224, 0.225)
-    normalize = transforms.Normalize(
-        mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD
-    )
+    enc = DinoEncoder(size="base", freeze=True, device=device)
+    config.encoding_dim = enc.encoding_dim
 
     # create network object
     noise_pred_net = ConditionalUnet1D(
@@ -141,18 +125,24 @@ def main(config: dict):
             pos = batch["agent_pos"].to(device)
             action = batch["action"].to(device)
 
-            img1 = normalize((batch["image1"].to(device).float() / 255.0))
-            img2 = normalize((batch["image2"].to(device).float() / 255.0))
+            # Concatenate img1 and img2 along the batch dimension (dim=0)
+            batched_img = torch.cat(
+                (
+                    batch["image1"].reshape(-1, 224, 224, 3),
+                    batch["image2"].reshape(-1, 224, 224, 3),
+                ),
+                dim=0,
+            ).to(device)
 
-            with torch.no_grad():
-                feat1 = enc(img1.reshape(-1, 3, 224, 224)).reshape(
-                    -1, config.obs_horizon, config.encoding_dim
-                )
-                feat2 = enc(img2.reshape(-1, 3, 224, 224)).reshape(
-                    -1, config.obs_horizon, config.encoding_dim
-                )
+            # Encode the concatenated images
+            batched_feat = enc(batched_img).reshape(
+                -1, config.obs_horizon, config.encoding_dim
+            )
 
-            # Concat features along the feature dimension to go from 2 * (B, obs_horizon, 1024) to (B, obs_horizon, 2048)
+            # Split the features back into feat1 and feat2
+            feat1, feat2 = torch.split(batched_feat, batched_feat.shape[0] // 2, dim=0)
+
+            # Concat features to get the final feat
             feat = torch.cat((feat1, feat2), dim=2)
 
             # Todo: Add the image features
@@ -160,10 +150,11 @@ def main(config: dict):
 
             # observation as FiLM conditioning
             # (B, obs_horizon, obs_dim)
-            nobs = torch.cat((pos, feat), dim=2)
-            obs_cond = nobs[:, : config.obs_horizon, :]  # Not really doing anything
+            # nobs = torch.cat((pos, feat), dim=2)
+            # obs_cond = nobs[:, : config.obs_horizon, :]  # Not really doing anything
             # (B, obs_horizon * obs_dim)
-            obs_cond = obs_cond.flatten(start_dim=1)
+            # obs_cond = obs_cond.flatten(start_dim=1)
+            obs_cond = torch.cat((pos, feat), dim=2).flatten(start_dim=1)
 
             # sample noise to add to actions
             noise = torch.randn(action.shape, device=device)
@@ -208,14 +199,21 @@ def main(config: dict):
 
             tepoch.set_postfix(loss=loss_cpu)
 
+            if config.dryrun:
+                break
+
         tepoch.close()
 
         tglobal.set_postfix(loss=np.mean(epoch_loss))
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         if config.rollout_every != -1 and (epoch_idx + 1) % config.rollout_every == 0:
-            # Swap the EMA weights with the current model weights
-            # ema.swap(noise_pred_net.parameters())
+            if env is None:
+                env = get_env(
+                    config.gpu_id,
+                    obs_type=config.observation_type,
+                    furniture=config.furniture,
+                )
 
             # Perform a rollout with the current model
             success_rate = calculate_success_rate(
@@ -242,41 +240,45 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
     parser.add_argument("--batch-size", "-b", type=int, default=128)
-
+    parser.add_argument("--dryrun", "-d", action="store_true")
     args = parser.parse_args()
 
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     print(f"Using data from {data_base_dir}")
 
-    config = dict(
-        pred_horizon=16,
-        obs_horizon=2,
-        action_horizon=6,
-        down_dims=[256, 512, 1024],
-        batch_size=args.batch_size,
-        num_epochs=200,
-        num_diffusion_iters=100,
-        beta_schedule="squaredcos_cap_v2",
-        clip_sample=True,
-        prediction_type="epsilon",
-        actor_lr=1e-5,
-        weight_decay=1e-6,
-        ema_power=0.75,
-        lr_scheduler_type="cosine",
-        lr_scheduler_warmup_steps=500,
-        dataloader_workers=48,
-        rollout_every=3,
-        n_rollouts=5,
-        inference_steps=10,
-        ema_model=False,
-        datasim_path=data_base_dir / "processed/sim/image/low/one_leg/data.zarr",
-        mixed_precision=False,
-        clip_grad_norm=False,
-        gpu_id=args.gpu_id,
-        furniture="one_leg",
-        observation_type="image",
-        rollout_max_steps=1_000,
-        demo_source="sim",
+    config = ConfigDict(
+        dict(
+            dryrun=args.dryrun,
+            pred_horizon=16,
+            obs_horizon=2,
+            action_horizon=8,
+            down_dims=[256, 512, 1024],
+            batch_size=args.batch_size,
+            num_epochs=100,
+            num_diffusion_iters=100,
+            beta_schedule="squaredcos_cap_v2",
+            clip_sample=True,
+            prediction_type="epsilon",
+            actor_lr=1e-5,
+            weight_decay=1e-6,
+            ema_power=0.75,
+            lr_scheduler_type="cosine",
+            lr_scheduler_warmup_steps=500,
+            dataloader_workers=24,
+            rollout_every=10 if args.dryrun is False else 1,
+            n_rollouts=5 if args.dryrun is False else 1,
+            inference_steps=10,
+            ema_model=False,
+            datasim_path=data_base_dir / "processed/sim/image/low/one_leg/data.zarr",
+            mixed_precision=False,
+            clip_grad_norm=False,
+            gpu_id=args.gpu_id,
+            furniture="one_leg",
+            observation_type="image",
+            rollout_max_steps=750,
+            demo_source="sim",
+            vision_encoder="dinov2-base",
+        )
     )
 
     main(config)
