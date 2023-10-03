@@ -30,7 +30,7 @@ def main(config: dict):
         project="furniture-diffusion",
         entity="ankile",
         config=config,
-        mode="disabled",
+        # mode="disabled",
     )
     config = wandb.config
 
@@ -66,18 +66,15 @@ def main(config: dict):
         }
     )
 
-    half_batch = config.batch_size // 2
-    half_workers = config.dataloader_workers // 2
-
     # create dataloader
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=half_batch,
-        num_workers=half_workers,
+        batch_size=config.batch_size,
+        num_workers=config.dataloader_workers,
         shuffle=True,
         pin_memory=True,
-        drop_last=True,
-        # persistent_workers=True,
+        drop_last=False,
+        persistent_workers=True,
     )
 
     # load pretrained VIP encoder
@@ -267,8 +264,8 @@ if __name__ == "__main__":
         ema_power=0.75,
         lr_scheduler_type="cosine",
         lr_scheduler_warmup_steps=500,
-        dataloader_workers=24,
-        rollout_every=5,
+        dataloader_workers=48,
+        rollout_every=3,
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
