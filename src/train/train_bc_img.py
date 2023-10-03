@@ -147,12 +147,13 @@ def main(config: dict):
             img1 = normalize((batch["image1"].to(device).float() / 255.0))
             img2 = normalize((batch["image2"].to(device).float() / 255.0))
 
-            feat1 = enc(img1.reshape(-1, 3, 224, 224)).reshape(
-                -1, config.obs_horizon, config.encoding_dim
-            )
-            feat2 = enc(img2.reshape(-1, 3, 224, 224)).reshape(
-                -1, config.obs_horizon, config.encoding_dim
-            )
+            with torch.no_grad():
+                feat1 = enc(img1.reshape(-1, 3, 224, 224)).reshape(
+                    -1, config.obs_horizon, config.encoding_dim
+                )
+                feat2 = enc(img2.reshape(-1, 3, 224, 224)).reshape(
+                    -1, config.obs_horizon, config.encoding_dim
+                )
 
             # Concat features along the feature dimension to go from 2 * (B, obs_horizon, 1024) to (B, obs_horizon, 2048)
             feat = torch.cat((feat1, feat2), dim=2)
