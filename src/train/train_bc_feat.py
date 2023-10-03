@@ -186,7 +186,7 @@ def main(config: dict):
 
 
 if __name__ == "__main__":
-    config = ml_collections.ConfigDict(
+    config = dict(
         pred_horizon=16,
         obs_horizon=2,
         action_horizon=6,
@@ -207,14 +207,14 @@ if __name__ == "__main__":
         n_rollouts=5,
         inference_steps=10,
         ema_model=False,
-        dataset_path="data/processed/real/feature/low/lamp/data.zarr",
+        dataset_path="/mnt/batch/tasks/shared/LS_root/mounts/clusters/a100/data/processed/sim/feature/one_leg/data.zarr",
         mixed_precision=False,
         clip_grad_norm=False,
-        gpu_id=0,
-        furniture="lamp",
+        gpu_id=1,
+        furniture="one_leg",
         observation_type="feature",
-        rollout_max_steps=1_000,
-        demo_source="real",
+        rollout_max_steps=750,
+        demo_source="sim",
     )
 
     main(config)
