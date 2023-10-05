@@ -4,7 +4,7 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import gym
 
 
-def get_env(gpu_id, obs_type="state", furniture="one_leg"):
+def get_env(gpu_id, obs_type="state", furniture="one_leg", encoder_type=None):
     if obs_type in ["state", "image"]:
         return gym.make(
             "FurnitureSim-v0",
@@ -29,10 +29,11 @@ def get_env(gpu_id, obs_type="state", furniture="one_leg"):
         )
 
     elif obs_type == "feature":
+        assert encoder_type is not None
         return gym.make(
             "FurnitureSimImageFeature-v0",
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
-            encoder_type="vip",
+            encoder_type=encoder_type,
             include_raw_images=True,
             num_envs=1,  # Number of parallel environments.
             headless=True,  # If true, simulation runs without GUI.

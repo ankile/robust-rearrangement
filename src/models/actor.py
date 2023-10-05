@@ -1,13 +1,17 @@
 import torch
 from src.data.dataset import normalize_data, unnormalize_data
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-import ipdb
+from ipdb import set_trace as st
+import numpy as np
 
 
 class Actor:
     def __init__(self, noise_net, config, stats) -> None:
         self.noise_net = noise_net
-        self.config = config
+        self.action_dim = config.action_dim
+        self.pred_horizon = config.pred_horizon
+        self.obs_horizon = config.obs_horizon
+        self.inference_steps = config.inference_steps
         self.stats = stats
         self.device = next(noise_net.parameters()).device
         self.B = 1
@@ -28,13 +32,13 @@ class Actor:
 
         # initialize action from Guassian noise
         noisy_action = torch.randn(
-            (self.B, self.config.pred_horizon, self.config.action_dim),
+            (self.B, self.pred_horizon, self.action_dim),
             device=self.device,
         )
         naction = noisy_action
 
         # init scheduler
-        self.noise_scheduler.set_timesteps(self.config.inference_steps)
+        self.noise_scheduler.set_timesteps(self.inference_steps)
 
         for k in self.noise_scheduler.timesteps:
             # predict noise
@@ -57,8 +61,29 @@ class Actor:
 
 
 class StateActor(Actor):
-    def __init__(self, noise_net, config, stats) -> None:
-        raise NotImplementedError
+    def _normalized_obs(self, obs):
+        agent_pos = torch.from_numpy(
+            np.concatenate(
+                [o["robot_state"].reshape(self.B, 1, -1) for o in obs],
+                axis=1,
+            )
+        )
+        feature1 = np.concatenate(
+            [o["image1"].reshape(self.B, 1, -1) for o in obs], axis=1
+        )
+        feature2 = np.concatenate(
+            [o["image2"].reshape(self.B, 1, -1) for o in obs], axis=1
+        )
+        nobs = torch.from_numpy(
+            np.concatenate([agent_pos, feature1, feature2], axis=-1)
+        )
+        nobs = (
+            normalize_data(nobs, stats=self.stats["obs"])
+            .flatten(start_dim=1)
+            .to(self.device)
+        )
+
+        return nobs
 
 
 class ImageActor(Actor):
@@ -74,8 +99,8 @@ class ImageActor(Actor):
         img1 = torch.cat([o["color_image1"] for o in obs], dim=0).transpose(3, 1)
         img2 = torch.cat([o["color_image2"] for o in obs], dim=0).transpose(3, 1)
 
-        feature1 = self.encoder(img1).reshape(self.B, self.config.obs_horizon, -1)
-        feature2 = self.encoder(img2).reshape(self.B, self.config.obs_horizon, -1)
+        feature1 = self.encoder(img1).reshape(self.B, self.obs_horizon, -1)
+        feature2 = self.encoder(img2).reshape(self.B, self.obs_horizon, -1)
 
         nobs = torch.cat([nobs, feature1, feature2], dim=-1).flatten(start_dim=1)
 
