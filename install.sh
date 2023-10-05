@@ -18,9 +18,13 @@ bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
 rm -rf ~/miniconda3/miniconda.sh
 
 ~/miniconda3/bin/conda init bash
+source ~/.bashrc
 
 # Create conda environment
 conda create -n rlgpu python=3.8 -y
+pip install --upgrade pip wheel
+pip install setuptools==58
+pip install --upgrade pip==22.2.2
 
 # Activate conda environment
 conda activate rlgpu
