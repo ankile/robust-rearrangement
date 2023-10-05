@@ -195,7 +195,6 @@ def main(config: ConfigDict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
-
             if config.dryrun:
                 break
 
@@ -204,13 +203,17 @@ def main(config: ConfigDict):
         tglobal.set_postfix(loss=np.mean(epoch_loss))
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
-        if config.rollout_every != -1 and (epoch_idx + 1) % config.rollout_every == 0:
+        if (
+            config.rollout_every != -1
+            and (epoch_idx + 1) % config.rollout_every == 0
+            and np.mean(epoch_loss) < config.rollout_loss_threshold
+        ):
             if env is None:
                 env = get_env(
                     config.gpu_id,
                     obs_type=config.observation_type,
                     furniture=config.furniture,
-                    num_envs=1,
+                    num_envs=config.num_envs,
                 )
 
             # Perform a rollout with the current model
@@ -242,6 +245,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+    maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     config = ConfigDict(
         dict(
@@ -251,7 +255,7 @@ if __name__ == "__main__":
             action_horizon=8,
             down_dims=[256, 512, 1024],
             batch_size=args.batch_size,
-            num_epochs=100,
+            num_epochs=2_000,
             num_diffusion_iters=100,
             beta_schedule="squaredcos_cap_v2",
             clip_sample=True,
@@ -261,9 +265,9 @@ if __name__ == "__main__":
             lr_scheduler_type="cosine",
             lr_scheduler_warmup_steps=500,
             dataloader_workers=24,
-            rollout_every=10 if args.dryrun is False else 1,
-            n_rollouts=5 if args.dryrun is False else 1,
-            n_envs=1,
+            rollout_every=50 if args.dryrun is False else 1,
+            n_rollouts=8 if args.dryrun is False else 1,
+            num_envs=maybe(8),
             inference_steps=10,
             mixed_precision=True,
             clip_grad_norm=False,
@@ -273,8 +277,14 @@ if __name__ == "__main__":
             rollout_max_steps=750 if args.dryrun is False else 10,
             demo_source="sim",
             vision_encoder="dinov2-base",
+            rollout_loss_threshold=maybe(0.01, 1e9),
         )
     )
+
+    assert (
+        config.n_rollouts % config.num_envs == 0
+    ), "n_rollouts must be divisible by num_envs"
+
     config.datasim_path = (
         data_base_dir
         / "processed"

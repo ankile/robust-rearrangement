@@ -18,8 +18,8 @@ def get_concatenated_observation(obs, obs_type):
         # Add the observation to the overall list.
         observation = np.concatenate((robot_state, parts_poses))
     elif obs_type == "feature":
-        img1 = obs["image1"]
-        img2 = obs["image2"]
+        img1 = obs["color_image1"]
+        img2 = obs["color_image2"]
 
         # Add the observation to the overall list.
         observation = np.concatenate((robot_state, img1, img2))

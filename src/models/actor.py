@@ -1,3 +1,4 @@
+from collections import deque
 import torch
 from src.data.dataset import normalize_data, unnormalize_data
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -13,7 +14,7 @@ class Actor:
         self.obs_horizon = config.obs_horizon
         self.inference_steps = config.inference_steps
         self.device = next(noise_net.parameters()).device
-        self.B = config.n_envs
+        self.B = config.num_envs
 
         self.noise_scheduler = DDIMScheduler(
             num_train_timesteps=config.num_diffusion_iters,
@@ -37,7 +38,7 @@ class Actor:
         raise NotImplementedError
 
     @torch.no_grad()
-    def action(self, obs):
+    def action(self, obs: deque):
         obs_cond = self._normalized_obs(obs)
 
         # initialize action from Guassian noise
@@ -63,7 +64,7 @@ class Actor:
 
         # unnormalize action
         # (B, pred_horizon, action_dim)
-        naction = naction[0]
+        # naction = naction[0]
         action_pred = unnormalize_data(naction, stats=self.stats["action"])
 
         return action_pred
@@ -100,7 +101,7 @@ class ImageActor(Actor):
         super().__init__(noise_net, config, stats)
         self.encoder = encoder
 
-    def _normalized_obs(self, obs):
+    def _normalized_obs(self, obs: deque):
         # Convert agent_pos from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         agent_pos = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 

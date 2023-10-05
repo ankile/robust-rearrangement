@@ -4,6 +4,7 @@ import collections
 
 import numpy as np
 from tqdm import tqdm, trange
+from ipdb import set_trace as bp
 
 
 import wandb
@@ -15,12 +16,6 @@ def rollout(
     config,
     pbar=True,
 ):
-    def unpack_reward(reward):
-        if isinstance(reward, torch.Tensor):
-            reward = reward.cpu()
-
-        return reward.item()
-
     # get first observation
     obs = env.reset()
 
@@ -34,35 +29,37 @@ def rollout(
     imgs1 = [obs["color_image1"]]
     imgs2 = [obs["color_image2"]]
     rewards = list()
-    done = False
+    done = torch.BoolTensor([False] * config.num_envs)
     step_idx = 0
 
     with tqdm(
-        total=config.rollout_max_steps, desc="Eval OneLeg State Env", disable=not pbar
+        total=config.rollout_max_steps,
+        desc="Eval OneLeg State Env",
+        disable=not pbar,
     ) as pbar:
-        while not done:
-            # stack the last obs_horizon (2) number of observations
-            obs_seq = np.stack(obs_deque)
-
+        while not done.all():
             # Get the next actions from the actor
             with torch.no_grad():
-                action_pred = actor.action(obs_seq)
+                action_pred = actor.action(obs_deque)
 
             # only take action_horizon number of actions
             start = config.obs_horizon - 1
             end = start + config.action_horizon
-            action = action_pred[start:end, :]
+            action = action_pred[:, start:end, :]
             # (action_horizon, action_dim)
 
             # execute action_horizon number of steps
             # without replanning
-            for i in range(len(action)):
+            for i in range(action.shape[1]):
                 # stepping env
-                obs, reward, done, _ = env.step(action[i])
+                # bp()
+                obs, reward, done, _ = env.step(action[:, i, :])
+
                 # save observations
                 obs_deque.append(obs)
+
                 # and reward/vis
-                rewards.append(unpack_reward(reward))
+                rewards.append(reward)
                 imgs1.append(obs["color_image1"])
                 imgs2.append(obs["color_image2"])
 
@@ -70,12 +67,17 @@ def rollout(
                 step_idx += 1
                 pbar.update(1)
                 pbar.set_postfix(reward=reward)
-                if step_idx > config.rollout_max_steps:
-                    done = True
-                if done:
+                if step_idx >= config.rollout_max_steps:
+                    done = torch.BoolTensor([True] * config.num_envs)
+
+                if done.all():
                     break
 
-    return rewards, imgs1, imgs2
+    return (
+        torch.cat(rewards, dim=1),
+        torch.stack(imgs1).transpose(0, 1),
+        torch.stack(imgs2).transpose(0, 1),
+    )
 
 
 def calculate_success_rate(
@@ -84,24 +86,18 @@ def calculate_success_rate(
     config,
     epoch_idx,
 ):
-    def stack_frames(frames):
-        if isinstance(frames[0], torch.Tensor):
-            return (
-                torch.stack(frames, dim=0)
-                .squeeze(1)
-                .cpu()
-                .numpy()
-                .transpose((0, 3, 1, 2))
-            )
-        return np.stack(frames, axis=0)
-
     n_success = 0
-
     tbl = wandb.Table(columns=["rollout", "success"])
     pbar = trange(
-        config.n_rollouts, desc="Performing rollouts", postfix=dict(success=0)
+        config.n_rollouts // config.num_envs,
+        desc="Performing rollouts",
+        postfix=dict(success=0),
     )
-    for rollout_idx in pbar:
+    all_rewards = list()
+    all_imgs1 = list()
+    all_imgs2 = list()
+
+    for _ in pbar:
         # Perform a rollout with the current model
         rewards, imgs1, imgs2 = rollout(
             env,
@@ -110,17 +106,31 @@ def calculate_success_rate(
             pbar=False,
         )
 
-        # Calculate the success rate
-        success = np.sum(rewards) > 0
-        n_success += int(success)
+        # Update progress bar
+        success = rewards.sum(dim=1) > 0
+        n_success += success.sum().item()
         pbar.set_postfix(success=n_success)
 
-        # Stack the images into a single tensor
-        video1 = stack_frames(imgs1)
-        video2 = stack_frames(imgs2)
+        # Save the results from the rollout
+        all_rewards.append(rewards)
+        all_imgs1.append(imgs1)
+        all_imgs2.append(imgs2)
+
+    # Combine the results from all rollouts into a single tensor
+    all_rewards = torch.cat(all_rewards, dim=0)
+    all_imgs1 = torch.cat(all_imgs1, dim=0)
+    all_imgs2 = torch.cat(all_imgs2, dim=0)
+
+    for rollout_idx in range(config.n_rollouts):
+        # Get the rewards and images for this rollout
+        rewards = all_rewards[rollout_idx].cpu().numpy()
+        video1 = all_imgs1[rollout_idx].cpu().numpy()
+        video2 = all_imgs2[rollout_idx].cpu().numpy()
 
         # Stack the two videoes side by side into a single video
-        video = np.concatenate((video1, video2), axis=3)
+        # and swap the axes from (T, H, W, C) to (T, C, H, W)
+        video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
+        success = (rewards.sum() > 0).item()
 
         tbl.add_data(wandb.Video(video, fps=10), success)
 
