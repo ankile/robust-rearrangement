@@ -15,7 +15,7 @@ from src.models.unet import ConditionalUnet1D
 from src.models.domain_adaptation import DomainClassifier
 from tqdm import tqdm
 import ipdb
-from src.models.actor import ImageActor, StateActor
+from src.models.actor import ImageActor
 import argparse
 
 from src.models.vision import DinoEncoder
@@ -87,7 +87,7 @@ def main(config: ConfigDict):
         down_dims=config.down_dims,
     ).to(device)
 
-    actor = StateActor(noise_pred_net, config, stats)
+    actor = ImageActor(noise_pred_net, enc, config, stats)
 
     # for this demo, we use DDPMScheduler with 100 diffusion iterations
     noise_scheduler = DDPMScheduler(
@@ -210,7 +210,7 @@ def main(config: ConfigDict):
                     config.gpu_id,
                     obs_type=config.observation_type,
                     furniture=config.furniture,
-                    encoder_type=config.vision_encoder,
+                    num_envs=1,
                 )
 
             # Perform a rollout with the current model
@@ -263,6 +263,7 @@ if __name__ == "__main__":
             dataloader_workers=24,
             rollout_every=10 if args.dryrun is False else 1,
             n_rollouts=5 if args.dryrun is False else 1,
+            n_envs=1,
             inference_steps=10,
             mixed_precision=True,
             clip_grad_norm=False,

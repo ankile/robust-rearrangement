@@ -1,9 +1,12 @@
+from pathlib import Path
 import pickle
 from glob import glob
-
+import argparse
+import os
 import numpy as np
 import zarr
 from tqdm import tqdm
+from src.models.vision import get_encoder
 
 
 def get_concatenated_observation(obs, obs_type):
@@ -31,7 +34,7 @@ def process_demos(input_path, output_path):
     file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
     n_state_action_pairs = len(file_paths)
 
-    print(f"Number of state-action pairs: {n_state_action_pairs}")
+    print(f"Number of trajectories: {n_state_action_pairs}")
 
     obs_type = (
         "state"
@@ -80,7 +83,25 @@ def process_demos(input_path, output_path):
 
 
 if __name__ == "__main__":
-    raw_data_path = "data/raw/sim/feature/one_leg"
-    output_path = "data/processed/sim/feature/one_leg"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--env", "-e", type=str)
+    parser.add_argument("--obs-in", "-i", type=str)
+    parser.add_argument("--obs-out", "-o", type=str)
+    parser.add_argument("--encoder", "-c", type=str)
+    args = parser.parse_args()
+
+    if args.obs_out == "feature":
+        assert args.encoder is not None, "Must specify encoder when using feature obs"
+
+    data_base_path = Path(os.environ.get("FURNITURE_DATA_PATH", "data"))
+
+    raw_data_path = data_base_path / "raw" / args.env / args.obs_in
+    output_path = data_base_path / "processed" / args.env / args.obs_out
+
+    if args.encoder is not None:
+        output_path = output_path / args.encoder
+
+    print(f"Raw data path: {raw_data_path}")
+    print(f"Output path: {output_path}")
 
     process_demos(raw_data_path, output_path)

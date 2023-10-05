@@ -1,7 +1,7 @@
 import torch
 from src.data.dataset import normalize_data, unnormalize_data
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-from ipdb import set_trace as st
+from ipdb import set_trace as bp
 import numpy as np
 
 
@@ -12,9 +12,8 @@ class Actor:
         self.pred_horizon = config.pred_horizon
         self.obs_horizon = config.obs_horizon
         self.inference_steps = config.inference_steps
-        self.stats = stats
         self.device = next(noise_net.parameters()).device
-        self.B = 1
+        self.B = config.n_envs
 
         self.noise_scheduler = DDIMScheduler(
             num_train_timesteps=config.num_diffusion_iters,
@@ -22,6 +21,17 @@ class Actor:
             clip_sample=config.clip_sample,
             prediction_type=config.prediction_type,
         )
+        # Convert the stats to tensors on the device
+        self.stats = {
+            "obs": {
+                "min": torch.from_numpy(stats["obs"]["min"]).to(self.device),
+                "max": torch.from_numpy(stats["obs"]["max"]).to(self.device),
+            },
+            "action": {
+                "min": torch.from_numpy(stats["action"]["min"]).to(self.device),
+                "max": torch.from_numpy(stats["action"]["max"]).to(self.device),
+            },
+        }
 
     def _normalized_obs(self, obs):
         raise NotImplementedError
@@ -52,7 +62,6 @@ class Actor:
             ).prev_sample
 
         # unnormalize action
-        naction = naction.detach().to("cpu").numpy()
         # (B, pred_horizon, action_dim)
         naction = naction[0]
         action_pred = unnormalize_data(naction, stats=self.stats["action"])
@@ -92,16 +101,31 @@ class ImageActor(Actor):
         self.encoder = encoder
 
     def _normalized_obs(self, obs):
+        # Convert agent_pos from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         agent_pos = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
-        nobs = normalize_data(agent_pos.cpu(), stats=self.stats["agent_pos"]).to(
-            self.device
+
+        # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
+        # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
+        img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
+            self.B * self.obs_horizon, 224, 224, 3
         )
-        img1 = torch.cat([o["color_image1"] for o in obs], dim=0).transpose(3, 1)
-        img2 = torch.cat([o["color_image2"] for o in obs], dim=0).transpose(3, 1)
+        img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
+            self.B * self.obs_horizon, 224, 224, 3
+        )
 
-        feature1 = self.encoder(img1).reshape(self.B, self.obs_horizon, -1)
-        feature2 = self.encoder(img2).reshape(self.B, self.obs_horizon, -1)
+        # Concat images to only do one forward pass through the encoder
+        images = torch.cat([img1, img2], dim=0)
 
-        nobs = torch.cat([nobs, feature1, feature2], dim=-1).flatten(start_dim=1)
+        # Encode images
+        features = self.encoder(images)
+        feature1 = features[: self.B * self.obs_horizon].reshape(
+            self.B, self.obs_horizon, -1
+        )
+        feature2 = features[self.B * self.obs_horizon :].reshape(
+            self.B, self.obs_horizon, -1
+        )
+
+        nobs = torch.cat([agent_pos, feature1, feature2], dim=-1)
+        nobs = normalize_data(nobs, stats=self.stats["obs"]).flatten(start_dim=1)
 
         return nobs
