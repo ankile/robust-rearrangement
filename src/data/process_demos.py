@@ -15,7 +15,7 @@ from ipdb import set_trace as bp
 device = torch.device("cuda:1")
 
 
-def process_demos_to_feature(input_path, output_path, encoder):
+def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
     file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
     n_state_action_pairs = len(file_paths)
 
@@ -39,8 +39,6 @@ def process_demos_to_feature(input_path, output_path, encoder):
 
         imgs1 = torch.from_numpy(np.stack([o["color_image1"] for o in obs])).to(device)
         imgs2 = torch.from_numpy(np.stack([o["color_image2"] for o in obs])).to(device)
-
-        batch_size = 256
 
         def process_in_batches(tensor, encoder):
             n = len(tensor)
@@ -88,6 +86,8 @@ if __name__ == "__main__":
     parser.add_argument("--obs-out", "-o", type=str)
     parser.add_argument("--encoder", "-c", type=str)
     parser.add_argument("--furniture", "-f", type=str)
+    parser.add_argument("--batch-size", "-b", type=int, default=256)
+
     args = parser.parse_args()
 
     if args.obs_out == "feature":
@@ -108,4 +108,6 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
     print(f"Output path: {output_path}")
 
-    process_demos_to_feature(raw_data_path, output_path, encoder)
+    process_demos_to_feature(
+        raw_data_path, output_path, encoder, batch_size=args.batch_size
+    )
