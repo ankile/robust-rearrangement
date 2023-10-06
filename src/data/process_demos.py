@@ -93,7 +93,7 @@ if __name__ == "__main__":
     if args.obs_out == "feature":
         assert args.encoder is not None, "Must specify encoder when using feature obs"
 
-    data_base_path = Path(os.environ.get("FURNITURE_DATA_PATH", "data"))
+    data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
 
     raw_data_path = data_base_path / "raw" / args.env / args.obs_in / args.furniture
     output_path = (
