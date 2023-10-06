@@ -12,12 +12,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return DinoEncoder(size="large", freeze=freeze, device=device)
     if encoder_name == "dinov2-small":
         return DinoEncoder(size="small", freeze=freeze, device=device)
-    # elif encoder_name == "vip":
-    #     return transformers.AutoModel.from_pretrained(
-    #         "google/vit-large-patch16-224-in21k"
-    #     ).to(device)
-    elif encoder_name == "r3m":
-        return
+    elif encoder_name == "r3m-50":
+        return R3MEncoder(size=50, freeze=freeze, device=device)
     else:
         raise ValueError(f"Unknown encoder name: {encoder_name}")
 
@@ -74,8 +70,8 @@ class R3MEncoder(torch.nn.Module):
         assert size in [18, 34, 50]
 
         self.device = device
-        self.model = load_r3m(modelid=f"resnet{size}", device=device).module
-        self.encoding_dim = self.model.convnet.fc.out_features
+        self.model = load_r3m(modelid=f"resnet{size}", device=device).module.to(device)
+        self.encoding_dim = self.model.convnet.layer4[2].conv3.out_channels
 
         if freeze:
             for param in self.model.parameters():
