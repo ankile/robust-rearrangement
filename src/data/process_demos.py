@@ -7,42 +7,19 @@ import numpy as np
 import zarr
 from tqdm import tqdm
 from src.models.vision import get_encoder
+import torch
+from furniture_bench.robot.robot_state import filter_and_concat_robot_state
+
+from ipdb import set_trace as bp
+
+device = torch.device("cuda:1")
 
 
-def get_concatenated_observation(obs, obs_type):
-    robot_state = obs["robot_state"]
-
-    if obs_type == "state":
-        parts_poses = obs["parts_poses"]
-
-        # Add the observation to the overall list.
-        observation = np.concatenate((robot_state, parts_poses))
-    elif obs_type == "feature":
-        img1 = obs["color_image1"]
-        img2 = obs["color_image2"]
-
-        # Add the observation to the overall list.
-        observation = np.concatenate((robot_state, img1, img2))
-
-    else:
-        raise ValueError(f"Invalid observation type: {obs_type}")
-
-    return observation
-
-
-def process_demos(input_path, output_path):
+def process_demos_to_feature(input_path, output_path, encoder):
     file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
     n_state_action_pairs = len(file_paths)
 
     print(f"Number of trajectories: {n_state_action_pairs}")
-
-    obs_type = (
-        "state"
-        if "state" in input_path
-        else "feature"
-        if "feature" in input_path
-        else "image"
-    )
 
     observations = []
     actions = []
@@ -53,17 +30,39 @@ def process_demos(input_path, output_path):
         with open(path, "rb") as f:
             data = pickle.load(f)
 
-        for obs, action in zip(data["observations"], data["actions"]):
-            # Each observation is just a concatenation of the robot state and the object state.
-            # Collect the robot state.
-            observation = get_concatenated_observation(obs, obs_type)
-            observations.append(observation)
+        actions += data["actions"]
+        end_index += len(data["actions"])
+        obs = data["observations"]
+        robot_state = np.stack(
+            [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+        )
 
-            # Add the action to the overall list.
-            actions.append(action)
+        imgs1 = torch.from_numpy(np.stack([o["color_image1"] for o in obs])).to(device)
+        imgs2 = torch.from_numpy(np.stack([o["color_image2"] for o in obs])).to(device)
 
-            # Increment the end index.
-            end_index += 1
+        batch_size = 256
+
+        def process_in_batches(tensor, encoder):
+            n = len(tensor)
+            features_list = []
+
+            for i in range(0, n, batch_size):
+                batch = tensor[i : i + batch_size]
+                features = encoder(batch)
+                features_list.append(features)
+
+            return torch.cat(features_list, dim=0)
+
+        features1 = process_in_batches(imgs1, encoder)
+        features2 = process_in_batches(imgs2, encoder)
+
+        # Concatenate the robot state and the image features
+        obs = np.concatenate(
+            [robot_state, features1.cpu().numpy(), features2.cpu().numpy()], axis=-1
+        )
+
+        # Extend the observations list with the current trajectory.
+        observations += obs.tolist()
 
         # Add the end index to the overall list.
         episode_ends.append(end_index)
@@ -88,6 +87,7 @@ if __name__ == "__main__":
     parser.add_argument("--obs-in", "-i", type=str)
     parser.add_argument("--obs-out", "-o", type=str)
     parser.add_argument("--encoder", "-c", type=str)
+    parser.add_argument("--furniture", "-f", type=str)
     args = parser.parse_args()
 
     if args.obs_out == "feature":
@@ -95,13 +95,17 @@ if __name__ == "__main__":
 
     data_base_path = Path(os.environ.get("FURNITURE_DATA_PATH", "data"))
 
-    raw_data_path = data_base_path / "raw" / args.env / args.obs_in
-    output_path = data_base_path / "processed" / args.env / args.obs_out
+    raw_data_path = data_base_path / "raw" / args.env / args.obs_in / args.furniture
+    output_path = (
+        data_base_path / "processed" / args.env / args.obs_out / args.furniture
+    )
 
+    encoder = None
     if args.encoder is not None:
         output_path = output_path / args.encoder
+        encoder = get_encoder(args.encoder, freeze=True, device=device)
 
     print(f"Raw data path: {raw_data_path}")
     print(f"Output path: {output_path}")
 
-    process_demos(raw_data_path, output_path)
+    process_demos_to_feature(raw_data_path, output_path, encoder)
