@@ -107,14 +107,14 @@ if __name__ == "__main__":
     data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
 
     raw_data_path = data_base_path / "raw" / args.env / args.obs_in / args.furniture
-    output_path = (
-        data_base_path / "processed" / args.env / args.obs_out / args.furniture
-    )
+    output_path = data_base_path / "processed" / args.env / args.obs_out
 
     encoder = None
     if args.encoder is not None:
         output_path = output_path / args.encoder
         encoder = get_encoder(args.encoder, freeze=True, device=device)
+
+    output_path = output_path / args.furniture
 
     print(f"Raw data path: {raw_data_path}")
     print(f"Output path: {output_path}")
