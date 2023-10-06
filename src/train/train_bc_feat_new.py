@@ -291,8 +291,6 @@ if __name__ == "__main__":
         / config.demo_source
         / config.observation_type
         / config.vision_encoder
-        / "low"
-        / config.furniture
         / "data.zarr"
     )
 

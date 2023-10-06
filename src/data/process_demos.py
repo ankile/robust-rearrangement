@@ -119,13 +119,21 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
             )
 
         # Concatenate the robot state and image features
-        features1, features2 = np.concatenate(features_list1, axis=0), np.concatenate(
-            features_list2, axis=0
+        features1 = (
+            np.concatenate(features_list1, axis=0) if features_list1 else np.array([])
         )
+        features2 = (
+            np.concatenate(features_list2, axis=0) if features_list2 else np.array([])
+        )
+        if features1.size == 0 or features2.size == 0:
+            continue  # Skip the current file as it has no valid features
         obs = np.concatenate([robot_state, features1, features2], axis=-1)
 
         observations += obs.tolist()
         episode_ends.append(end_index)
+
+        # Reset the features_list for the next iteration
+        features_list1, features_list2 = [], []
 
     # Don't forget to process any remaining items in the buffer
     if len(img_buffer1) > 0:
