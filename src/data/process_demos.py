@@ -85,6 +85,16 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
     actions = np.array(actions)
     episode_ends = np.array(episode_ends)
 
+    # Save to file
+    output_path.mkdir(parents=True, exist_ok=True)
+    zarr.save(
+        str(output_path / "data.zarr"),
+        observations=observations,
+        actions=actions,
+        episode_ends=episode_ends,
+        time_created=np.datetime64("now"),
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
