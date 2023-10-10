@@ -4,7 +4,14 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_O
 import gym
 
 
-def get_env(gpu_id, obs_type="state", furniture="one_leg", num_envs=1, verbose=False):
+def get_env(
+    gpu_id,
+    obs_type="state",
+    furniture="one_leg",
+    num_envs=1,
+    randomness="low",
+    verbose=False,
+):
     if obs_type == "state":
         obs_keys = DEFAULT_STATE_OBS
         +["color_image1", "color_image2"]
@@ -26,7 +33,7 @@ def get_env(gpu_id, obs_type="state", furniture="one_leg", num_envs=1, verbose=F
         init_assembled=False,  # If true, the environment is initialized with assembled furniture.
         np_step_out=False,  # If true, env.step() returns Numpy arrays.
         channel_first=False,  # If true, images are returned in channel first format.
-        randomness="low",  # Level of randomness in the environment [low | med | high].
+        randomness=randomness,  # Level of randomness in the environment [low | med | high].
         high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
         save_camera_input=False,  # If true, the initial camera inputs are saved.
         record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.

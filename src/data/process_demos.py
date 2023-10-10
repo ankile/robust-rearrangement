@@ -162,6 +162,7 @@ if __name__ == "__main__":
     parser.add_argument("--furniture", "-f", type=str)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
+    parser.add_argument("--randomness", "-r", type=str, default=None)
 
     args = parser.parse_args()
 
@@ -182,6 +183,11 @@ if __name__ == "__main__":
         encoder = get_encoder(args.encoder, freeze=True, device=device)
 
     output_path = output_path / args.furniture
+
+    if args.randomness is not None:
+        assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
+        raw_data_path = raw_data_path / args.randomness
+        output_path = output_path / args.randomness
 
     print(f"Raw data path: {raw_data_path}")
     print(f"Output path: {output_path}")

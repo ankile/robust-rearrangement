@@ -166,6 +166,7 @@ def main(config: ConfigDict):
                     obs_type=config.observation_type,
                     furniture=config.furniture,
                     num_envs=config.num_envs,
+                    randomness=config.randomness,
                 )
 
             # Perform a rollout with the current model
@@ -197,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
     parser.add_argument("--batch-size", "-b", type=int, default=64)
     parser.add_argument("--dryrun", "-d", action="store_true")
+    parser.add_argument("--cpus", "-c", type=int, default=24)
     args = parser.parse_args()
 
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
@@ -210,7 +212,7 @@ if __name__ == "__main__":
             beta_schedule="squaredcos_cap_v2",
             clip_grad_norm=False,
             clip_sample=True,
-            dataloader_workers=24,
+            dataloader_workers=args.cpus,
             demo_source="sim",
             down_dims=[256, 512, 1024],
             dryrun=args.dryrun,
@@ -222,18 +224,18 @@ if __name__ == "__main__":
             mixed_precision=False,
             n_rollouts=10 if args.dryrun is False else 1,
             num_diffusion_iters=100,
-            # Use 1 env for now
-            num_envs=1,
+            num_envs=1,  # Use 1 env for now
             num_epochs=1_000,
             obs_horizon=2,
             observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
+            randomness="high",
             rollout_every=20 if args.dryrun is False else 1,
             rollout_loss_threshold=maybe(0.01, 1e9),
             rollout_max_steps=750 if args.dryrun is False else 10,
-            vision_encoder="resnet18",
             vision_encoder_pretrained=False,
+            vision_encoder="resnet18",
             weight_decay=1e-6,
         )
     )
@@ -242,7 +244,7 @@ if __name__ == "__main__":
         config.n_rollouts % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = data_base_dir / "processed/sim/image/one_leg/data.zarr"
+    config.datasim_path = data_base_dir / "processed/sim/image/one_leg/high/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
