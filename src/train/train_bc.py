@@ -42,13 +42,13 @@ def main(config: ConfigDict):
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
         )
-    elif config.observation_type == "feature":
-        dataset = SimpleFurnitureDataset(
-            dataset_path=config.datasim_path,
-            pred_horizon=config.pred_horizon,
-            obs_horizon=config.obs_horizon,
-            action_horizon=config.action_horizon,
-        )
+    # elif config.observation_type == "feature":
+    #     dataset = SimpleFurnitureDataset(
+    #         dataset_path=config.datasim_path,
+    #         pred_horizon=config.pred_horizon,
+    #         obs_horizon=config.obs_horizon,
+    #         action_horizon=config.action_horizon,
+    #     )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 

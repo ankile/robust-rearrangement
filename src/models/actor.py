@@ -259,6 +259,10 @@ class DoubleImageActor(torch.nn.Module):
     # === Training ===
     def compute_loss(self, batch):
         # Move the batch to the device
+        # TODO: Consider, do we even want to evaluate training on precomputed image features
+        # or should we use the results from Diffusion Policy and always do end-to-end training?
+        # If we want to use precomputed features, we need to implement an actor that accomodates that
+        # for training but performs calls the encoder for inference
         nrobot_state = normalize_data(
             batch["robot_state"], stats=self.stats["robot_state"]
         )
