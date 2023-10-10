@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+import torchvision
 import transformers
 from vip import load_vip
 from r3m import load_r3m
@@ -16,31 +18,42 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return DinoEncoder(size="small", freeze=freeze, device=device)
     elif encoder_name == "r3m-50":
         return R3MEncoder(size=50, freeze=freeze, device=device)
+    elif encoder_name.startswith("resnet"):
+        return ResnetEncoder(
+            model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
+        )
     else:
         raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
 # Function borrowed from
 # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/model/vision/model_getter.py
-def get_resnet(size, weights=None, **kwargs):
+def get_resnet(model_name, weights=None, **kwargs):
     """
     size: 18, 34, 50
     """
-    func = getattr(torchvision.models, f"resnet{size}")
+    func = getattr(torchvision.models, model_name)
     resnet = func(weights=weights, **kwargs)
+    resnet.encoding_dim = resnet.fc.in_features
     resnet.fc = torch.nn.Identity()
     return resnet
 
 
 class ResnetEncoder(ModuleAttrMixin):
     def __init__(
-        self, size=18, freeze=True, use_groupnorm=True, *args, **kwargs
+        self,
+        model_name,
+        freeze=True,
+        device="cuda",
+        use_groupnorm=True,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        assert size in [18, 34, 50]
+        assert model_name in ["resnet18", "resnet34", "resnet50"]
 
-        self.device = device
-        self.model = get_resnet(size=size, device=device).to(device)
+        self.model = get_resnet(model_name=model_name)
+        self.encoding_dim = self.model.encoding_dim
 
         if use_groupnorm:
             self.model = replace_submodules(
@@ -51,7 +64,7 @@ class ResnetEncoder(ModuleAttrMixin):
                 ),
             )
 
-        self.encoding_dim = self.model.fc.in_features
+        self.model = self.model.to(device)
 
         if freeze:
             for param in self.model.parameters():
@@ -68,7 +81,7 @@ class ResnetEncoder(ModuleAttrMixin):
         # Move channels to the front
         x = x.permute(0, 3, 1, 2)
         # Normalize images
-        x /= 255.0
+        x = x / 255.0
         x = self.normalize(x)
         x = self.model(x)
         return x

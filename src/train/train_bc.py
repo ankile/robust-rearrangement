@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import wandb
 from diffusers.optimization import get_scheduler
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.data.dataset import FurnitureImageDataset, SimpleFurnitureDataset
 from src.eval import calculate_success_rate
 from src.gym import get_env
@@ -53,12 +52,23 @@ def main(config: ConfigDict):
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
-    # Update the config object with the action and observation dimensions
-    config.action_dim = dataset.action_dim
-    config.obs_dim = dataset.obs_dim
-
     # save training data statistics (min, max) for each dim
     stats = dataset.stats
+
+    # Update the config object with the action dimension
+    config.action_dim = dataset.action_dim
+    config.robot_state_dim = dataset.robot_state_dim
+
+    # Create the policy network
+    actor = DoubleImageActor(
+        device=device,
+        encoder_name="resnet18",
+        config=config,
+        stats=stats,
+    )
+
+    # Update the config object with the observation dimension
+    config.obs_dim = actor.obs_dim
 
     # save stats to wandb
     wandb.log(
@@ -78,13 +88,6 @@ def main(config: ConfigDict):
         pin_memory=True,
         drop_last=False,
         persistent_workers=True,
-    )
-
-    actor = DoubleImageActor(
-        device=device,
-        resnet_size="18",
-        config=config,
-        stats=stats,
     )
 
     # AdamW optimizer for noise_net
@@ -114,7 +117,8 @@ def main(config: ConfigDict):
         # batch loop
         tepoch = tqdm(dataloader, desc="Batch", leave=False, total=n_batches)
         for batch in tepoch:
-            # data normalized in dataset
+            opt_noise.zero_grad()
+
             # device transfer
             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
@@ -191,7 +195,7 @@ def main(config: ConfigDict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--batch-size", "-b", type=int, default=128)
+    parser.add_argument("--batch-size", "-b", type=int, default=64)
     parser.add_argument("--dryrun", "-d", action="store_true")
     args = parser.parse_args()
 
@@ -222,10 +226,10 @@ if __name__ == "__main__":
             num_envs=1,
             num_epochs=1_000,
             obs_horizon=2,
-            observation_type="feature",
+            observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
-            rollout_every=50 if args.dryrun is False else 1,
+            rollout_every=20 if args.dryrun is False else 1,
             rollout_loss_threshold=maybe(0.01, 1e9),
             rollout_max_steps=750 if args.dryrun is False else 10,
             vision_encoder="resnet18",
@@ -238,14 +242,7 @@ if __name__ == "__main__":
         config.n_rollouts % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        data_base_dir
-        / "processed"
-        / config.demo_source
-        / config.observation_type
-        / config.vision_encoder
-        / "data.zarr"
-    )
+    config.datasim_path = data_base_dir / "processed/sim/image/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

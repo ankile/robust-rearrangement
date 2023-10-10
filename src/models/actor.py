@@ -1,15 +1,19 @@
 from collections import deque
 import torch
+import torch.nn as nn
 import torchvision
 from functools import partial
 from src.data.dataset import normalize_data, unnormalize_data
-from src.models.vision import ResnetEncoder
+from src.models.vision import ResnetEncoder, get_encoder
 from src.models.unet import ConditionalUnet1D
 from src.common.pytorch_util import replace_submodules
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler, DDPMScheduler
+from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from ipdb import set_trace as bp
 import numpy as np
 from src.models.module_attr_mixin import ModuleAttrMixin
+from typing import Union
+from src.common.pytorch_util import dict_apply
 
 
 class Actor(torch.nn.Module):
@@ -142,11 +146,11 @@ class ImageActor(Actor):
         return nobs
 
 
-class DoubleImageActor(ModuleAttrMixin):
+class DoubleImageActor(torch.nn.Module):
     def __init__(
         self,
-        device,
-        resnet_size,
+        device: Union[str, torch.device],
+        encoder_name: str,
         config,
         stats,
     ) -> None:
@@ -158,6 +162,7 @@ class DoubleImageActor(ModuleAttrMixin):
         # This is the number of environments only used for inference, not training
         # Maybe it makes sense to do this another way
         self.B = config.num_envs
+        self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=config.num_diffusion_iters,
@@ -178,58 +183,44 @@ class DoubleImageActor(ModuleAttrMixin):
         )
 
         # Convert the stats to tensors on the device
-        self.stats = {
-            "obs": {
-                "min": torch.from_numpy(stats["obs"]["min"]).to(self.device),
-                "max": torch.from_numpy(stats["obs"]["max"]).to(self.device),
-            },
-            "action": {
-                "min": torch.from_numpy(stats["action"]["min"]).to(self.device),
-                "max": torch.from_numpy(stats["action"]["max"]).to(self.device),
-            },
-        }
+        self.stats = dict_apply(stats, lambda x: torch.from_numpy(x).to(device))
+
+        self.encoder1 = get_encoder(encoder_name, freeze=False, device=device)
+        self.encoder2 = get_encoder(encoder_name, freeze=False, device=device)
+
+        self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
+        self.obs_dim = config.robot_state_dim + self.encoding_dim
 
         self.model = ConditionalUnet1D(
             input_dim=config.action_dim,
-            global_cond_dim=dataset.obs_dim * config.obs_horizon,
+            global_cond_dim=self.obs_dim * config.obs_horizon,
             down_dims=config.down_dims,
         ).to(device)
 
-        self.encoder1 = ResnetEncoder(
-            size=resnet_size,
-            freeze=False,
-            use_groupnorm=True,
-        ).to(device)
-
-        self.encoder2 = ResnetEncoder(
-            size=resnet_size,
-            freeze=False,
-            use_groupnorm=True,
-        ).to(device)
-
     def _normalized_obs(self, obs: deque):
-        # Convert agent_pos from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
-        agent_pos = torch.cat([o["agent_pos"].unsqueeze(1) for o in obs], dim=1)
-        nagent_pos = normalize_data(agent_pos, stats=self.stats["obs"]).flatten(
-            start_dim=1
-        )
+        # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
+        robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
+        nrobot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
 
         # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
         # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
-        img1 = torch.cat([o["image1"].unsqueeze(1) for o in obs], dim=1).reshape(
+        img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
             self.B * self.obs_horizon, 224, 224, 3
         )
-        img2 = torch.cat([o["image2"].unsqueeze(1) for o in obs], dim=1).reshape(
+        img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
             self.B * self.obs_horizon, 224, 224, 3
         )
 
         # Encode images
         # TODO: Do we need to reshape the images back to (n_envs, obs_horizon, -1) after encoding?
-        features1 = self.encoder1(img1)
-        features2 = self.encoder2(img2)
+        # Probably not because we're flattening the robot_state above also
+        features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
+        features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
         # Reshape concatenate the features
-        nobs = torch.cat([nagent_pos, features1, features2], dim=-1)
+        nobs = torch.cat([nrobot_state, features1, features2], dim=-1).flatten(
+            start_dim=1
+        )
 
         return nobs
 
@@ -251,9 +242,7 @@ class DoubleImageActor(ModuleAttrMixin):
         for k in self.inference_noise_scheduler.timesteps:
             # predict noise
             # Print dtypes of all tensors to the model
-            noise_pred = self.noise_net(
-                sample=naction, timestep=k, global_cond=obs_cond
-            )
+            noise_pred = self.model(sample=naction, timestep=k, global_cond=obs_cond)
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
@@ -269,43 +258,48 @@ class DoubleImageActor(ModuleAttrMixin):
 
     # === Training ===
     def compute_loss(self, batch):
-        nobs = batch["obs"]
-        action = batch["action"]
-        B = nobs.shape[0]
+        # Move the batch to the device
+        nrobot_state = normalize_data(
+            batch["robot_state"], stats=self.stats["robot_state"]
+        )
+        B = nrobot_state.shape[0]
+
+        # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
+        # so that it's compatible with the encoder
+        image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
+        image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
+
+        # Encode images and reshape back to (B, obs_horizon, -1)
+        image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+        image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+
+        # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+        nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
 
         # observation as FiLM conditioning
         # (B, obs_horizon, obs_dim)
-        obs_cond = nobs[:, : config.obs_horizon, :]
+        obs_cond = nobs[:, : self.obs_horizon, :]
         # (B, obs_horizon * obs_dim)
         obs_cond = obs_cond.flatten(start_dim=1)
 
-        # observation as FiLM conditioning
-        # (B, obs_horizon, obs_dim)
-        # nobs = torch.cat((pos, feat), dim=2)
-        # obs_cond = nobs[:, : config.obs_horizon, :]  # Not really doing anything
-        # (B, obs_horizon * obs_dim)
-        # obs_cond = obs_cond.flatten(start_dim=1)
-
         # sample noise to add to actions
-        noise = torch.randn(action.shape, device=device)
+        naction = normalize_data(batch["action"], stats=self.stats["action"])
+        noise = torch.randn(naction.shape, device=self.device)
 
         # sample a diffusion iteration for each data point
         timesteps = torch.randint(
             0,
             self.train_noise_scheduler.config.num_train_timesteps,
             (B,),
-            device=device,
+            device=self.device,
         ).long()
 
         # add noise to the clean images according to the noise magnitude at each diffusion iteration
         # (this is the forward diffusion process)
-        noisy_action = self.train_noise_scheduler.add_noise(action, noise, timesteps)
-
-        # Zero out the gradients
-        opt_noise.zero_grad()
+        noisy_action = self.train_noise_scheduler.add_noise(naction, noise, timesteps)
 
         # forward pass
-        noise_pred = noise_net(noisy_action, timesteps, global_cond=obs_cond.float())
+        noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
         loss = nn.functional.mse_loss(noise_pred, noise)
 
         return loss

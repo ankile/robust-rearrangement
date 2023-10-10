@@ -96,12 +96,69 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
     )
 
 
+def process_demos_to_image(in_dir, out_dir):
+    file_paths = glob(f"{in_dir}/**/*.pkl", recursive=True)
+    print(f"Number of trajectories: {len(file_paths)}")
+
+    (
+        robot_state,
+        color_image1,
+        color_image2,
+        actions,
+        rewards,
+        skills,
+        episode_ends,
+        furniture,
+    ) = (
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    )
+    end_index = 0
+
+    for path in tqdm(file_paths):
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+
+        obs = data["observations"]
+        robot_state += [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+        color_image1 += [o["color_image1"] for o in obs]
+        color_image2 += [o["color_image2"] for o in obs]
+
+        actions += data["actions"]
+        rewards += data["rewards"]
+        skills += data["skills"]
+
+        end_index += len(data["actions"])
+        episode_ends.append(end_index)
+        furniture.append(data["furniture"])
+
+    # Save to file
+    output_path.mkdir(parents=True, exist_ok=True)
+    zarr.save(
+        str(output_path / "data.zarr"),
+        robot_state=np.array(robot_state, dtype=np.float32),
+        color_image1=np.array(color_image1, dtype=np.uint8),
+        color_image2=np.array(color_image2, dtype=np.uint8),
+        action=np.array(actions, dtype=np.float32),
+        reward=np.array(rewards, dtype=np.float32),
+        skills=np.array(skills, dtype=np.float32),
+        episode_ends=np.array(episode_ends, dtype=np.uint32),
+        time_created=np.datetime64("now"),
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", "-e", type=str)
     parser.add_argument("--obs-in", "-i", type=str)
     parser.add_argument("--obs-out", "-o", type=str)
-    parser.add_argument("--encoder", "-c", type=str)
+    parser.add_argument("--encoder", "-c", default=None, type=str)
     parser.add_argument("--furniture", "-f", type=str)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
@@ -129,6 +186,9 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
     print(f"Output path: {output_path}")
 
-    process_demos_to_feature(
-        raw_data_path, output_path, encoder, batch_size=args.batch_size
-    )
+    if args.obs_out == "feature":
+        process_demos_to_feature(
+            raw_data_path, output_path, encoder, batch_size=args.batch_size
+        )
+    elif args.obs_out == "image":
+        process_demos_to_image(raw_data_path, output_path)

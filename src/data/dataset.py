@@ -165,8 +165,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # (N, D)
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "agent_pos": dataset["agent_pos"][:],
-            "action": dataset["actions"][:],
+            "robot_state": dataset["robot_state"][:],
+            "action": dataset["action"][:],
         }
         self.episode_ends = dataset["episode_ends"][:]
 
@@ -186,9 +186,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             stats[key] = get_data_stats(data)
             normalized_train_data[key] = normalize_data(data, stats[key])
 
-        # # int8, [0,255], (N,224,224,3) --> (N,3,224,224)
-        # normalized_train_data["image1"] = np.moveaxis(dataset["image1"][:], -1, 1)
-        # normalized_train_data["image2"] = np.moveaxis(dataset["image2"][:], -1, 1)
+        # int8, [0,255], (N,224,224,3)
+        normalized_train_data["color_image1"] = dataset["color_image1"][:]
+        normalized_train_data["color_image2"] = dataset["color_image2"][:]
 
         self.indices = indices
         self.stats = stats
@@ -199,7 +199,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add action and observation dimensions to the dataset
         self.action_dim = train_data["action"].shape[-1]
-        self.agent_pos_dim = train_data["agent_pos"].shape[-1]
+        self.robot_state_dim = train_data["robot_state"].shape[-1]
 
     def __len__(self):
         return len(self.indices)
@@ -224,7 +224,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # discard unused observations
-        nsample["image1"] = nsample["image1"][: self.obs_horizon, :]
-        nsample["image2"] = nsample["image2"][: self.obs_horizon, :]
-        nsample["agent_pos"] = nsample["agent_pos"][: self.obs_horizon, :]
+        nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
+        nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
+        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
         return nsample
