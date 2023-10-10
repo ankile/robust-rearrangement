@@ -88,9 +88,9 @@ class SimpleFurnitureDataset(torch.utils.data.Dataset):
         # All demonstration episodes are concatinated in the first dimension N
         train_data = {
             # (N, action_dim)
-            "action": dataset["actions"][:],
+            "action": dataset["actions"][:].astype(np.float32),
             # (N, obs_dim)
-            "obs": dataset["observations"][:],
+            "obs": dataset["observations"][:].astype(np.float32),
         }
         # Marks one-past the last index for each episode
         self.episode_ends = dataset["episode_ends"][:]
@@ -186,9 +186,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             stats[key] = get_data_stats(data)
             normalized_train_data[key] = normalize_data(data, stats[key])
 
-        # int8, [0,255], (N,224,224,3) --> (N,3,224,224)
-        normalized_train_data["image1"] = np.moveaxis(dataset["image1"][:], -1, 1)
-        normalized_train_data["image2"] = np.moveaxis(dataset["image2"][:], -1, 1)
+        # # int8, [0,255], (N,224,224,3) --> (N,3,224,224)
+        # normalized_train_data["image1"] = np.moveaxis(dataset["image1"][:], -1, 1)
+        # normalized_train_data["image2"] = np.moveaxis(dataset["image2"][:], -1, 1)
 
         self.indices = indices
         self.stats = stats

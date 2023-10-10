@@ -3,6 +3,8 @@ import transformers
 from vip import load_vip
 from r3m import load_r3m
 from ipdb import set_trace as bp
+from src.models.module_attr_mixin import ModuleAttrMixin
+from src.common.pytorch_util import replace_submodules
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda"):
@@ -16,6 +18,60 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return R3MEncoder(size=50, freeze=freeze, device=device)
     else:
         raise ValueError(f"Unknown encoder name: {encoder_name}")
+
+
+# Function borrowed from
+# https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/model/vision/model_getter.py
+def get_resnet(size, weights=None, **kwargs):
+    """
+    size: 18, 34, 50
+    """
+    func = getattr(torchvision.models, f"resnet{size}")
+    resnet = func(weights=weights, **kwargs)
+    resnet.fc = torch.nn.Identity()
+    return resnet
+
+
+class ResnetEncoder(ModuleAttrMixin):
+    def __init__(
+        self, size=18, freeze=True, use_groupnorm=True, *args, **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        assert size in [18, 34, 50]
+
+        self.device = device
+        self.model = get_resnet(size=size, device=device).to(device)
+
+        if use_groupnorm:
+            self.model = replace_submodules(
+                root_module=self.model,
+                predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                func=lambda x: nn.GroupNorm(
+                    num_groups=x.num_features // 16, num_channels=x.num_features
+                ),
+            )
+
+        self.encoding_dim = self.model.fc.in_features
+
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            self.model.eval()
+
+        self.normalize = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+
+    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    def forward(self, x):
+        # Move channels to the front
+        x = x.permute(0, 3, 1, 2)
+        # Normalize images
+        x /= 255.0
+        x = self.normalize(x)
+        x = self.model(x)
+        return x
 
 
 class DinoEncoder(torch.nn.Module):

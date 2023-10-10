@@ -86,13 +86,13 @@ def calculate_success_rate(
     config,
     epoch_idx,
 ):
-    n_success = 0
     tbl = wandb.Table(columns=["rollout", "success"])
     pbar = trange(
         config.n_rollouts // config.num_envs,
         desc="Performing rollouts",
         postfix=dict(success=0),
     )
+    n_success = 0
     all_rewards = list()
     all_imgs1 = list()
     all_imgs2 = list()
