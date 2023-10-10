@@ -207,7 +207,7 @@ if __name__ == "__main__":
     config = ConfigDict(
         dict(
             action_horizon=8,
-            actor_lr=1e-5,
+            actor_lr=1e-4,
             batch_size=args.batch_size,
             beta_schedule="squaredcos_cap_v2",
             clip_grad_norm=False,
@@ -225,14 +225,14 @@ if __name__ == "__main__":
             n_rollouts=10 if args.dryrun is False else 1,
             num_diffusion_iters=100,
             num_envs=1,  # Use 1 env for now
-            num_epochs=1_000,
+            num_epochs=200,
             obs_horizon=2,
             observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
             randomness="high",
             rollout_every=20 if args.dryrun is False else 1,
-            rollout_loss_threshold=maybe(0.01, 1e9),
+            rollout_loss_threshold=1e9,
             rollout_max_steps=750 if args.dryrun is False else 10,
             vision_encoder_pretrained=False,
             vision_encoder="resnet18",
