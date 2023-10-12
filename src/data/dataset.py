@@ -158,17 +158,19 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
+        data_subset: int = None,
     ):
         # read from zarr dataset
         dataset = zarr.open(dataset_path, "r")
 
         # (N, D)
+        # Get only the first data_subset episodes
+        self.episode_ends = dataset["episode_ends"][:data_subset]
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][:],
-            "action": dataset["action"][:],
+            "robot_state": dataset["robot_state"][:self.episode_ends[-1]],
+            "action": dataset["action"][:self.episode_ends[-1]],
         }
-        self.episode_ends = dataset["episode_ends"][:]
 
         # compute start and end of each state-action sequence
         # also handles padding

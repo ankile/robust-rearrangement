@@ -41,6 +41,7 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
+            data_subset=config.data_subset,
         )
     # elif config.observation_type == "feature":
     #     dataset = SimpleFurnitureDataset(
@@ -204,6 +205,9 @@ if __name__ == "__main__":
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
+    n_workers = min(args.cpus, os.cpu_count())
+    num_envs=16
+
     config = ConfigDict(
         dict(
             action_horizon=8,
@@ -212,9 +216,9 @@ if __name__ == "__main__":
             beta_schedule="squaredcos_cap_v2",
             clip_grad_norm=False,
             clip_sample=True,
-            dataloader_workers=args.cpus,
+            dataloader_workers=n_workers,
             demo_source="sim",
-            down_dims=[256, 512, 1024],
+            down_dims=[512, 1024, 2048],
             dryrun=args.dryrun,
             furniture="one_leg",
             gpu_id=args.gpu_id,
@@ -222,9 +226,9 @@ if __name__ == "__main__":
             lr_scheduler_type="cosine",
             lr_scheduler_warmup_steps=500,
             mixed_precision=False,
-            n_rollouts=10 if args.dryrun is False else 1,
+            n_rollouts=16 if args.dryrun is False else num_envs,
             num_diffusion_iters=100,
-            num_envs=1,  # Use 1 env for now
+            num_envs=num_envs,
             num_epochs=200,
             obs_horizon=2,
             observation_type="image",
@@ -237,6 +241,7 @@ if __name__ == "__main__":
             vision_encoder_pretrained=False,
             vision_encoder="resnet18",
             weight_decay=1e-6,
+            data_subset=None if args.dryrun is False else 10,
         )
     )
 
