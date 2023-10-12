@@ -7,7 +7,7 @@ import torch.nn as nn
 import wandb
 from diffusers.optimization import get_scheduler
 from src.data.dataset import FurnitureImageDataset, SimpleFurnitureDataset
-from src.eval import calculate_success_rate
+from src.eval.callbacks import RolloutEvaluationCallback
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
@@ -87,6 +87,9 @@ def main(config: ConfigDict):
 
     wandb_logger = WandbLogger()
 
+    callback = RolloutEvaluationCallback(config, get_env)
+
+
     trainer = pl.Trainer(
         devices=[config.gpu_id],
         accelerator="gpu",
@@ -94,6 +97,7 @@ def main(config: ConfigDict):
         check_val_every_n_epoch=20,
         precision=16,
         logger=wandb_logger,
+        callbacks=[callback],
     )
     trainer.fit(actor, dataloader)
 

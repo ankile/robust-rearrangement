@@ -200,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", "-b", type=int, default=64)
     parser.add_argument("--dryrun", "-d", action="store_true")
     parser.add_argument("--cpus", "-c", type=int, default=24)
+    parser.add_argument("--wb-mode", "-w", type=str, default="online")
     args = parser.parse_args()
 
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
