@@ -35,9 +35,20 @@ pip install -e python
 
 cd ../furniture-bench
 pip install -e .
+# pip install -e r3m
+# pip install -e vip
 
-
-
-# curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-# unzip awscliv2.zip
+# Install AWS CLI
+cd ~
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+# Do this if you have sudo access
 # sudo ./aws/install
+
+# Otherwise we can add the following to .bashrc to emulate the above
+# export AWS_COMMAND='/home/larsankile/aws-cli/v2/current/bin/aws'
+# alias aws='/home/larsankile/aws-cli/v2/current/bin/aws'
+
+# Install the last required dependencies
+cd furniture-diffusion
+pip install -r requirements.txt

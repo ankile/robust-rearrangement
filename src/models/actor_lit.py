@@ -27,7 +27,6 @@ import lightning.pytorch as pl
 class LitImageActor(pl.LightningModule):
     def __init__(
         self,
-        device: Union[str, torch.device],
         encoder_name: str,
         config,
         stats,
@@ -61,7 +60,7 @@ class LitImageActor(pl.LightningModule):
         )
 
         # Convert the stats to tensors on the device
-        self.stats = self._to_module_dict(stats, requires_grad=False)
+        self.stats = self._to_param_dict(stats, requires_grad=False)
 
         self.encoder1 = get_encoder(encoder_name, freeze=False)
         self.encoder2 = get_encoder(encoder_name, freeze=False)
@@ -75,12 +74,12 @@ class LitImageActor(pl.LightningModule):
             down_dims=config.down_dims,
         )
 
-    def _to_module_dict(self, d, requires_grad=False):
+    def _to_param_dict(self, d, requires_grad=False):
         root_module = nn.ParameterDict()
 
         for key, value in d.items():
             if isinstance(value, dict):
-                root_module[key] = self._to_module_dict(value)
+                root_module[key] = self._to_param_dict(value)
             else:
                 root_module[key] = torch.from_numpy(value)
 
