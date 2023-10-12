@@ -14,6 +14,9 @@ class RolloutEvaluationCallback(Callback):
         self.best_success_rate = 0.0
 
     def on_epoch_end(self, trainer, pl_module):
+        if trainer.global_rank != 0:
+            return
+        
         epoch_idx = trainer.current_epoch
         epoch_loss = # extract or calculate your epoch loss here
 

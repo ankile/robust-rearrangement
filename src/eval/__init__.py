@@ -26,8 +26,8 @@ def rollout(
     )
 
     # save visualization and rewards
-    imgs1 = [obs["color_image1"]]
-    imgs2 = [obs["color_image2"]]
+    imgs1 = [obs["color_image1"].cpu()]
+    imgs2 = [obs["color_image2"].cpu()]
     rewards = list()
     done = torch.BoolTensor([False] * config.num_envs)
     step_idx = 0
@@ -39,8 +39,7 @@ def rollout(
     ) as pbar:
         while not done.all():
             # Get the next actions from the actor
-            with torch.no_grad():
-                action_pred = actor.action(obs_deque)
+            action_pred = actor.action(obs_deque)
 
             # only take action_horizon number of actions
             start = config.obs_horizon - 1
@@ -59,9 +58,9 @@ def rollout(
                 obs_deque.append(obs)
 
                 # and reward/vis
-                rewards.append(reward)
-                imgs1.append(obs["color_image1"])
-                imgs2.append(obs["color_image2"])
+                rewards.append(reward.cpu())
+                imgs1.append(obs["color_image1"].cpu())
+                imgs2.append(obs["color_image2"].cpu())
 
                 # update progress bar
                 step_idx += 1
@@ -79,7 +78,7 @@ def rollout(
         torch.stack(imgs2).transpose(0, 1),
     )
 
-
+@torch.no_grad()
 def calculate_success_rate(
     env,
     actor,
@@ -123,9 +122,9 @@ def calculate_success_rate(
 
     for rollout_idx in range(config.n_rollouts):
         # Get the rewards and images for this rollout
-        rewards = all_rewards[rollout_idx].cpu().numpy()
-        video1 = all_imgs1[rollout_idx].cpu().numpy()
-        video2 = all_imgs2[rollout_idx].cpu().numpy()
+        rewards = all_rewards[rollout_idx].numpy()
+        video1 = all_imgs1[rollout_idx].numpy()
+        video2 = all_imgs2[rollout_idx].numpy()
 
         # Stack the two videoes side by side into a single video
         # and swap the axes from (T, H, W, C) to (T, C, H, W)
