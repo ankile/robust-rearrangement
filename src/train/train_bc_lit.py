@@ -23,7 +23,6 @@ model_save_dir = Path("models")
 
 
 def main(config: ConfigDict):
-    env = None
     device = torch.device(
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
@@ -43,6 +42,7 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
+            data_subset=config.data_subset,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -56,7 +56,6 @@ def main(config: ConfigDict):
 
     # Create the policy network
     actor = LitImageActor(
-        device=device,
         encoder_name="resnet18",
         config=config,
         stats=stats,
@@ -91,7 +90,7 @@ def main(config: ConfigDict):
 
 
     trainer = pl.Trainer(
-        devices=[config.gpu_id],
+        devices=[0, 1, 2, 3],
         accelerator="gpu",
         max_epochs=config.num_epochs,
         check_val_every_n_epoch=20,
@@ -149,6 +148,7 @@ if __name__ == "__main__":
             vision_encoder_pretrained=False,
             vision_encoder="resnet18",
             weight_decay=1e-6,
+            data_subset=None if args.dryrun is False else 10,
         )
     )
 

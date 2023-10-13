@@ -1,4 +1,4 @@
-from pytorch_lightning import Callback
+from lightning.pytorch import Callback
 from tqdm import tqdm, trange
 import torch
 import wandb
@@ -9,21 +9,21 @@ from src.eval import calculate_success_rate
 
 class RolloutEvaluationCallback(Callback):
     def __init__(self, config, get_env):
+        print("RolloutEvaluationCallback")
         self.config = config
         self.get_env = get_env
         self.best_success_rate = 0.0
 
     def on_epoch_end(self, trainer, pl_module):
+        print("RolloutEvaluationCallback.on_epoch_end", trainer.global_rank)
         if trainer.global_rank != 0:
             return
         
         epoch_idx = trainer.current_epoch
-        epoch_loss = # extract or calculate your epoch loss here
 
         if (
             self.config.rollout_every != -1
             and (epoch_idx + 1) % self.config.rollout_every == 0
-            and np.mean(epoch_loss) < self.config.rollout_loss_threshold
         ):
             if hasattr(self, "env"):
                 self.env = self.get_env(
@@ -43,7 +43,9 @@ class RolloutEvaluationCallback(Callback):
 
             if success_rate > self.best_success_rate:
                 self.best_success_rate = success_rate
-                save_path = # Your save path logic here
+                save_path = (
+                    f"models/actor_{self.config.furniture}_{wandb.run.name}.pt"
+                )
                 torch.save(
                     pl_module.state_dict(),
                     save_path,

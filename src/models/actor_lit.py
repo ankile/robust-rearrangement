@@ -103,8 +103,6 @@ class LitImageActor(pl.LightningModule):
         )
 
         # Encode images
-        # TODO: Do we need to reshape the images back to (n_envs, obs_horizon, -1) after encoding?
-        # Probably not because we're flattening the robot_state above also
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
@@ -221,13 +219,3 @@ class LitImageActor(pl.LightningModule):
 
         return optimizer
 
-
-from pytorch_lightning import Callback
-
-
-class RolloutCallback(Callback):
-    def __init__(self, rollout_function):
-        self.rollout_function = rollout_function
-
-    def on_validation_epoch_start(self, trainer, pl_module):
-        self.rollout_function(pl_module)
