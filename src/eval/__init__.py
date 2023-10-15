@@ -91,6 +91,7 @@ def calculate_success_rate(
         config.n_rollouts // config.num_envs,
         desc="Performing rollouts",
         postfix=dict(success=0),
+        leave=False,
     )
     n_success = 0
     all_rewards = list()
@@ -144,5 +145,6 @@ def calculate_success_rate(
 
     # Log the success rate to wandb
     wandb.log({"success_rate": n_success / config.n_rollouts, "epoch": epoch_idx})
+    pbar.close()
 
     return n_success / config.n_rollouts
