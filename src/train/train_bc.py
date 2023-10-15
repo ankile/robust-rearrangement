@@ -216,7 +216,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 8
+    num_envs = 4
 
     config = ConfigDict(
         dict(
@@ -235,16 +235,16 @@ if __name__ == "__main__":
             inference_steps=16,
             lr_scheduler_type="OneCycleLR",
             mixed_precision=False,
-            n_rollouts=16 if args.dryrun is False else num_envs,
+            n_rollouts=8 if args.dryrun is False else num_envs,
             num_diffusion_iters=100,
             num_envs=num_envs,
-            num_epochs=200,
+            num_epochs=100,
             obs_horizon=2,
             observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
             randomness="high",
-            rollout_every=1 if args.dryrun is False else 1,
+            rollout_every=5 if args.dryrun is False else 1,
             rollout_loss_threshold=1e9,
             rollout_max_steps=750 if args.dryrun is False else 10,
             vision_encoder_pretrained=False,
