@@ -4,6 +4,7 @@ import furniture_bench
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import wandb
 from diffusers.optimization import get_scheduler
 from src.data.dataset import FurnitureImageDataset, SimpleFurnitureDataset
@@ -101,15 +102,23 @@ def main(config: ConfigDict):
     n_batches = len(dataloader)
 
     # Cosine LR schedule with linear warmup
-    lr_scheduler = get_scheduler(
-        name=config.lr_scheduler_type,
+    # lr_scheduler = get_scheduler(
+    #     name=config.lr_scheduler_type,
+    #     optimizer=opt_noise,
+    #     num_warmup_steps=config.lr_scheduler_warmup_steps,
+    #     num_training_steps=config.num_epochs,
+    # )
+
+    lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer=opt_noise,
-        num_warmup_steps=config.lr_scheduler_warmup_steps,
-        num_training_steps=config.num_epochs,
+        max_lr=config.actor_lr,
+        epochs=config.num_epochs,
+        steps_per_epoch=n_batches,
+        pct_start=config.lr_scheduler_pct_start,
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
-    best_success_rate = 0.0
+    best_success_rate = float("-inf")
 
     # epoch loop
     for epoch_idx in tglobal:
@@ -130,6 +139,7 @@ def main(config: ConfigDict):
             # loss.backward()
             loss.backward()
             opt_noise.step()
+            lr_scheduler.step()
 
             # Gradient clipping
             if config.clip_grad_norm:
@@ -146,11 +156,9 @@ def main(config: ConfigDict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
-            break
             if config.dryrun:
                 break
 
-        lr_scheduler.step()
         tepoch.close()
 
         tglobal.set_postfix(loss=np.mean(epoch_loss))
@@ -162,7 +170,6 @@ def main(config: ConfigDict):
             and np.mean(epoch_loss) < config.rollout_loss_threshold
         ):
             if env is None:
-                print("loading env")
                 env = get_env(
                     config.gpu_id,
                     obs_type=config.observation_type,
@@ -171,7 +178,6 @@ def main(config: ConfigDict):
                     randomness=config.randomness,
                 )
 
-            print("calculating success rate")
             # Perform a rollout with the current model
             success_rate = calculate_success_rate(
                 env,
@@ -181,7 +187,6 @@ def main(config: ConfigDict):
             )
 
             if success_rate > best_success_rate:
-                print("saving model")
                 best_success_rate = success_rate
                 save_path = (
                     model_save_dir / f"actor_{config.furniture}_{wandb.run.name}.pt"
@@ -191,12 +196,8 @@ def main(config: ConfigDict):
                     save_path,
                 )
 
-                print("saving model to wandb")
-
                 wandb.save(save_path)
                 wandb.log({"best_success_rate": best_success_rate})
-
-        print("successfull rollout")
 
     tglobal.close()
     wandb.finish()
@@ -215,7 +216,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 4
+    num_envs = 8
 
     config = ConfigDict(
         dict(
@@ -232,7 +233,7 @@ if __name__ == "__main__":
             furniture="one_leg",
             gpu_id=args.gpu_id,
             inference_steps=16,
-            lr_scheduler_type="cosine",
+            lr_scheduler_type="OneCycleLR",
             mixed_precision=False,
             n_rollouts=16 if args.dryrun is False else num_envs,
             num_diffusion_iters=100,
@@ -253,7 +254,7 @@ if __name__ == "__main__":
         )
     )
 
-    config.lr_scheduler_warmup_steps = int(0.1 * config.num_epochs)
+    config.lr_scheduler_pct_start = 0.1
 
     assert (
         config.n_rollouts % config.num_envs == 0

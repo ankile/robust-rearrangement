@@ -134,7 +134,6 @@ def calculate_success_rate(
 
         tbl.add_data(wandb.Video(video, fps=10), success)
 
-    print("logging videos")
     # Log the videos to wandb table
     wandb.log(
         {
