@@ -78,6 +78,7 @@ def rollout(
         torch.stack(imgs2).transpose(0, 1),
     )
 
+
 @torch.no_grad()
 def calculate_success_rate(
     env,
@@ -133,6 +134,7 @@ def calculate_success_rate(
 
         tbl.add_data(wandb.Video(video, fps=10), success)
 
+    print("logging videos")
     # Log the videos to wandb table
     wandb.log(
         {

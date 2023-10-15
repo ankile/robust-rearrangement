@@ -131,7 +131,6 @@ def main(config: ConfigDict):
             loss.backward()
             opt_noise.step()
 
-
             # Gradient clipping
             if config.clip_grad_norm:
                 torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=1)
@@ -150,7 +149,7 @@ def main(config: ConfigDict):
             break
             if config.dryrun:
                 break
-            
+
         lr_scheduler.step()
         tepoch.close()
 
@@ -162,8 +161,8 @@ def main(config: ConfigDict):
             and (epoch_idx + 1) % config.rollout_every == 0
             and np.mean(epoch_loss) < config.rollout_loss_threshold
         ):
-            bp()
             if env is None:
+                print("loading env")
                 env = get_env(
                     config.gpu_id,
                     obs_type=config.observation_type,
@@ -172,6 +171,7 @@ def main(config: ConfigDict):
                     randomness=config.randomness,
                 )
 
+            print("calculating success rate")
             # Perform a rollout with the current model
             success_rate = calculate_success_rate(
                 env,
@@ -181,6 +181,7 @@ def main(config: ConfigDict):
             )
 
             if success_rate > best_success_rate:
+                print("saving model")
                 best_success_rate = success_rate
                 save_path = (
                     model_save_dir / f"actor_{config.furniture}_{wandb.run.name}.pt"
@@ -190,7 +191,12 @@ def main(config: ConfigDict):
                     save_path,
                 )
 
+                print("saving model to wandb")
+
                 wandb.save(save_path)
+                wandb.log({"best_success_rate": best_success_rate})
+
+        print("successfull rollout")
 
     tglobal.close()
     wandb.finish()
@@ -209,7 +215,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs=4
+    num_envs = 4
 
     config = ConfigDict(
         dict(
@@ -246,7 +252,7 @@ if __name__ == "__main__":
             data_subset=None if args.dryrun is False else 10,
         )
     )
-    
+
     config.lr_scheduler_warmup_steps = int(0.1 * config.num_epochs)
 
     assert (
