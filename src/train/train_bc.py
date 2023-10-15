@@ -105,7 +105,7 @@ def main(config: ConfigDict):
         name=config.lr_scheduler_type,
         optimizer=opt_noise,
         num_warmup_steps=config.lr_scheduler_warmup_steps,
-        num_training_steps=config.num_epochs * n_batches,
+        num_training_steps=config.num_epochs,
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
@@ -131,7 +131,6 @@ def main(config: ConfigDict):
             loss.backward()
             opt_noise.step()
 
-            lr_scheduler.step()
 
             # Gradient clipping
             if config.clip_grad_norm:
@@ -148,9 +147,11 @@ def main(config: ConfigDict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
+            break
             if config.dryrun:
                 break
-
+            
+        lr_scheduler.step()
         tepoch.close()
 
         tglobal.set_postfix(loss=np.mean(epoch_loss))
@@ -161,6 +162,7 @@ def main(config: ConfigDict):
             and (epoch_idx + 1) % config.rollout_every == 0
             and np.mean(epoch_loss) < config.rollout_loss_threshold
         ):
+            bp()
             if env is None:
                 env = get_env(
                     config.gpu_id,
@@ -207,7 +209,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs=16
+    num_envs=4
 
     config = ConfigDict(
         dict(
@@ -225,7 +227,6 @@ if __name__ == "__main__":
             gpu_id=args.gpu_id,
             inference_steps=16,
             lr_scheduler_type="cosine",
-            lr_scheduler_warmup_steps=500,
             mixed_precision=False,
             n_rollouts=16 if args.dryrun is False else num_envs,
             num_diffusion_iters=100,
@@ -236,7 +237,7 @@ if __name__ == "__main__":
             pred_horizon=16,
             prediction_type="epsilon",
             randomness="high",
-            rollout_every=20 if args.dryrun is False else 1,
+            rollout_every=1 if args.dryrun is False else 1,
             rollout_loss_threshold=1e9,
             rollout_max_steps=750 if args.dryrun is False else 10,
             vision_encoder_pretrained=False,
@@ -245,6 +246,8 @@ if __name__ == "__main__":
             data_subset=None if args.dryrun is False else 10,
         )
     )
+    
+    config.lr_scheduler_warmup_steps = int(0.1 * config.num_epochs)
 
     assert (
         config.n_rollouts % config.num_envs == 0
