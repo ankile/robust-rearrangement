@@ -188,7 +188,7 @@ def main(config: ConfigDict):
 
             if success_rate > best_success_rate:
                 best_success_rate = success_rate
-                save_path = (
+                save_path = str(
                     model_save_dir / f"actor_{config.furniture}_{wandb.run.name}.pt"
                 )
                 torch.save(
