@@ -120,8 +120,11 @@ def main(config: ConfigDict):
         steps_per_epoch=n_batches,
         pct_start=config.lr_scheduler_pct_start,
         anneal_strategy="cos",
-        last_epoch=config.checkpoint_step if config.checkpoint_step is not None else -1,
     )
+
+    if config.checkpoint_step:
+        for _ in range(config.checkpoint_step):
+            lr_scheduler.step()
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
     best_success_rate = float("-inf")
