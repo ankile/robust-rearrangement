@@ -69,6 +69,10 @@ def main(config: ConfigDict):
         stats=stats,
     )
 
+    if config.checkpoint_path is not None:
+        print(f"Loading checkpoint from {config.checkpoint_path}")
+        actor.load_state_dict(torch.load(config.checkpoint_path))
+
     # Update the config object with the observation dimension
     config.obs_dim = actor.obs_dim
 
@@ -115,6 +119,8 @@ def main(config: ConfigDict):
         epochs=config.num_epochs,
         steps_per_epoch=n_batches,
         pct_start=config.lr_scheduler_pct_start,
+        anneal_strategy="cos",
+        last_epoch=config.checkpoint_step if config.checkpoint_step is not None else -1,
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
@@ -251,6 +257,8 @@ if __name__ == "__main__":
             vision_encoder="resnet18",
             weight_decay=1e-5,
             data_subset=None if args.dryrun is False else 10,
+            checkpoint_path=None,
+            checkpoint_step=None,
         )
     )
 

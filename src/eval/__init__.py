@@ -51,7 +51,6 @@ def rollout(
             # without replanning
             for i in range(action.shape[1]):
                 # stepping env
-                # bp()
                 obs, reward, done, _ = env.step(action[:, i, :])
 
                 # save observations
@@ -88,7 +87,7 @@ def calculate_success_rate(
 ):
     tbl = wandb.Table(columns=["rollout", "success"])
     pbar = trange(
-        config.n_rollouts // config.num_envs,
+        config.n_rollouts,
         desc="Performing rollouts",
         postfix=dict(success=0),
         leave=False,
@@ -98,7 +97,7 @@ def calculate_success_rate(
     all_imgs1 = list()
     all_imgs2 = list()
 
-    for _ in pbar:
+    for _ in range(config.n_rollouts // config.num_envs):
         # Perform a rollout with the current model
         rewards, imgs1, imgs2 = rollout(
             env,
@@ -107,15 +106,18 @@ def calculate_success_rate(
             pbar=False,
         )
 
-        # Update progress bar
+        # Calculate the success rate
         success = rewards.sum(dim=1) > 0
         n_success += success.sum().item()
-        pbar.set_postfix(success=n_success)
 
         # Save the results from the rollout
         all_rewards.append(rewards)
         all_imgs1.append(imgs1)
         all_imgs2.append(imgs2)
+
+        # Update progress bar
+        pbar.update(config.num_envs)
+        pbar.set_postfix(success=n_success)
 
     # Combine the results from all rollouts into a single tensor
     all_rewards = torch.cat(all_rewards, dim=0)
