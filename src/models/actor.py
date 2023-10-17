@@ -187,7 +187,11 @@ class DoubleImageActor(torch.nn.Module):
         self.stats = dict_apply(stats, lambda x: torch.from_numpy(x).to(device))
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
-        self.encoder2 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+        self.encoder2 = (
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            if not freeze_encoder
+            else self.encoder1
+        )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
         self.obs_dim = config.robot_state_dim + self.encoding_dim
@@ -197,6 +201,16 @@ class DoubleImageActor(torch.nn.Module):
             global_cond_dim=self.obs_dim * config.obs_horizon,
             down_dims=config.down_dims,
         ).to(device)
+
+        self.print_model_params()
+
+    def print_model_params(self: torch.nn.Module):
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"Total parameters: {total_params:.2e}")
+
+        for name, submodule in self.named_children():
+            params = sum(p.numel() for p in submodule.parameters())
+            print(f"{name}: {params:.2e} parameters")
 
     def _normalized_obs(self, obs: deque):
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)

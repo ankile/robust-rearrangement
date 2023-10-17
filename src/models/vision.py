@@ -16,16 +16,13 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return DinoEncoder(size="large", freeze=freeze, device=device)
     if encoder_name == "dinov2-small":
         return DinoEncoder(size="small", freeze=freeze, device=device)
-    elif encoder_name == "r3m-50":
-        return R3MEncoder(size=50, freeze=freeze, device=device)
-    elif encoder_name == "r3m-18":
-        return R3MEncoder(size=18, freeze=freeze, device=device)
-    elif encoder_name.startswith("resnet"):
+    if encoder_name.startswith("r3m"):
+        return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
+    if encoder_name.startswith("resnet"):
         return ResnetEncoder(
             model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
         )
-    else:
-        raise ValueError(f"Unknown encoder name: {encoder_name}")
+    raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
 # Function borrowed from
@@ -136,17 +133,19 @@ class VIPEncoder(torch.nn.Module):
 
 
 class R3MEncoder(torch.nn.Module):
-    def __init__(self, size=50, freeze=True, device="cuda", *args, **kwargs) -> None:
+    def __init__(self, model_name="r3m_18", freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
-        assert size in [18, 34, 50]
+        assert model_name in ("r3m_18", "r3m_34", "r3m_50")
+
+        model_name = f"resnet{model_name.split('_')[1]}"
 
         self.device = device
-        self.model = load_r3m(modelid=f"resnet{size}", device=device).module.to(device)
+        self.model = load_r3m(modelid=model_name, device=device).module.to(device)
         self.encoding_dim = dict(
             resnet18=512,
             resnet34=512,
             resnet50=2048,
-        )[f"resnet{size}"]
+        )[model_name]
 
         if freeze:
             for param in self.model.parameters():

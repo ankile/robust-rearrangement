@@ -242,7 +242,7 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 10 if args.dryrun is False else 1
+    config.rollout_every = 20 if args.dryrun is False else 1
     config.rollout_loss_threshold = 1e9
     config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup = 0.2
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m-18"
+    config.vision_encoder.model = "r3m_34"
     config.vision_encoder.freeze = True
 
     config.model_save_dir = "models"
