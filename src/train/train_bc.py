@@ -36,6 +36,10 @@ def main(config: ConfigDict):
     )
     config = wandb.config
 
+    # Create model save dir
+    model_save_dir = model_save_dir / wandb.run.name
+    model_save_dir.mkdir(parents=True, exist_ok=True)
+
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_path=config.datasim_path,
@@ -44,13 +48,7 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             data_subset=config.data_subset,
         )
-    # elif config.observation_type == "feature":
-    #     dataset = SimpleFurnitureDataset(
-    #         dataset_path=config.datasim_path,
-    #         pred_horizon=config.pred_horizon,
-    #         obs_horizon=config.obs_horizon,
-    #         action_horizon=config.action_horizon,
-    #     )
+
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
@@ -105,14 +103,6 @@ def main(config: ConfigDict):
 
     n_batches = len(dataloader)
 
-    # Cosine LR schedule with linear warmup
-    # lr_scheduler = get_scheduler(
-    #     name=config.lr_scheduler_type,
-    #     optimizer=opt_noise,
-    #     num_warmup_steps=config.lr_scheduler_warmup_steps,
-    #     num_training_steps=config.num_epochs,
-    # )
-
     lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer=opt_noise,
         max_lr=config.actor_lr,
@@ -121,10 +111,6 @@ def main(config: ConfigDict):
         pct_start=config.lr_scheduler_pct_start,
         anneal_strategy="cos",
     )
-
-    if config.checkpoint_step:
-        for _ in range(config.checkpoint_step):
-            lr_scheduler.step()
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
     best_success_rate = float("-inf")
@@ -197,9 +183,7 @@ def main(config: ConfigDict):
 
             if success_rate > best_success_rate:
                 best_success_rate = success_rate
-                save_path = str(
-                    model_save_dir / f"actor_{config.furniture}_{wandb.run.name}.pt"
-                )
+                save_path = str(model_save_dir / f"actor_best.pt")
                 torch.save(
                     actor.state_dict(),
                     save_path,
@@ -207,6 +191,13 @@ def main(config: ConfigDict):
 
                 wandb.save(save_path)
                 wandb.log({"best_success_rate": best_success_rate})
+
+            # Checkpoint the model
+            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+            torch.save(
+                actor.state_dict(),
+                save_path,
+            )
 
     tglobal.close()
     wandb.finish()
@@ -252,7 +243,7 @@ if __name__ == "__main__":
             observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
-            randomness="high",
+            randomness="low",
             rollout_every=10 if args.dryrun is False else 1,
             rollout_loss_threshold=1e9,
             rollout_max_steps=750 if args.dryrun is False else 10,
@@ -260,8 +251,7 @@ if __name__ == "__main__":
             vision_encoder="resnet18",
             weight_decay=1e-5,
             data_subset=None if args.dryrun is False else 10,
-            checkpoint_path=None,
-            checkpoint_step=None,
+            load_checkpoint_path=None,
         )
     )
 
