@@ -221,14 +221,14 @@ if __name__ == "__main__":
     config = ConfigDict(
         dict(
             action_horizon=8,
-            actor_lr=1e-4,
+            actor_lr=5e-5,
             batch_size=args.batch_size,
             beta_schedule="squaredcos_cap_v2",
             clip_grad_norm=False,
             clip_sample=True,
             dataloader_workers=n_workers,
             demo_source="sim",
-            down_dims=[512, 1024, 2048],
+            down_dims=[256, 512, 1024],
             dryrun=args.dryrun,
             furniture="one_leg",
             gpu_id=args.gpu_id,
@@ -238,23 +238,23 @@ if __name__ == "__main__":
             n_rollouts=8 if args.dryrun is False else num_envs,
             num_diffusion_iters=100,
             num_envs=num_envs,
-            num_epochs=100,
+            num_epochs=200,
             obs_horizon=2,
             observation_type="image",
             pred_horizon=16,
             prediction_type="epsilon",
             randomness="high",
-            rollout_every=5 if args.dryrun is False else 1,
+            rollout_every=10 if args.dryrun is False else 1,
             rollout_loss_threshold=1e9,
             rollout_max_steps=750 if args.dryrun is False else 10,
             vision_encoder_pretrained=False,
             vision_encoder="resnet18",
-            weight_decay=1e-6,
+            weight_decay=1e-5,
             data_subset=None if args.dryrun is False else 10,
         )
     )
 
-    config.lr_scheduler_pct_start = 0.1
+    config.lr_scheduler_pct_start = 0.2
 
     assert (
         config.n_rollouts % config.num_envs == 0
