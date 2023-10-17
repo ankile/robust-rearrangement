@@ -166,10 +166,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # (N, D)
         # Get only the first data_subset episodes
         self.episode_ends = dataset["episode_ends"][:data_subset]
+        print(f"Loading dataset of {len(self.episode_ends)} episodes")
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][:self.episode_ends[-1]],
-            "action": dataset["action"][:self.episode_ends[-1]],
+            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
+            "action": dataset["action"][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence

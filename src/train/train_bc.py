@@ -254,7 +254,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup = 0.2
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_34"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
 
     config.model_save_dir = "models"

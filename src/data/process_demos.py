@@ -139,9 +139,9 @@ def process_demos_to_image(in_dir, out_dir):
         furniture.append(data["furniture"])
 
     # Save to file
-    output_path.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     zarr.save(
-        str(output_path / "data.zarr"),
+        str(out_dir / "data.zarr"),
         robot_state=np.array(robot_state, dtype=np.float32),
         color_image1=np.array(color_image1, dtype=np.uint8),
         color_image2=np.array(color_image2, dtype=np.uint8),

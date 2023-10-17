@@ -18,6 +18,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return DinoEncoder(size="small", freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
         return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
+    if encoder_name == "vip":
+        return VIPEncoder(freeze=freeze, device=device)
     if encoder_name.startswith("resnet"):
         return ResnetEncoder(
             model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
@@ -133,7 +135,9 @@ class VIPEncoder(torch.nn.Module):
 
 
 class R3MEncoder(torch.nn.Module):
-    def __init__(self, model_name="r3m_18", freeze=True, device="cuda", *args, **kwargs) -> None:
+    def __init__(
+        self, model_name="r3m_18", freeze=True, device="cuda", *args, **kwargs
+    ) -> None:
         super().__init__()
         assert model_name in ("r3m_18", "r3m_34", "r3m_50")
 
