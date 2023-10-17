@@ -18,6 +18,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return DinoEncoder(size="small", freeze=freeze, device=device)
     elif encoder_name == "r3m-50":
         return R3MEncoder(size=50, freeze=freeze, device=device)
+    elif encoder_name == "r3m-18":
+        return R3MEncoder(size=18, freeze=freeze, device=device)
     elif encoder_name.startswith("resnet"):
         return ResnetEncoder(
             model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
@@ -140,7 +142,11 @@ class R3MEncoder(torch.nn.Module):
 
         self.device = device
         self.model = load_r3m(modelid=f"resnet{size}", device=device).module.to(device)
-        self.encoding_dim = self.model.convnet.layer4[2].conv3.out_channels
+        self.encoding_dim = dict(
+            resnet18=512,
+            resnet34=512,
+            resnet50=2048,
+        )[f"resnet{size}"]
 
         if freeze:
             for param in self.model.parameters():

@@ -18,8 +18,6 @@ import argparse
 
 from ml_collections import ConfigDict
 
-model_save_dir = Path("models")
-
 
 def main(config: ConfigDict):
     env = None
@@ -34,10 +32,9 @@ def main(config: ConfigDict):
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
     )
-    config = wandb.config
 
     # Create model save dir
-    model_save_dir = model_save_dir / wandb.run.name
+    model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
     if config.observation_type == "image":
@@ -62,19 +59,20 @@ def main(config: ConfigDict):
     # Create the policy network
     actor = DoubleImageActor(
         device=device,
-        encoder_name="resnet18",
+        encoder_name=config.vision_encoder.model,
+        freeze_encoder=config.vision_encoder.freeze,
         config=config,
         stats=stats,
     )
 
-    if config.checkpoint_path is not None:
-        print(f"Loading checkpoint from {config.checkpoint_path}")
-        actor.load_state_dict(torch.load(config.checkpoint_path))
+    if config.load_checkpoint_path is not None:
+        print(f"Loading checkpoint from {config.load_checkpoint_path}")
+        actor.load_state_dict(torch.load(config.load_checkpoint_path))
 
     # Update the config object with the observation dimension
     config.obs_dim = actor.obs_dim
 
-    # save stats to wandb
+    # save stats to wandb and update the config object
     wandb.log(
         {
             "num_samples": len(dataset),
@@ -82,6 +80,7 @@ def main(config: ConfigDict):
             "stats": stats,
         }
     )
+    wandb.config.update(config)
 
     # create dataloader
     dataloader = torch.utils.data.DataLoader(
@@ -103,12 +102,12 @@ def main(config: ConfigDict):
 
     n_batches = len(dataloader)
 
-    lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    lr_scheduler = getattr(torch.optim.lr_scheduler, config.lr_scheduler.name)(
         optimizer=opt_noise,
         max_lr=config.actor_lr,
         epochs=config.num_epochs,
         steps_per_epoch=n_batches,
-        pct_start=config.lr_scheduler_pct_start,
+        pct_start=config.lr_scheduler.warmup,
         anneal_strategy="cos",
     )
 
@@ -218,44 +217,47 @@ if __name__ == "__main__":
     n_workers = min(args.cpus, os.cpu_count())
     num_envs = 4
 
-    config = ConfigDict(
-        dict(
-            action_horizon=8,
-            actor_lr=5e-5,
-            batch_size=args.batch_size,
-            beta_schedule="squaredcos_cap_v2",
-            clip_grad_norm=False,
-            clip_sample=True,
-            dataloader_workers=n_workers,
-            demo_source="sim",
-            down_dims=[256, 512, 1024],
-            dryrun=args.dryrun,
-            furniture="one_leg",
-            gpu_id=args.gpu_id,
-            inference_steps=16,
-            lr_scheduler_type="OneCycleLR",
-            mixed_precision=False,
-            n_rollouts=8 if args.dryrun is False else num_envs,
-            num_diffusion_iters=100,
-            num_envs=num_envs,
-            num_epochs=200,
-            obs_horizon=2,
-            observation_type="image",
-            pred_horizon=16,
-            prediction_type="epsilon",
-            randomness="low",
-            rollout_every=10 if args.dryrun is False else 1,
-            rollout_loss_threshold=1e9,
-            rollout_max_steps=750 if args.dryrun is False else 10,
-            vision_encoder_pretrained=False,
-            vision_encoder="resnet18",
-            weight_decay=1e-5,
-            data_subset=None if args.dryrun is False else 10,
-            load_checkpoint_path=None,
-        )
-    )
+    config = ConfigDict()
 
-    config.lr_scheduler_pct_start = 0.2
+    config.action_horizon = 8
+    config.actor_lr = 1e-4
+    config.batch_size = args.batch_size
+    config.beta_schedule = "squaredcos_cap_v2"
+    config.clip_grad_norm = False
+    config.clip_sample = True
+    config.dataloader_workers = n_workers
+    config.demo_source = "sim"
+    config.down_dims = [256, 512, 1024]
+    config.dryrun = args.dryrun
+    config.furniture = "one_leg"
+    config.gpu_id = args.gpu_id
+    config.inference_steps = 16
+    config.mixed_precision = False
+    config.n_rollouts = 8 if args.dryrun is False else num_envs
+    config.num_diffusion_iters = 100
+    config.num_envs = num_envs
+    config.num_epochs = 200
+    config.obs_horizon = 2
+    config.observation_type = "image"
+    config.pred_horizon = 16
+    config.prediction_type = "epsilon"
+    config.randomness = "low"
+    config.rollout_every = 10 if args.dryrun is False else 1
+    config.rollout_loss_threshold = 1e9
+    config.rollout_max_steps = 750 if args.dryrun is False else 10
+    config.weight_decay = 1e-6
+    config.data_subset = None if args.dryrun is False else 10
+    config.load_checkpoint_path = None
+
+    config.lr_scheduler = ConfigDict()
+    config.lr_scheduler.name = "OneCycleLR"
+    config.lr_scheduler.warmup = 0.2
+
+    config.vision_encoder = ConfigDict()
+    config.vision_encoder.model = "r3m-18"
+    config.vision_encoder.freeze = True
+
+    config.model_save_dir = "models"
 
     assert (
         config.n_rollouts % config.num_envs == 0

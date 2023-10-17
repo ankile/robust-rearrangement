@@ -151,6 +151,7 @@ class DoubleImageActor(torch.nn.Module):
         self,
         device: Union[str, torch.device],
         encoder_name: str,
+        freeze_encoder: bool,
         config,
         stats,
     ) -> None:
@@ -185,8 +186,8 @@ class DoubleImageActor(torch.nn.Module):
         # Convert the stats to tensors on the device
         self.stats = dict_apply(stats, lambda x: torch.from_numpy(x).to(device))
 
-        self.encoder1 = get_encoder(encoder_name, freeze=False, device=device)
-        self.encoder2 = get_encoder(encoder_name, freeze=False, device=device)
+        self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+        self.encoder2 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
         self.obs_dim = config.robot_state_dim + self.encoding_dim
