@@ -85,6 +85,10 @@ class SimpleFurnitureDataset(torch.utils.data.Dataset):
     def __init__(self, dataset_path, pred_horizon, obs_horizon, action_horizon):
         # read from zarr dataset
         dataset = zarr.open(dataset_path, "r")
+        # Marks one-past the last index for each episode
+        self.episode_ends = dataset["episode_ends"][:]
+        print(f"Loading dataset of {len(self.episode_ends)} episodes")
+
         # All demonstration episodes are concatinated in the first dimension N
         train_data = {
             # (N, action_dim)
@@ -92,8 +96,6 @@ class SimpleFurnitureDataset(torch.utils.data.Dataset):
             # (N, obs_dim)
             "obs": dataset["observations"][:].astype(np.float32),
         }
-        # Marks one-past the last index for each episode
-        self.episode_ends = dataset["episode_ends"][:]
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -122,6 +124,7 @@ class SimpleFurnitureDataset(torch.utils.data.Dataset):
         # Add action and observation dimensions to the dataset
         self.action_dim = train_data["action"].shape[-1]
         self.obs_dim = train_data["obs"].shape[-1]
+        self.robot_state_dim = 14
 
     def __len__(self):
         # all possible segments of the dataset

@@ -45,7 +45,13 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             data_subset=config.data_subset,
         )
-
+    elif config.observation_type == "feature":
+        dataset = SimpleFurnitureDataset(
+            dataset_path=config.datasim_path,
+            pred_horizon=config.pred_horizon,
+            obs_horizon=config.obs_horizon,
+            action_horizon=config.action_horizon,
+        )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
@@ -238,7 +244,7 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 200
     config.obs_horizon = 2
-    config.observation_type = "image"
+    config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -254,7 +260,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup = 0.2
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
+    config.vision_encoder.model = "r3m_50"
     config.vision_encoder.freeze = True
 
     config.model_save_dir = "models"
@@ -263,7 +269,9 @@ if __name__ == "__main__":
         config.n_rollouts % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = data_base_dir / "processed/sim/image/one_leg/high/data.zarr"
+    config.datasim_path = (
+        data_base_dir / "processed/sim/feature/r3m-50/one_leg/data.zarr"
+    )
 
     print(f"Using data from {config.datasim_path}")
 

@@ -10,6 +10,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-demos", type=int, default=100)
     parser.add_argument("--obs-type", type=str, default="state")
     parser.add_argument("--gpu-id", type=int, default=0)
+    parser.add_argument("--no-resize-img", dest="resize_img", action="store_false")
 
     args = parser.parse_args()
 
@@ -41,6 +42,7 @@ if __name__ == "__main__":
         show_pbar=True,
         obs_type=args.obs_type,
         encoder_type=encoder_type,
+        resize_img=args.resize_img,
     )
 
     collector.collect()

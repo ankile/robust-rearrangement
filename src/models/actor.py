@@ -160,6 +160,7 @@ class DoubleImageActor(torch.nn.Module):
         self.pred_horizon = config.pred_horizon
         self.obs_horizon = config.obs_horizon
         self.inference_steps = config.inference_steps
+        self.observation_type = config.observation_type
         # This is the number of environments only used for inference, not training
         # Maybe it makes sense to do this another way
         self.B = config.num_envs
@@ -215,7 +216,9 @@ class DoubleImageActor(torch.nn.Module):
     def _normalized_obs(self, obs: deque):
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
-        nrobot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
+
+        if self.observation_type == "image":
+            robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
 
         # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
         # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
@@ -233,9 +236,12 @@ class DoubleImageActor(torch.nn.Module):
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
         # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, features1, features2], dim=-1).flatten(
-            start_dim=1
-        )
+        nobs = torch.cat([robot_state, features1, features2], dim=-1)
+
+        if self.observation_type == "feature":
+            nobs = normalize_data(nobs, stats=self.stats["obs"])
+
+        nobs = nobs.flatten(start_dim=1)
 
         return nobs
 
@@ -278,22 +284,28 @@ class DoubleImageActor(torch.nn.Module):
         # or should we use the results from Diffusion Policy and always do end-to-end training?
         # If we want to use precomputed features, we need to implement an actor that accomodates that
         # for training but performs calls the encoder for inference
-        nrobot_state = normalize_data(
-            batch["robot_state"], stats=self.stats["robot_state"]
-        )
-        B = nrobot_state.shape[0]
 
-        # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
-        # so that it's compatible with the encoder
-        image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
-        image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
+        if self.observation_type == "image":
+            nrobot_state = normalize_data(
+                batch["robot_state"], stats=self.stats["robot_state"]
+            )
+            B = nrobot_state.shape[0]
 
-        # Encode images and reshape back to (B, obs_horizon, -1)
-        image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-        image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+            # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
+            # so that it's compatible with the encoder
+            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
+            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
 
-        # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-        nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
+            # Encode images and reshape back to (B, obs_horizon, -1)
+            image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+            image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+
+            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+            nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
+
+        elif self.observation_type == "feature":
+            nobs = normalize_data(batch["obs"], stats=self.stats["obs"])
+            B = nobs.shape[0]
 
         # observation as FiLM conditioning
         # (B, obs_horizon, obs_dim)
