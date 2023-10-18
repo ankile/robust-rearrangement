@@ -83,7 +83,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
     # Convert to numpy arrays
     observations = np.array(observations, dtype=np.float32)
     actions = np.array(actions, dtype=np.float32)
-    episode_ends = np.array(episode_ends, dtype=np.float32)
+    episode_ends = np.array(episode_ends, dtype=np.uint32)
 
     # Save to file
     output_path.mkdir(parents=True, exist_ok=True)
