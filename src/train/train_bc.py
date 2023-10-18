@@ -226,14 +226,14 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 1e-4
+    config.actor_lr = 5e-4
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
     config.clip_sample = True
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
-    config.down_dims = [256, 512, 1024]
+    config.down_dims = [512, 1024, 2048]
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
@@ -242,13 +242,13 @@ if __name__ == "__main__":
     config.n_rollouts = 8 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 2_000
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 20 if args.dryrun is False else 1
+    config.rollout_every = 50 if args.dryrun is False else 1
     config.rollout_loss_threshold = 1e9
     config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
@@ -257,11 +257,12 @@ if __name__ == "__main__":
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "OneCycleLR"
-    config.lr_scheduler.warmup = 0.2
+    config.lr_scheduler.warmup = 0.05
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_50"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
+    # config.vision_encoder.clip_activation = 1.5
 
     config.model_save_dir = "models"
 
@@ -269,9 +270,7 @@ if __name__ == "__main__":
         config.n_rollouts % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        data_base_dir / "processed/sim/feature/r3m-50/one_leg/data.zarr"
-    )
+    config.datasim_path = data_base_dir / "processed/sim/feature/vip/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
