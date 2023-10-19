@@ -224,16 +224,17 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 8
+    num_envs = 2
 
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
     config.clip_sample = True
+    config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [128, 512, 1024]
@@ -241,29 +242,28 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
+    config.load_checkpoint_path = None
     config.mixed_precision = False
     config.n_rollouts = 8 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 2_000
+    config.num_epochs = 400
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 10 if args.dryrun is False else 1
+    config.rollout_every = 40 if args.dryrun is False else 1
     config.rollout_loss_threshold = 1e9
     config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
-    config.data_subset = None if args.dryrun is False else 10
-    config.load_checkpoint_path = None
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "OneCycleLR"
-    config.lr_scheduler.warmup = 0.1
+    config.lr_scheduler.warmup = 0.025
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
     # config.vision_encoder.clip_activation = 1.5
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        data_base_dir / "processed/sim/feature/r3m_18/one_leg/low/data.zarr"
+        data_base_dir / "processed/sim/feature/vip/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

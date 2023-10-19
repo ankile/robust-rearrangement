@@ -6,18 +6,22 @@ import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 
+from src.models.actor import DoubleImageActor
+
 
 import wandb
 
 
 def rollout(
     env,
-    actor,
+    actor: DoubleImageActor,
     config,
     pbar=True,
 ):
     # get first observation
     obs = env.reset()
+
+    # bp()
 
     # keep a queue of last 2 steps of observations
     obs_deque = collections.deque(

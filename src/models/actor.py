@@ -100,8 +100,6 @@ class DoubleImageActor(torch.nn.Module):
         )
 
         # Encode images
-        # TODO: Do we need to reshape the images back to (n_envs, obs_horizon, -1) after encoding?
-        # Probably not because we're flattening the robot_state above also
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
@@ -142,7 +140,6 @@ class DoubleImageActor(torch.nn.Module):
 
         # unnormalize action
         # (B, pred_horizon, action_dim)
-        # naction = naction[0]
         action_pred = unnormalize_data(naction, stats=self.stats["action"])
 
         return action_pred
@@ -151,9 +148,6 @@ class DoubleImageActor(torch.nn.Module):
     def compute_loss(self, batch):
         if self.observation_type == "image":
             # State already normalized in the dataset
-            # nrobot_state = normalize_data(
-            #     batch["robot_state"], stats=self.stats["robot_state"]
-            # )
             nrobot_state = batch["robot_state"]
             B = nrobot_state.shape[0]
 
@@ -171,7 +165,6 @@ class DoubleImageActor(torch.nn.Module):
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
-            # nobs = normalize_data(batch["obs"], stats=self.stats["obs"])
             nobs = batch["obs"]
             B = nobs.shape[0]
 
