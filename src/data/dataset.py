@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import zarr
 
+from ipdb import set_trace as bp
+
 
 def create_sample_indices(
     episode_ends: np.ndarray,
@@ -28,9 +30,7 @@ def create_sample_indices(
             end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
-            indices.append(
-                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
-            )
+            indices.append([buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx])
     indices = np.array(indices)
     return indices
 
@@ -48,9 +48,7 @@ def sample_sequence(
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
-            data = np.zeros(
-                shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
-            )
+            data = np.zeros(shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype)
             if sample_start_idx > 0:
                 data[:sample_start_idx] = sample[0]
             if sample_end_idx < sequence_length:
@@ -193,8 +191,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             normalized_train_data[key] = normalize_data(data, stats[key])
 
         # int8, [0,255], (N,224,224,3)
-        normalized_train_data["color_image1"] = dataset["color_image1"][:]
-        normalized_train_data["color_image2"] = dataset["color_image2"][:]
+        normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
+        normalized_train_data["color_image2"] = dataset["color_image2"][: self.episode_ends[-1]]
 
         self.indices = indices
         self.stats = stats
@@ -219,7 +217,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             sample_end_idx,
         ) = self.indices[idx]
 
-        # get nomralized data using these indices
+        # get normalized data using these indices
         nsample = sample_sequence(
             train_data=self.normalized_train_data,
             sequence_length=self.pred_horizon,
@@ -233,4 +231,99 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
+        return nsample
+
+
+class FurnitureFeatureDataset(torch.utils.data.Dataset):
+    """
+    This is the dataset used for precomputed image features.
+    """
+
+    def __init__(
+        self,
+        dataset_path: str,
+        pred_horizon: int,
+        obs_horizon: int,
+        action_horizon: int,
+        normalize_features: bool,
+        data_subset: int = None,
+    ):
+        # TODO: Data subset is not used right now
+        # read from zarr dataset
+        dataset = zarr.open(dataset_path, "r")
+
+        # (N, D)
+        # Get only the first data_subset episodes
+        self.episode_ends = dataset["episode_ends"]
+        print(f"Loading dataset of {len(self.episode_ends)} episodes")
+        train_data = {
+            # first two dims of state vector are agent (i.e. gripper) locations
+            "robot_state": dataset["robot_state"][:],
+            "action": dataset["action"][:],
+        }
+
+        # compute start and end of each state-action sequence
+        # also handles padding
+        indices = create_sample_indices(
+            episode_ends=self.episode_ends,
+            sequence_length=pred_horizon,
+            pad_before=obs_horizon - 1,
+            pad_after=action_horizon - 1,
+        )
+
+        normalized_train_data = dict()
+
+        # float32, (N, embed_dim)
+        if normalize_features:
+            train_data["feature1"] = dataset["feature1"][:]
+            train_data["feature2"] = dataset["feature2"][:]
+        else:
+            normalized_train_data["feature1"] = dataset["feature1"][:]
+            normalized_train_data["feature2"] = dataset["feature2"][:]
+
+        # compute statistics and normalized data to [-1,1]
+        stats = dict()
+        for key, data in train_data.items():
+            stats[key] = get_data_stats(data)
+            normalized_train_data[key] = normalize_data(data, stats[key])
+
+        self.indices = indices
+        self.stats = stats
+        self.normalized_train_data = normalized_train_data
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+
+        # Add action and observation dimensions to the dataset
+        self.action_dim = train_data["action"].shape[-1]
+        self.robot_state_dim = train_data["robot_state"].shape[-1]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        # get the start/end indices for this datapoint
+        (
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+        ) = self.indices[idx]
+
+        # get normalized data using these indices
+        nsample = sample_sequence(
+            train_data=self.normalized_train_data,
+            sequence_length=self.pred_horizon,
+            buffer_start_idx=buffer_start_idx,
+            buffer_end_idx=buffer_end_idx,
+            sample_start_idx=sample_start_idx,
+            sample_end_idx=sample_end_idx,
+        )
+
+        # discard unused observations
+        nsample["feature1"] = nsample["feature1"][: self.obs_horizon, :]
+        nsample["feature2"] = nsample["feature2"][: self.obs_horizon, :]
+        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
         return nsample

@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 from diffusers.optimization import get_scheduler
-from src.data.dataset import FurnitureImageDataset, SimpleFurnitureDataset
+from src.data.dataset import FurnitureImageDataset, FurnitureFeatureDataset, SimpleFurnitureDataset
 from src.eval import calculate_success_rate
 from src.gym import get_env
 from tqdm import tqdm
@@ -21,9 +21,7 @@ from ml_collections import ConfigDict
 
 def main(config: ConfigDict):
     env = None
-    device = torch.device(
-        f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
-    )
+    device = torch.device(f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu")
 
     # Init wandb
     wandb.init(
@@ -45,13 +43,22 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             data_subset=config.data_subset,
         )
-    elif config.observation_type == "feature":
-        dataset = SimpleFurnitureDataset(
+    elif config.observation_type == "feature" and not config.vision_encoder.normalize_output:
+        dataset = FurnitureFeatureDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
+            normalize_features=config.vision_encoder.normalize_output,
+            data_subset=config.data_subset,
         )
+    # elif config.observation_type == "feature" and config.vision_encoder.normalize_output:
+    #     dataset = SimpleFurnitureDataset(
+    #         dataset_path=config.datasim_path,
+    #         pred_horizon=config.pred_horizon,
+    #         obs_horizon=config.obs_horizon,
+    #         action_horizon=config.action_horizon,
+    #     )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
@@ -140,9 +147,7 @@ def main(config: ConfigDict):
 
             # Gradient clipping
             if config.clip_grad_norm:
-                torch.nn.utils.clip_grad_norm_(
-                    actor.parameters(), max_norm=config.clip_grad_norm
-                )
+                torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=config.clip_grad_norm)
 
             # optimizer step
             opt_noise.step()
@@ -237,7 +242,7 @@ if __name__ == "__main__":
     config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
-    config.down_dims = [128, 512, 1024]
+    config.down_dims = [256, 512, 1024]
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
@@ -265,17 +270,14 @@ if __name__ == "__main__":
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
+    config.vision_encoder.normalize_output = False
     # config.vision_encoder.clip_activation = 1.5
 
     config.model_save_dir = "models"
 
-    assert (
-        config.n_rollouts % config.num_envs == 0
-    ), "n_rollouts must be divisible by num_envs"
+    assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        data_base_dir / "processed/sim/feature/vip/one_leg/data.zarr"
-    )
+    config.datasim_path = data_base_dir / "processed/sim/feature_separate/vip/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

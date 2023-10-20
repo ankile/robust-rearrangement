@@ -59,9 +59,7 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
-            if not freeze_encoder
-            else self.encoder1
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device) if not freeze_encoder else self.encoder1
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
@@ -87,8 +85,9 @@ class DoubleImageActor(torch.nn.Module):
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
-        if self.observation_type == "image":
-            robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
+        # if self.observation_type == "image":
+        #     robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
+        robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
 
         # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
         # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
@@ -106,8 +105,8 @@ class DoubleImageActor(torch.nn.Module):
         # Reshape concatenate the features
         nobs = torch.cat([robot_state, features1, features2], dim=-1)
 
-        if self.observation_type == "feature":
-            nobs = normalize_data(nobs, stats=self.stats["obs"])
+        # if self.observation_type == "feature":
+        #     nobs = normalize_data(nobs, stats=self.stats["obs"])
 
         nobs = nobs.flatten(start_dim=1)
 
@@ -146,9 +145,9 @@ class DoubleImageActor(torch.nn.Module):
 
     # === Training ===
     def compute_loss(self, batch):
+        nrobot_state = batch["robot_state"]
         if self.observation_type == "image":
             # State already normalized in the dataset
-            nrobot_state = batch["robot_state"]
             B = nrobot_state.shape[0]
 
             # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
@@ -165,7 +164,9 @@ class DoubleImageActor(torch.nn.Module):
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
-            nobs = batch["obs"]
+            feature1 = batch["feature1"]
+            feature2 = batch["feature2"]
+            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
             B = nobs.shape[0]
 
         # observation as FiLM conditioning
