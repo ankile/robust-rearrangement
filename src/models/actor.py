@@ -1,7 +1,7 @@
 from collections import deque
 import torch
 import torch.nn as nn
-import torchvision
+from torchvision import transforms
 from functools import partial
 from src.data.normalizer import StateActionNormalizer
 from src.models.vision import ResnetEncoder, get_encoder
@@ -9,6 +9,8 @@ from src.models.unet import ConditionalUnet1D
 from src.common.pytorch_util import replace_submodules
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+import torchvision.transforms.functional as F
+
 from ipdb import set_trace as bp
 import numpy as np
 from src.models.module_attr_mixin import ModuleAttrMixin
@@ -84,11 +86,9 @@ class DoubleImageActor(torch.nn.Module):
     def _normalized_obs(self, obs: deque):
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
-
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
-        # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
-        # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
+        # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
         img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
             self.B * self.obs_horizon, 224, 224, 3
         )
@@ -96,7 +96,14 @@ class DoubleImageActor(torch.nn.Module):
             self.B * self.obs_horizon, 224, 224, 3
         )
 
-        # Encode images
+        # But first account for images that are not of size 224x224
+        if img1.shape[-3:] != (224, 224, 3):
+            # Resize images to 224x224x3 by first putting channels first
+            # then resizing to 405x228, then center cropping to 224x224
+            img1 = F.center_crop(F.resize(img1.permute(0, 3, 1, 2), (405, 228)), (224, 224)).permute(0, 2, 3, 1)
+            img2 = F.center_crop(F.resize(img2.permute(0, 3, 1, 2), (405, 228)), (224, 224)).permute(0, 2, 3, 1)
+
+        # Encode the images and reshape back to (B, obs_horizon, -1)
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 

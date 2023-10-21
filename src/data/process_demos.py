@@ -8,6 +8,7 @@ import zarr
 from tqdm import tqdm
 from src.models.vision import get_encoder
 import torch
+import torchvision.transforms.functional as F
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 
 from ipdb import set_trace as bp
@@ -74,7 +75,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256, s
     )
 
 
-def process_demos_to_image(in_dir, out_dir):
+def process_demos_to_image(in_dir, out_dir, highres=False):
     file_paths = glob(f"{in_dir}/**/*.pkl", recursive=True)
     print(f"Number of trajectories: {len(file_paths)}")
 
@@ -116,12 +117,19 @@ def process_demos_to_image(in_dir, out_dir):
         episode_ends.append(end_index)
         furniture.append(data["furniture"])
 
+    color_image1 = (np.array(color_image1, dtype=np.uint8),)
+    color_image2 = (np.array(color_image2, dtype=np.uint8),)
+
+    if highres:
+        color_image1 = F.resize(torch.from_numpy(color_image1), (405, 428)).numpy()
+        color_image2 = F.resize(torch.from_numpy(color_image2), (405, 428)).numpy()
+
     # Save to file
     out_dir.mkdir(parents=True, exist_ok=True)
     zarr.save(
         str(out_dir / "data.zarr"),
         robot_state=np.array(robot_state, dtype=np.float32),
-        color_image1=np.array(color_image1, dtype=np.uint8),
+        color_image1=color_image1,
         color_image2=np.array(color_image2, dtype=np.uint8),
         action=np.array(actions, dtype=np.float32),
         reward=np.array(rewards, dtype=np.float32),
@@ -143,6 +151,7 @@ if __name__ == "__main__":
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
     parser.add_argument("--randomness", "-r", type=str, default=None)
     parser.add_argument("--features-separate", "-s", action="store_true")
+    parser.add_argument("--highres", action="store_true")
 
     args = parser.parse_args()
 
@@ -155,8 +164,10 @@ if __name__ == "__main__":
     data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
 
     obs_out_path = args.obs_out + ("_separate" if args.features_separate else "")
+    obs_out_path = obs_out_path + ("_highres" if args.highres else "")
+    obs_in_path = args.obs_in + ("_highres" if args.highres else "")
 
-    raw_data_path = data_base_path / "raw" / args.env / args.obs_in / args.furniture
+    raw_data_path = data_base_path / "raw" / args.env / obs_in_path / args.furniture
     output_path = data_base_path / "processed" / args.env / obs_out_path
 
     encoder = None

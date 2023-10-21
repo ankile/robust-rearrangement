@@ -12,6 +12,7 @@ def get_env(
     furniture="one_leg",
     num_envs=1,
     randomness="low",
+    resize_img=True,
     verbose=False,
 ):
     if obs_type == "state":
@@ -27,7 +28,7 @@ def get_env(
             "FurnitureSim-v0",
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
-            resize_img=True,  # If true, images are resized to 224 x 224.
+            resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=True,  # If true, robot state is concatenated to the observation.
             headless=True,  # If true, simulation runs without GUI.
             obs_keys=obs_keys,

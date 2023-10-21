@@ -18,7 +18,7 @@ if __name__ == "__main__":
     randomness = args.randomness
 
     BASE = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    obs_type = args.obs_type + "-highres" if not args.resize_img else ""
+    obs_type = args.obs_type + "_highres" if not args.resize_img else ""
 
     data_path = BASE / "raw/sim" / obs_type / furniture / randomness
     print(f"Saving data to {data_path}")

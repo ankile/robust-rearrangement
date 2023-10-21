@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import zarr
 from src.data.normalizer import StateActionNormalizer
+from src.data.augmentation import ImageAugmentation
 
 from ipdb import set_trace as bp
 
@@ -161,6 +162,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         obs_horizon: int,
         action_horizon: int,
         normalizer: StateActionNormalizer,
+        augment_image: bool = False,
         data_subset: int = None,
     ):
         # read from zarr dataset
@@ -194,6 +196,15 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
         normalized_train_data["color_image2"] = dataset["color_image2"][: self.episode_ends[-1]]
 
+        # If augment_image is False, assert that the images are of size (224, 224, 3)
+        if not augment_image:
+            assert normalized_train_data["color_image1"].shape[1:] == (224, 224, 3)
+            assert normalized_train_data["color_image2"].shape[1:] == (224, 224, 3)
+
+        # Add image augmentation
+        self.augment_image = augment_image
+        self.image_augmentation = ImageAugmentation()
+
         self.indices = indices
         self.normalized_train_data = normalized_train_data
         self.pred_horizon = pred_horizon
@@ -206,6 +217,12 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.indices)
+    
+    def transform(self, image):
+        image = F.resize(image, (405, 228))
+        image = self.image_augmentation(image)
+        return image
+
 
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
@@ -229,6 +246,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # discard unused observations
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
+
+        if self.augment_image:
+            nsample["color_image1"] = self.transform(nsample["color_image1"])
+            nsample["color_image2"] = self.transform(nsample["color_image2"])
+            
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         return nsample

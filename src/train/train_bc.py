@@ -31,6 +31,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
+        notes="Run to see if downdims starting at 512 is better than 256",
     )
 
     # Create model save dir
@@ -46,6 +47,7 @@ def main(config: ConfigDict):
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
             normalizer=normalizer,
+            augment_image=config.augment_image,
             data_subset=config.data_subset,
         )
     elif config.observation_type == "feature":
@@ -179,6 +181,7 @@ def main(config: ConfigDict):
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
+                    resize_img=config.augment_image,
                 )
 
             # Perform a rollout with the current model
@@ -237,7 +240,7 @@ if __name__ == "__main__":
     config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
-    config.down_dims = [256, 512, 1024]
+    config.down_dims = [512, 1024, 2048]
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
@@ -250,7 +253,8 @@ if __name__ == "__main__":
     config.num_epochs = 100
     config.steps_per_epoch = 100 if args.dryrun is False else 10
     config.obs_horizon = 2
-    config.observation_type = "feature"
+    config.observation_type = "image"
+    config.augment_image = True
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -264,15 +268,15 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup = 0.025
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
-    config.vision_encoder.freeze = True
+    config.vision_encoder.model = "resnet18"
+    config.vision_encoder.freeze = False
 
     config.model_save_dir = "models"
 
     assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
+        data_base_dir / f"processed/sim/image_highres/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")
