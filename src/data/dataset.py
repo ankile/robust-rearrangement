@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import zarr
+from src.data.normalizer import StateActionNormalizer
 
 from ipdb import set_trace as bp
 
@@ -159,6 +160,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
+        normalizer: StateActionNormalizer,
         data_subset: int = None,
     ):
         # read from zarr dataset
@@ -184,18 +186,15 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # compute statistics and normalized data to [-1,1]
-        stats = dict()
         normalized_train_data = dict()
         for key, data in train_data.items():
-            stats[key] = get_data_stats(data)
-            normalized_train_data[key] = normalize_data(data, stats[key])
+            normalized_train_data[key] = normalizer(data, key, forward=True)
 
         # int8, [0,255], (N,224,224,3)
         normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
         normalized_train_data["color_image2"] = dataset["color_image2"][: self.episode_ends[-1]]
 
         self.indices = indices
-        self.stats = stats
         self.normalized_train_data = normalized_train_data
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -246,21 +245,21 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalize_features: bool,
+        normalizer: StateActionNormalizer,
+        # normalize_features: bool,
         data_subset: int = None,
     ):
-        # TODO: Data subset is not used right now
-        # read from zarr dataset
+        # Read from zarr dataset
         dataset = zarr.open(dataset_path, "r")
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = dataset["episode_ends"]
+        self.episode_ends = dataset["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][:],
-            "action": dataset["action"][:],
+            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
+            "action": dataset["action"][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence
@@ -275,21 +274,14 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         normalized_train_data = dict()
 
         # float32, (N, embed_dim)
-        if normalize_features:
-            train_data["feature1"] = dataset["feature1"][:]
-            train_data["feature2"] = dataset["feature2"][:]
-        else:
-            normalized_train_data["feature1"] = dataset["feature1"][:]
-            normalized_train_data["feature2"] = dataset["feature2"][:]
+        normalized_train_data["feature1"] = dataset["feature1"][: self.episode_ends[-1]]
+        normalized_train_data["feature2"] = dataset["feature2"][: self.episode_ends[-1]]
 
         # compute statistics and normalized data to [-1,1]
-        stats = dict()
         for key, data in train_data.items():
-            stats[key] = get_data_stats(data)
-            normalized_train_data[key] = normalize_data(data, stats[key])
+            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
 
         self.indices = indices
-        self.stats = stats
         self.normalized_train_data = normalized_train_data
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon

@@ -97,14 +97,32 @@ class StateActionNormalizer(nn.Module):
             for stat in self.stats[key].keys():
                 self.stats[key][stat].requires_grad = False
 
-    def normalize(self, x, key):
+    def _normalize(self, x, key):
         stats = self.stats[key]
         x = (x - stats["min"]) / (stats["max"] - stats["min"])
         x = 2 * x - 1
-        return
+        return x
 
-    def denormalize(self, x, key):
+    def _denormalize(self, x, key):
         stats = self.stats[key]
         x = (x + 1) / 2
         x = x * (stats["max"] - stats["min"]) + stats["min"]
         return x
+
+    def forward(self, x, key, forward=True):
+        if forward:
+            return self._normalize(x, key)
+
+        return self._denormalize(x, key)
+
+    @property
+    def stats_dict(self):
+        # Return the stats as a dict of numpy arrays
+        stats = {}
+
+        for key in self.stats.keys():
+            stats[key] = {}
+            for stat in self.stats[key].keys():
+                stats[key][stat] = self.stats[key][stat].cpu().numpy()
+
+        return stats

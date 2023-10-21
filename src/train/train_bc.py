@@ -8,6 +8,7 @@ import torch.optim as optim
 import wandb
 from diffusers.optimization import get_scheduler
 from src.data.dataset import FurnitureImageDataset, FurnitureFeatureDataset, SimpleFurnitureDataset
+from src.data.normalizer import StateActionNormalizer
 from src.eval import calculate_success_rate
 from src.gym import get_env
 from tqdm import tqdm
@@ -36,35 +37,29 @@ def main(config: ConfigDict):
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
+    normalizer = StateActionNormalizer()
+
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
+            normalizer=normalizer,
             data_subset=config.data_subset,
         )
-    elif config.observation_type == "feature" and not config.vision_encoder.normalize_output:
+    elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalize_features=config.vision_encoder.normalize_output,
+            normalizer=normalizer,
             data_subset=config.data_subset,
         )
-    # elif config.observation_type == "feature" and config.vision_encoder.normalize_output:
-    #     dataset = SimpleFurnitureDataset(
-    #         dataset_path=config.datasim_path,
-    #         pred_horizon=config.pred_horizon,
-    #         obs_horizon=config.obs_horizon,
-    #         action_horizon=config.action_horizon,
-    #     )
+
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
-
-    # save training data statistics (min, max) for each dim
-    stats = dataset.stats
 
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
@@ -75,8 +70,8 @@ def main(config: ConfigDict):
         device=device,
         encoder_name=config.vision_encoder.model,
         freeze_encoder=config.vision_encoder.freeze,
+        normalizer=normalizer,
         config=config,
-        stats=stats,
     )
 
     if config.load_checkpoint_path is not None:
@@ -91,7 +86,7 @@ def main(config: ConfigDict):
         {
             "num_samples": len(dataset),
             "num_episodes": len(dataset.episode_ends),
-            "stats": stats,
+            "stats": normalizer.stats_dict,
         }
     )
     wandb.config.update(config)
@@ -136,7 +131,6 @@ def main(config: ConfigDict):
         # batch loop
         tepoch = tqdm(dataloader, desc="Batch", leave=False, total=n_batches)
         for batch in tepoch:
-            print("batch[feature1].shape", batch["feature1"].shape)
             opt_noise.zero_grad()
 
             # device transfer
@@ -270,16 +264,15 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup = 0.025
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
-    config.vision_encoder.normalize_output = False
 
     config.model_save_dir = "models"
 
     assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/low/data.zarr"
+        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

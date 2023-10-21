@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from functools import partial
-from src.data.dataset import normalize_data, unnormalize_data
+from src.data.normalizer import StateActionNormalizer
 from src.models.vision import ResnetEncoder, get_encoder
 from src.models.unet import ConditionalUnet1D
 from src.common.pytorch_util import replace_submodules
@@ -22,8 +22,8 @@ class DoubleImageActor(torch.nn.Module):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
+        normalizer: StateActionNormalizer,
         config,
-        stats,
     ) -> None:
         super().__init__()
         self.action_dim = config.action_dim
@@ -55,7 +55,7 @@ class DoubleImageActor(torch.nn.Module):
         )
 
         # Convert the stats to tensors on the device
-        self.stats = dict_apply(stats, lambda x: torch.from_numpy(x).to(device))
+        self.normalizer = normalizer.to(device)
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
@@ -85,9 +85,7 @@ class DoubleImageActor(torch.nn.Module):
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
-        # if self.observation_type == "image":
-        #     robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
-        robot_state = normalize_data(robot_state, stats=self.stats["robot_state"])
+        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
         # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
         # Also flatten the two first dimensions to get (n_envs * obs_horizon, 224, 224, 3) for the encoder
@@ -103,11 +101,7 @@ class DoubleImageActor(torch.nn.Module):
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
         # Reshape concatenate the features
-        nobs = torch.cat([robot_state, features1, features2], dim=-1)
-
-        # if self.observation_type == "feature":
-        #     nobs = normalize_data(nobs, stats=self.stats["obs"])
-
+        nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
         nobs = nobs.flatten(start_dim=1)
 
         return nobs
@@ -139,7 +133,7 @@ class DoubleImageActor(torch.nn.Module):
 
         # unnormalize action
         # (B, pred_horizon, action_dim)
-        action_pred = unnormalize_data(naction, stats=self.stats["action"])
+        action_pred = self.normalizer(naction, "action", forward=False)
 
         return action_pred
 
