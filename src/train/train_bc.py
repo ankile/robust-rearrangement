@@ -136,6 +136,7 @@ def main(config: ConfigDict):
         # batch loop
         tepoch = tqdm(dataloader, desc="Batch", leave=False, total=n_batches)
         for batch in tepoch:
+            print("batch[feature1].shape", batch["feature1"].shape)
             opt_noise.zero_grad()
 
             # device transfer
@@ -253,13 +254,13 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 100
-    config.steps_per_epoch = 1000 if args.dryrun is False else 10
+    config.steps_per_epoch = 100 if args.dryrun is False else 10
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 100 if args.dryrun is False else 1
+    config.rollout_every = 10 if args.dryrun is False else 1
     config.rollout_loss_threshold = 1e9
     config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
@@ -278,7 +279,7 @@ if __name__ == "__main__":
     assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/high/data.zarr"
+        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/low/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")
