@@ -88,20 +88,27 @@ class DoubleImageActor(torch.nn.Module):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
+        # Get size of the image
+        img_size = obs[0]["color_image1"].shape[-3:]
+
         # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
         img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, 224, 224, 3
+            self.B * self.obs_horizon, *img_size
         )
         img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, 224, 224, 3
+            self.B * self.obs_horizon, *img_size
         )
 
         # But first account for images that are not of size 224x224
         if img1.shape[-3:] != (224, 224, 3):
             # Resize images to 224x224x3 by first putting channels first
             # then resizing to 405x228, then center cropping to 224x224
-            img1 = F.center_crop(F.resize(img1.permute(0, 3, 1, 2), (405, 228)), (224, 224)).permute(0, 2, 3, 1)
-            img2 = F.center_crop(F.resize(img2.permute(0, 3, 1, 2), (405, 228)), (224, 224)).permute(0, 2, 3, 1)
+            img1 = F.center_crop(F.resize(img1.permute(0, 3, 1, 2), (228, 405), antialias=True), (224, 224)).permute(
+                0, 2, 3, 1
+            )
+            img2 = F.center_crop(F.resize(img2.permute(0, 3, 1, 2), (228, 405), antialias=True), (224, 224)).permute(
+                0, 2, 3, 1
+            )
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)

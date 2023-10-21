@@ -1,15 +1,17 @@
 import torch
 import random
 import torchvision.transforms.functional as F
+from ipdb import set_trace as bp
 
 
 class ImageAugmentation:
-
     def random_crop(self, img, size=224):
-        h, w = img.shape[1], img.shape[2]
+        h, w = img.shape[-2:]
+
         top = random.randint(0, h - size)
         left = random.randint(0, w - size)
-        img_cropped = img[:, top : top + size, left : left + size]
+        # Let all leading dimensions remain
+        img_cropped = img[..., top : top + size, left : left + size]
         return img_cropped
 
     def color_jitter(self, img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1):

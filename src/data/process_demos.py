@@ -121,8 +121,8 @@ def process_demos_to_image(in_dir, out_dir, highres=False):
     color_image2 = (np.array(color_image2, dtype=np.uint8),)
 
     if highres:
-        color_image1 = F.resize(torch.from_numpy(color_image1), (405, 428)).numpy()
-        color_image2 = F.resize(torch.from_numpy(color_image2), (405, 428)).numpy()
+        color_image1 = F.resize(torch.from_numpy(color_image1), (228, 405)).numpy()
+        color_image2 = F.resize(torch.from_numpy(color_image2), (228, 405)).numpy()
 
     # Save to file
     out_dir.mkdir(parents=True, exist_ok=True)

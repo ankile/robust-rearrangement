@@ -181,7 +181,7 @@ def main(config: ConfigDict):
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
-                    resize_img=config.augment_image,
+                    resize_img=not config.augment_image,
                 )
 
             # Perform a rollout with the current model
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     config.n_rollouts = 10 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 100
+    config.num_epochs = 200
     config.steps_per_epoch = 100 if args.dryrun is False else 10
     config.obs_horizon = 2
     config.observation_type = "image"
@@ -275,9 +275,7 @@ if __name__ == "__main__":
 
     assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        data_base_dir / f"processed/sim/image_highres/one_leg/data.zarr"
-    )
+    config.datasim_path = data_base_dir / f"processed/sim/image/one_leg/low/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

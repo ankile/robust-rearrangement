@@ -3,6 +3,7 @@ import torch
 import zarr
 from src.data.normalizer import StateActionNormalizer
 from src.data.augmentation import ImageAugmentation
+import torchvision.transforms.functional as F
 
 from ipdb import set_trace as bp
 
@@ -190,7 +191,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # compute statistics and normalized data to [-1,1]
         normalized_train_data = dict()
         for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(data, key, forward=True)
+            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
 
         # int8, [0,255], (N,224,224,3)
         normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
@@ -217,12 +218,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.indices)
-    
+
     def transform(self, image):
-        image = F.resize(image, (405, 228))
+        image = F.resize(image, (228, 405), antialias=True)
         image = self.image_augmentation(image)
         return image
-
 
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
@@ -248,9 +248,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
 
         if self.augment_image:
-            nsample["color_image1"] = self.transform(nsample["color_image1"])
-            nsample["color_image2"] = self.transform(nsample["color_image2"])
-            
+            nsample["color_image1"] = self.transform(
+                torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
+            ).permute(0, 2, 3, 1)
+            nsample["color_image2"] = self.transform(
+                torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
+            ).permute(0, 2, 3, 1)
+
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         return nsample
