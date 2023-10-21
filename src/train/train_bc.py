@@ -229,12 +229,12 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 2
+    num_envs = 1
 
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 1e-4
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
@@ -249,16 +249,16 @@ if __name__ == "__main__":
     config.inference_steps = 16
     config.load_checkpoint_path = None
     config.mixed_precision = False
-    config.n_rollouts = 8 if args.dryrun is False else num_envs
+    config.n_rollouts = 10 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 400
+    config.num_epochs = 1_000
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 40 if args.dryrun is False else 1
+    config.rollout_every = 100 if args.dryrun is False else 1
     config.rollout_loss_threshold = 1e9
     config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
@@ -266,9 +266,10 @@ if __name__ == "__main__":
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "OneCycleLR"
     config.lr_scheduler.warmup = 0.025
+    # config.lr_scheduler.end_epoch = config.num_epochs // 2
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
+    config.vision_encoder.model = "r3m_18"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_output = False
     # config.vision_encoder.clip_activation = 1.5
@@ -277,7 +278,9 @@ if __name__ == "__main__":
 
     assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = data_base_dir / "processed/sim/feature_separate/vip/one_leg/data.zarr"
+    config.datasim_path = (
+        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/high/data.zarr"
+    )
 
     print(f"Using data from {config.datasim_path}")
 
