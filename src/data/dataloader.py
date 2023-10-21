@@ -11,3 +11,6 @@ class FixedStepsDataloader(torch.utils.data.DataLoader):
         endless_dataloader = itertools.cycle(super().__iter__())
         for _ in range(self.n_batches):
             yield next(endless_dataloader)
+
+    def __len__(self):
+        return self.n_batches

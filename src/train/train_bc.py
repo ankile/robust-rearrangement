@@ -13,6 +13,7 @@ from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
 from src.models.actor import DoubleImageActor
+from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
 
@@ -96,8 +97,9 @@ def main(config: ConfigDict):
     wandb.config.update(config)
 
     # create dataloader
-    dataloader = torch.utils.data.DataLoader(
-        dataset,
+    dataloader = FixedStepsDataloader(
+        dataset=dataset,
+        n_batches=config.steps_per_epoch,
         batch_size=config.batch_size,
         num_workers=config.dataloader_workers,
         shuffle=True,
@@ -164,8 +166,6 @@ def main(config: ConfigDict):
             )
 
             tepoch.set_postfix(loss=loss_cpu)
-            if config.dryrun:
-                break
 
         tepoch.close()
 
@@ -252,7 +252,8 @@ if __name__ == "__main__":
     config.n_rollouts = 10 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 1_000
+    config.num_epochs = 100
+    config.steps_per_epoch = 1000 if args.dryrun is False else 10
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
@@ -266,13 +267,11 @@ if __name__ == "__main__":
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "OneCycleLR"
     config.lr_scheduler.warmup = 0.025
-    # config.lr_scheduler.end_epoch = config.num_epochs // 2
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = "r3m_18"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_output = False
-    # config.vision_encoder.clip_activation = 1.5
 
     config.model_save_dir = "models"
 
