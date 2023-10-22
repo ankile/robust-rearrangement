@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run to see if downdims starting at 512 is better than 256",
+        notes="Increased the weight decay to 1e-5 to see if it helps with overfitting.",
     )
 
     # Create model save dir
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.weight_decay = 1e-6
+    config.weight_decay = 1e-5
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
