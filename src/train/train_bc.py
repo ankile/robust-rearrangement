@@ -17,6 +17,8 @@ from src.models.actor import DoubleImageActor
 from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
+from torch.utils.data import random_split
+
 
 from ml_collections import ConfigDict
 
@@ -63,6 +65,11 @@ def main(config: ConfigDict):
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
+    # Split the dataset into train and test
+    train_size = int(len(dataset) * config.test_split)
+    test_size = len(dataset) - train_size
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.robot_state_dim = dataset.robot_state_dim
@@ -86,20 +93,31 @@ def main(config: ConfigDict):
     # save stats to wandb and update the config object
     wandb.log(
         {
-            "num_samples": len(dataset),
-            "num_episodes": len(dataset.episode_ends),
+            "num_samples": len(train_dataset),
+            "num_episodes": int(len(dataset.episode_ends) * config.test_split),
             "stats": normalizer.stats_dict,
         }
     )
     wandb.config.update(config)
 
     # create dataloader
-    dataloader = FixedStepsDataloader(
-        dataset=dataset,
+    trainloader = FixedStepsDataloader(
+        dataset=train_dataset,
         n_batches=config.steps_per_epoch,
         batch_size=config.batch_size,
         num_workers=config.dataloader_workers,
         shuffle=True,
+        pin_memory=True,
+        drop_last=False,
+        persistent_workers=True,
+    )
+
+    testloader = FixedStepsDataloader(
+        dataset=test_dataset,
+        n_batches=10,
+        batch_size=config.batch_size,
+        num_workers=config.dataloader_workers,
+        shuffle=False,
         pin_memory=True,
         drop_last=False,
         persistent_workers=True,
@@ -112,7 +130,7 @@ def main(config: ConfigDict):
         weight_decay=config.weight_decay,
     )
 
-    n_batches = len(dataloader)
+    n_batches = len(trainloader)
 
     lr_scheduler = getattr(torch.optim.lr_scheduler, config.lr_scheduler.name)(
         optimizer=opt_noise,
@@ -126,12 +144,14 @@ def main(config: ConfigDict):
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
     best_success_rate = float("-inf")
 
-    # epoch loop
+    # Train loop
+    test_loss_mean = 0.0
     for epoch_idx in tglobal:
         epoch_loss = list()
+        test_loss = list()
 
         # batch loop
-        tepoch = tqdm(dataloader, desc="Batch", leave=False, total=n_batches)
+        tepoch = tqdm(trainloader, desc="Batch", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
 
@@ -166,8 +186,29 @@ def main(config: ConfigDict):
 
         tepoch.close()
 
-        tglobal.set_postfix(loss=np.mean(epoch_loss))
+        train_loss_mean = np.mean(epoch_loss)
+        tglobal.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
+
+        # Evaluation loop
+        test_tepoch = tqdm(testloader, desc="Test Batch", leave=False)
+        for test_batch in test_tepoch:
+            with torch.no_grad():
+                # device transfer for test_batch
+                test_batch = dict_apply(test_batch, lambda x: x.to(device, non_blocking=True))
+
+                # Get test loss
+                test_loss_val = actor.compute_loss(test_batch)
+
+                # logging
+                test_loss_cpu = test_loss_val.item()
+                test_loss.append(test_loss_cpu)
+                test_tepoch.set_postfix(loss=test_loss_cpu)
+
+        test_loss_mean = np.mean(test_loss)
+        wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
+        test_tepoch.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
+        test_tepoch.close()
 
         if (
             config.rollout.every != -1
@@ -232,7 +273,7 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 1e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
@@ -258,6 +299,7 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.randomness = "low"
     config.weight_decay = 1e-6
+    config.test_split = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 10 if args.dryrun is False else 1
