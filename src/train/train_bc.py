@@ -170,9 +170,9 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         if (
-            config.rollout_every != -1
-            and (epoch_idx + 1) % config.rollout_every == 0
-            and np.mean(epoch_loss) < config.rollout_loss_threshold
+            config.rollout.every != -1
+            and (epoch_idx + 1) % config.rollout.every == 0
+            and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
             if env is None:
                 env = get_env(
@@ -188,8 +188,8 @@ def main(config: ConfigDict):
             success_rate = calculate_success_rate(
                 env,
                 actor,
-                config,
-                epoch_idx,
+                n_rollouts=config.rollout.count,
+                epoch_idx=epoch_idx,
             )
 
             if success_rate > best_success_rate:
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.actor_lr = 1e-5
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
@@ -247,35 +247,39 @@ if __name__ == "__main__":
     config.inference_steps = 16
     config.load_checkpoint_path = None
     config.mixed_precision = False
-    config.n_rollouts = 10 if args.dryrun is False else num_envs
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 200
-    config.steps_per_epoch = 100 if args.dryrun is False else 10
+    config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.obs_horizon = 2
-    config.observation_type = "image"
-    config.augment_image = True
+    config.observation_type = "feature"
+    config.augment_image = False
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.rollout_every = 10 if args.dryrun is False else 1
-    config.rollout_loss_threshold = 1e9
-    config.rollout_max_steps = 750 if args.dryrun is False else 10
     config.weight_decay = 1e-6
+
+    config.rollout = ConfigDict()
+    config.rollout.every = 10 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 0.01
+    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.count = 10 if args.dryrun is False else num_envs
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "OneCycleLR"
     config.lr_scheduler.warmup = 0.025
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "resnet18"
-    config.vision_encoder.freeze = False
+    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.freeze = True
 
     config.model_save_dir = "models"
 
-    assert config.n_rollouts % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
+    assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = data_base_dir / f"processed/sim/image/one_leg/low/data.zarr"
+    config.datasim_path = (
+        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
+    )
 
     print(f"Using data from {config.datasim_path}")
 

@@ -30,6 +30,7 @@ class DoubleImageActor(torch.nn.Module):
         super().__init__()
         self.action_dim = config.action_dim
         self.pred_horizon = config.pred_horizon
+        self.action_horizon = config.action_horizon
         self.obs_horizon = config.obs_horizon
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
