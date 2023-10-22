@@ -230,6 +230,7 @@ def main(config: ConfigDict):
                 env,
                 actor,
                 n_rollouts=config.rollout.count,
+                rollout_max_steps=config.rollout.max_steps,
                 epoch_idx=epoch_idx,
             )
 
@@ -273,7 +274,7 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 1e-4
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
@@ -303,7 +304,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.01
+    config.rollout.loss_threshold = 0.01 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
     config.rollout.count = 10 if args.dryrun is False else num_envs
 

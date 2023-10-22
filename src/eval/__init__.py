@@ -89,6 +89,7 @@ def calculate_success_rate(
     env: FurnitureSimEnv,
     actor: DoubleImageActor,
     n_rollouts: int,
+    rollout_max_steps: int,
     epoch_idx: int,
 ):
     tbl = wandb.Table(columns=["rollout", "success", "epoch"])
@@ -108,6 +109,7 @@ def calculate_success_rate(
         rewards, imgs1, imgs2 = rollout(
             env,
             actor,
+            rollout_max_steps,
             pbar=False,
         )
 
