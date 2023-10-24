@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn
 import zarr
 from src.data.normalizer import StateActionNormalizer
 from src.data.augmentation import ImageAugmentation
@@ -307,8 +308,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             for feature in ["feature1", "feature2"]:
                 data = normalized_train_data[feature]
                 stats = get_data_stats(data)
-                normalizer.stats[feature]["min"] = torch.from_numpy(stats["min"])
-                normalizer.stats[feature]["max"] = torch.from_numpy(stats["max"])
+                normalizer.stats[feature] = nn.ParameterDict(
+                    {
+                        "min": nn.Parameter(torch.from_numpy(stats["min"]), requires_grad=False),
+                        "max": nn.Parameter(torch.from_numpy(stats["max"]), requires_grad=False),
+                    }
+                )
                 normalized_train_data[feature] = normalizer(torch.from_numpy(data), feature, forward=True).numpy()
 
         # compute statistics and normalized data to [-1,1]

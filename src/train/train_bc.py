@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Changed back to the diffusers lr scheduler to see if it works better",
+        notes="Testing diffusers lr scheduler with encoder feature normalization",
     )
 
     # Create model save dir
