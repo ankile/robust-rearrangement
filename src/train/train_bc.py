@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Increased the weight decay to 1e-5 to see if it helps with overfitting.",
+        notes="Changed back to the diffusers lr scheduler to see if it works better",
     )
 
     # Create model save dir
@@ -132,13 +132,20 @@ def main(config: ConfigDict):
 
     n_batches = len(trainloader)
 
-    lr_scheduler = getattr(torch.optim.lr_scheduler, config.lr_scheduler.name)(
+    # lr_scheduler = getattr(torch.optim.lr_scheduler, config.lr_scheduler.name)(
+    #     optimizer=opt_noise,
+    #     max_lr=config.actor_lr,
+    #     epochs=config.num_epochs,
+    #     steps_per_epoch=n_batches,
+    #     pct_start=config.lr_scheduler.warmup_pct,
+    #     anneal_strategy="cos",
+    # )
+
+    lr_scheduler = get_scheduler(
+        name=config.lr_scheduler.name,
         optimizer=opt_noise,
-        max_lr=config.actor_lr,
-        epochs=config.num_epochs,
-        steps_per_epoch=n_batches,
-        pct_start=config.lr_scheduler.warmup,
-        anneal_strategy="cos",
+        num_warmup_steps=config.lr_scheduler.warmup_steps,
+        num_training_steps=len(trainloader) * config.num_epochs,
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
@@ -205,10 +212,12 @@ def main(config: ConfigDict):
                 test_loss.append(test_loss_cpu)
                 test_tepoch.set_postfix(loss=test_loss_cpu)
 
-        test_loss_mean = np.mean(test_loss)
-        wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
-        test_tepoch.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
         test_tepoch.close()
+
+        test_loss_mean = np.mean(test_loss)
+        tglobal.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
+
+        wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
 
         if (
             config.rollout.every != -1
@@ -273,8 +282,8 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.action_horizon = 6
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
@@ -293,27 +302,28 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 200
     config.steps_per_epoch = 200 if args.dryrun is False else 10
-    config.obs_horizon = 2
+    config.obs_horizon = 3
     config.observation_type = "feature"
     config.augment_image = False
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.weight_decay = 1e-5
+    config.weight_decay = 1e-6
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.01 if args.dryrun is False else float("inf")
+    config.rollout.loss_threshold = 0.013 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
     config.rollout.count = 10 if args.dryrun is False else num_envs
 
     config.lr_scheduler = ConfigDict()
-    config.lr_scheduler.name = "OneCycleLR"
-    config.lr_scheduler.warmup = 0.025
+    config.lr_scheduler.name = "cosine"
+    # config.lr_scheduler.warmup_pct = 0.025
+    config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
 
     config.model_save_dir = "models"
