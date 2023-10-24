@@ -272,7 +272,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         obs_horizon: int,
         action_horizon: int,
         normalizer: StateActionNormalizer,
-        # normalize_features: bool,
+        normalize_features: bool = False,
         data_subset: int = None,
     ):
         # Read from zarr dataset
@@ -302,6 +302,14 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         # float32, (N, embed_dim)
         normalized_train_data["feature1"] = dataset["feature1"][: self.episode_ends[-1]]
         normalized_train_data["feature2"] = dataset["feature2"][: self.episode_ends[-1]]
+
+        if normalize_features:
+            for feature in ["feature1", "feature2"]:
+                data = normalized_train_data[feature]
+                stats = get_data_stats(data)
+                normalizer.stats[feature]["min"] = torch.from_numpy(stats["min"])
+                normalizer.stats[feature]["max"] = torch.from_numpy(stats["max"])
+                normalized_train_data[feature] = normalizer(torch.from_numpy(data), feature, forward=True).numpy()
 
         # compute statistics and normalized data to [-1,1]
         for key, data in train_data.items():

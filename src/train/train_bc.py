@@ -59,6 +59,7 @@ def main(config: ConfigDict):
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
             normalizer=normalizer,
+            normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
 
@@ -278,7 +279,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 1
+    num_envs = 10
 
     config = ConfigDict()
 
@@ -325,6 +326,7 @@ if __name__ == "__main__":
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
+    config.vision_encoder.normalize_features = True
 
     config.model_save_dir = "models"
 

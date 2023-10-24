@@ -115,6 +115,10 @@ class DoubleImageActor(torch.nn.Module):
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
         features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
 
+        if "feature1" in self.normalizer.stats:
+            features1 = self.normalizer(features1, "feature1", forward=True)
+            features2 = self.normalizer(features2, "feature2", forward=True)
+
         # Reshape concatenate the features
         nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
         nobs = nobs.flatten(start_dim=1)
