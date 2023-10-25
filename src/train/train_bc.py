@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Testing diffusers lr scheduler with encoder feature normalization",
+        notes="Test presence of overfitting after train/test-split issue fix",
     )
 
     # Create model save dir
@@ -67,7 +67,7 @@ def main(config: ConfigDict):
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
     # Split the dataset into train and test
-    train_size = int(len(dataset) * config.test_split)
+    train_size = int(len(dataset) * (1 - config.test_split))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
@@ -283,11 +283,11 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.action_horizon = 6
+    config.action_horizon = 8
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
-    config.clip_grad_norm = 1
+    config.clip_grad_norm = False
     config.clip_sample = True
     config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
@@ -303,7 +303,7 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 200
     config.steps_per_epoch = 200 if args.dryrun is False else 10
-    config.obs_horizon = 3
+    config.obs_horizon = 2
     config.observation_type = "feature"
     config.augment_image = False
     config.pred_horizon = 16
@@ -326,14 +326,17 @@ if __name__ == "__main__":
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
-    config.vision_encoder.normalize_features = True
+    config.vision_encoder.normalize_features = False
 
     config.model_save_dir = "models"
 
     assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
+    # config.datasim_path = (
+    #     data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
+    # )
     config.datasim_path = (
-        data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate/vip/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")
