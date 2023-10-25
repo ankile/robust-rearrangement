@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Test presence of overfitting after train/test-split issue fix",
+        notes="Test consistent resizing of images from env (Use cv2)",
     )
 
     # Create model save dir
