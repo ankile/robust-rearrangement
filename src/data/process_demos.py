@@ -152,20 +152,37 @@ if __name__ == "__main__":
     parser.add_argument("--randomness", "-r", type=str, default=None)
     parser.add_argument("--features-separate", "-s", action="store_true")
     parser.add_argument("--highres", action="store_true")
+    parser.add_argument("--lowres", action="store_true")
 
     args = parser.parse_args()
 
     global device
     device = torch.device(f"cuda:{args.gpu_id}")
 
+    assert not (args.highres and args.lowres), "Cannot have both highres and lowres"
+
     if args.obs_out == "feature":
         assert args.encoder is not None, "Must specify encoder when using feature obs"
 
     data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
 
-    obs_out_path = args.obs_out + ("_separate" if args.features_separate else "")
-    obs_out_path = obs_out_path + ("_highres" if args.highres else "")
-    obs_in_path = args.obs_in + ("_highres" if args.highres else "")
+    # obs_out_path = args.obs_out + ("_separate" if args.features_separate else "")
+    # obs_out_path = obs_out_path + ("_highres" if args.highres else "")
+    # obs_in_path = args.obs_in + ("_highres" if args.highres else "")
+
+    obs_in_path = args.obs_in
+    obs_out_path = args.obs_out
+
+    if args.features_separate:
+        obs_out_path = obs_out_path + "_separate"
+
+    if args.highres:
+        obs_out_path = obs_out_path + "_highres"
+        obs_in_path = obs_in_path + "_highres"
+
+    if args.lowres:
+        obs_out_path = obs_out_path + "_small"
+        obs_in_path = obs_in_path + "_small"
 
     raw_data_path = data_base_path / "raw" / args.env / obs_in_path / args.furniture
     output_path = data_base_path / "processed" / args.env / obs_out_path

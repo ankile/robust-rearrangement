@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="ankile",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Test consistent resizing of images from env (Use cv2)",
+        notes="Test with images produced as 224x224 from sim directly.",
     )
 
     # Create model save dir
@@ -62,13 +62,13 @@ def main(config: ConfigDict):
             normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
-
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
     # Split the dataset into train and test
     train_size = int(len(dataset) * (1 - config.test_split))
     test_size = len(dataset) - train_size
+    print(f"Splitting dataset into {train_size} train and {test_size} test samples.")
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     # Update the config object with the action dimension
@@ -95,7 +95,9 @@ def main(config: ConfigDict):
     wandb.log(
         {
             "num_samples": len(train_dataset),
-            "num_episodes": int(len(dataset.episode_ends) * config.test_split),
+            "num_samples_test": len(test_dataset),
+            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
+            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
             "stats": normalizer.stats_dict,
         }
     )
@@ -313,10 +315,10 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.013 if args.dryrun is False else float("inf")
+    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
-    config.rollout.count = 10 if args.dryrun is False else num_envs
+    config.rollout.count = maybe(10, num_envs)
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -336,7 +338,7 @@ if __name__ == "__main__":
     #     data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
     # )
     config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate/vip/one_leg/data.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

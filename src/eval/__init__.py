@@ -118,18 +118,13 @@ def calculate_success_rate(
         n_success += success.sum().item()
 
         # Save the results from the rollout
-        all_rewards.append(rewards)
-        all_imgs1.append(imgs1)
-        all_imgs2.append(imgs2)
+        all_rewards.extend(rewards)
+        all_imgs1.extend(imgs1)
+        all_imgs2.extend(imgs2)
 
         # Update progress bar
         pbar.update(env.num_envs)
         pbar.set_postfix(success=n_success)
-
-    # Combine the results from all rollouts into a single tensor
-    all_rewards = torch.cat(all_rewards, dim=0)
-    all_imgs1 = torch.cat(all_imgs1, dim=0)
-    all_imgs2 = torch.cat(all_imgs2, dim=0)
 
     for rollout_idx in range(n_rollouts):
         # Get the rewards and images for this rollout
