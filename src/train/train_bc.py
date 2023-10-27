@@ -262,12 +262,12 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 16
+    num_envs = 10
 
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 1e-4
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = None
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/crimson-haze-327/actor_24.pt"
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs

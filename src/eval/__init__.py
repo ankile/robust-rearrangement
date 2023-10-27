@@ -37,7 +37,7 @@ def rollout(
     imgs1 = [obs["color_image1"].cpu()]
     imgs2 = [obs["color_image2"].cpu()]
     rewards = list()
-    done = torch.BoolTensor([[False]] * env.num_envs)
+    done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
     step_idx = 0
 
     pbar = tqdm(
@@ -53,15 +53,15 @@ def rollout(
         start = obs_horizon - 1
         end = start + action_horizon
         action = action_pred[:, start:end, :]
-        # (action_horizon, action_dim)
+        # (num_envs, action_horizon, action_dim)
 
         # execute action_horizon number of steps
         # without replanning
         for i in range(action.shape[1]):
             # stepping env
-            masked_action = action[:, i, :].clone()
-            masked_action[done.repeat((1, actor.action_dim))] = 0
-            obs, reward, done, _ = env.step(masked_action)
+            done_expanded = done.expand_as(action[:, i, :])
+            action[:, i, :][done_expanded] = 0
+            obs, reward, done, _ = env.step(action[:, i, :])
 
             # save observations
             obs_deque.append(obs)
@@ -76,7 +76,7 @@ def rollout(
             pbar.update(1)
             pbar.set_postfix(reward=reward)
             if step_idx >= rollout_max_steps:
-                done = torch.BoolTensor([[True]] * env.num_envs)
+                done = torch.ones((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
             if done.all():
                 break
