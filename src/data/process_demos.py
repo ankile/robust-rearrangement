@@ -19,7 +19,9 @@ def process_buffer(buffer, encoder):
     return encoder(tensor).cpu().numpy()
 
 
-def process_demos_to_feature(input_path, output_path, encoder, batch_size=256, separate=False):
+def process_demos_to_feature(
+    input_path, output_path, encoder, batch_size=256
+):
     file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
 
     actions, rewards, skills, episode_ends, furniture = [], [], [], [], []
@@ -42,7 +44,9 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256, s
         furniture.append(data["furniture"])
 
         obs = data["observations"]
-        robot_state_buffer = [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+        robot_state_buffer = [
+            filter_and_concat_robot_state(o["robot_state"]) for o in obs
+        ]
         img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
         img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
 
@@ -52,15 +56,11 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256, s
             features1.extend(process_buffer(img_buffer1[i:slice_end], encoder).tolist())
             features2.extend(process_buffer(img_buffer2[i:slice_end], encoder).tolist())
 
-    if separate:
-        obs_dict = {
-            "robot_state": np.array(robot_states, dtype=np.float32),
-            "feature1": np.array(features1, dtype=np.float32),
-            "feature2": np.array(features2, dtype=np.float32),
-        }
-    else:
-        observations = np.concatenate([robot_states, features1, features2], axis=-1)
-        obs_dict = {"observations": observations.astype(np.float32)}
+    obs_dict = {
+        "robot_state": np.array(robot_states, dtype=np.float32),
+        "feature1": np.array(features1, dtype=np.float32),
+        "feature2": np.array(features2, dtype=np.float32),
+    }
 
     output_path.mkdir(parents=True, exist_ok=True)
     zarr.save(
@@ -146,7 +146,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
     parser.add_argument("--randomness", "-r", type=str, default=None)
-    parser.add_argument("--features-separate", "-s", action="store_true")
     parser.add_argument("--highres", action="store_true")
     parser.add_argument("--lowres", action="store_true")
 
@@ -164,9 +163,6 @@ if __name__ == "__main__":
 
     obs_in_path = args.obs_in
     obs_out_path = args.obs_out
-
-    if args.features_separate:
-        obs_out_path = obs_out_path + "_separate"
 
     if args.highres:
         obs_out_path = obs_out_path + "_highres"
@@ -200,7 +196,6 @@ if __name__ == "__main__":
             output_path,
             encoder,
             batch_size=args.batch_size,
-            separate=args.features_separate,
         )
     elif args.obs_out == "image":
         process_demos_to_image(raw_data_path, output_path)
