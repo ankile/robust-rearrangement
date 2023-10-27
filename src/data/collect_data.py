@@ -10,8 +10,12 @@ if __name__ == "__main__":
     parser.add_argument("--num-demos", type=int, default=100)
     parser.add_argument("--obs-type", type=str, default="state")
     parser.add_argument("--gpu-id", type=int, default=0)
-    parser.add_argument("--resize-img-after-sim", dest="resize_img_after_sim", action="store_true")
-    parser.add_argument("--resize-sim-img", dest="small_sim_img_size", action="store_true")
+    parser.add_argument(
+        "--resize-img-after-sim", dest="resize_img_after_sim", action="store_true"
+    )
+    parser.add_argument(
+        "--resize-sim-img", dest="small_sim_img_size", action="store_true"
+    )
 
     args = parser.parse_args()
 

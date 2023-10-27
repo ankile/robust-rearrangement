@@ -218,4 +218,3 @@ class LitImageActor(pl.LightningModule):
         # )
 
         return optimizer
-

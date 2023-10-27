@@ -62,7 +62,9 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device) if not freeze_encoder else self.encoder1
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            if not freeze_encoder
+            else self.encoder1
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
@@ -104,12 +106,14 @@ class DoubleImageActor(torch.nn.Module):
         if img1.shape[-3:] != (224, 224, 3):
             # Resize images to 224x224x3 by first putting channels first
             # then resizing to 405x228, then center cropping to 224x224
-            img1 = F.center_crop(F.resize(img1.permute(0, 3, 1, 2), (228, 405), antialias=True), (224, 224)).permute(
-                0, 2, 3, 1
-            )
-            img2 = F.center_crop(F.resize(img2.permute(0, 3, 1, 2), (228, 405), antialias=True), (224, 224)).permute(
-                0, 2, 3, 1
-            )
+            img1 = F.center_crop(
+                F.resize(img1.permute(0, 3, 1, 2), (228, 405), antialias=True),
+                (224, 224),
+            ).permute(0, 2, 3, 1)
+            img2 = F.center_crop(
+                F.resize(img2.permute(0, 3, 1, 2), (228, 405), antialias=True),
+                (224, 224),
+            ).permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)

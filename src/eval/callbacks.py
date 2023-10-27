@@ -18,7 +18,7 @@ class RolloutEvaluationCallback(Callback):
         print("RolloutEvaluationCallback.on_epoch_end", trainer.global_rank)
         if trainer.global_rank != 0:
             return
-        
+
         epoch_idx = trainer.current_epoch
 
         if (
@@ -43,12 +43,9 @@ class RolloutEvaluationCallback(Callback):
 
             if success_rate > self.best_success_rate:
                 self.best_success_rate = success_rate
-                save_path = (
-                    f"models/actor_{self.config.furniture}_{wandb.run.name}.pt"
-                )
+                save_path = f"models/actor_{self.config.furniture}_{wandb.run.name}.pt"
                 torch.save(
                     pl_module.state_dict(),
                     save_path,
                 )
                 wandb.save(save_path)
-

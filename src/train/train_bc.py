@@ -3,13 +3,14 @@ from pathlib import Path
 import furniture_bench
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import wandb
 from diffusers.optimization import get_scheduler
-from src.data.dataset import FurnitureImageDataset, FurnitureFeatureDataset, SimpleFurnitureDataset
+from src.data.dataset import (
+    FurnitureImageDataset,
+    FurnitureFeatureDataset,
+)
 from src.data.normalizer import StateActionNormalizer
-from src.eval import calculate_success_rate
+from src.eval import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
@@ -135,15 +136,6 @@ def main(config: ConfigDict):
 
     n_batches = len(trainloader)
 
-    # lr_scheduler = getattr(torch.optim.lr_scheduler, config.lr_scheduler.name)(
-    #     optimizer=opt_noise,
-    #     max_lr=config.actor_lr,
-    #     epochs=config.num_epochs,
-    #     steps_per_epoch=n_batches,
-    #     pct_start=config.lr_scheduler.warmup_pct,
-    #     anneal_strategy="cos",
-    # )
-
     lr_scheduler = get_scheduler(
         name=config.lr_scheduler.name,
         optimizer=opt_noise,
@@ -197,7 +189,11 @@ def main(config: ConfigDict):
         tepoch.close()
 
         train_loss_mean = np.mean(epoch_loss)
-        tglobal.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
+        tglobal.set_postfix(
+            loss=train_loss_mean,
+            test_loss=test_loss_mean,
+            best_success_rate=best_success_rate,
+        )
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
@@ -218,7 +214,11 @@ def main(config: ConfigDict):
         test_tepoch.close()
 
         test_loss_mean = np.mean(test_loss)
-        tglobal.set_postfix(loss=train_loss_mean, test_loss=test_loss_mean)
+        tglobal.set_postfix(
+            loss=train_loss_mean,
+            test_loss=test_loss_mean,
+            best_success_rate=best_success_rate,
+        )
 
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
 
@@ -227,6 +227,7 @@ def main(config: ConfigDict):
             and (epoch_idx + 1) % config.rollout.every == 0
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
+            # Do no load the environment until we successfuly made it this far
             if env is None:
                 env = get_env(
                     config.gpu_id,
@@ -236,33 +237,7 @@ def main(config: ConfigDict):
                     randomness=config.randomness,
                     resize_img=not config.augment_image,
                 )
-
-            # Perform a rollout with the current model
-            success_rate = calculate_success_rate(
-                env,
-                actor,
-                n_rollouts=config.rollout.count,
-                rollout_max_steps=config.rollout.max_steps,
-                epoch_idx=epoch_idx,
-            )
-
-            if success_rate > best_success_rate:
-                best_success_rate = success_rate
-                save_path = str(model_save_dir / f"actor_best.pt")
-                torch.save(
-                    actor.state_dict(),
-                    save_path,
-                )
-
-                wandb.save(save_path)
-                wandb.log({"best_success_rate": best_success_rate})
-
-            # Checkpoint the model
-            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-            torch.save(
-                actor.state_dict(),
-                save_path,
-            )
+            best_success_rate = do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx)
 
     tglobal.close()
     wandb.finish()
@@ -281,7 +256,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 10
+    num_envs = 16
 
     config = ConfigDict()
 
@@ -316,9 +291,9 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
+    config.rollout.loss_threshold = 0.015 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
-    config.rollout.count = maybe(10, num_envs)
+    config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -326,7 +301,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
+    config.vision_encoder.model = "r3m_18"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_features = False
 
@@ -338,7 +313,7 @@ if __name__ == "__main__":
     #     data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
     # )
     config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

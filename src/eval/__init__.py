@@ -1,3 +1,4 @@
+import furniture_bench
 import torch
 
 import collections
@@ -6,6 +7,7 @@ import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from src.gym import get_env
 
 from src.models.actor import DoubleImageActor
 
@@ -35,47 +37,49 @@ def rollout(
     imgs1 = [obs["color_image1"].cpu()]
     imgs2 = [obs["color_image2"].cpu()]
     rewards = list()
-    done = torch.BoolTensor([False] * env.num_envs)
+    done = torch.BoolTensor([[False]] * env.num_envs)
     step_idx = 0
 
-    with tqdm(
+    pbar = tqdm(
         total=rollout_max_steps,
         desc="Eval OneLeg State Env",
         disable=not pbar,
-    ) as pbar:
-        while not done.all():
-            # Get the next actions from the actor
-            action_pred = actor.action(obs_deque)
+    )
+    while not done.all():
+        # Get the next actions from the actor
+        action_pred = actor.action(obs_deque)
 
-            # only take action_horizon number of actions
-            start = obs_horizon - 1
-            end = start + action_horizon
-            action = action_pred[:, start:end, :]
-            # (action_horizon, action_dim)
+        # only take action_horizon number of actions
+        start = obs_horizon - 1
+        end = start + action_horizon
+        action = action_pred[:, start:end, :]
+        # (action_horizon, action_dim)
 
-            # execute action_horizon number of steps
-            # without replanning
-            for i in range(action.shape[1]):
-                # stepping env
-                obs, reward, done, _ = env.step(action[:, i, :])
+        # execute action_horizon number of steps
+        # without replanning
+        for i in range(action.shape[1]):
+            # stepping env
+            masked_action = action[:, i, :].clone()
+            masked_action[done.repeat((1, actor.action_dim))] = 0
+            obs, reward, done, _ = env.step(masked_action)
 
-                # save observations
-                obs_deque.append(obs)
+            # save observations
+            obs_deque.append(obs)
 
-                # and reward/vis
-                rewards.append(reward.cpu())
-                imgs1.append(obs["color_image1"].cpu())
-                imgs2.append(obs["color_image2"].cpu())
+            # and reward/vis
+            rewards.append(reward.cpu())
+            imgs1.append(obs["color_image1"].cpu())
+            imgs2.append(obs["color_image2"].cpu())
 
-                # update progress bar
-                step_idx += 1
-                pbar.update(1)
-                pbar.set_postfix(reward=reward)
-                if step_idx >= rollout_max_steps:
-                    done = torch.BoolTensor([True] * env.num_envs)
+            # update progress bar
+            step_idx += 1
+            pbar.update(1)
+            pbar.set_postfix(reward=reward)
+            if step_idx >= rollout_max_steps:
+                done = torch.BoolTensor([[True]] * env.num_envs)
 
-                if done.all():
-                    break
+            if done.all():
+                break
 
     return (
         torch.cat(rewards, dim=1),
@@ -152,3 +156,34 @@ def calculate_success_rate(
     pbar.close()
 
     return n_success / n_rollouts
+
+
+def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx) -> float:
+    # Perform a rollout with the current model
+    success_rate = calculate_success_rate(
+        env,
+        actor,
+        n_rollouts=config.rollout.count,
+        rollout_max_steps=config.rollout.max_steps,
+        epoch_idx=epoch_idx,
+    )
+
+    if success_rate > best_success_rate:
+        best_success_rate = success_rate
+        save_path = str(model_save_dir / f"actor_best.pt")
+        torch.save(
+            actor.state_dict(),
+            save_path,
+        )
+
+        wandb.save(save_path)
+        wandb.log({"best_success_rate": best_success_rate})
+
+    # Checkpoint the model
+    save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+    torch.save(
+        actor.state_dict(),
+        save_path,
+    )
+
+    return best_success_rate

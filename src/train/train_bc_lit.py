@@ -88,7 +88,6 @@ def main(config: ConfigDict):
 
     callback = RolloutEvaluationCallback(config, get_env)
 
-
     trainer = pl.Trainer(
         devices=[0, 1, 2, 3],
         accelerator="gpu",
