@@ -34,7 +34,9 @@ def create_sample_indices(
             end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
-            indices.append([buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx])
+            indices.append(
+                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
+            )
     indices = np.array(indices)
     return indices
 
@@ -52,7 +54,9 @@ def sample_sequence(
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
-            data = np.zeros(shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype)
+            data = np.zeros(
+                shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
+            )
             if sample_start_idx > 0:
                 data[:sample_start_idx] = sample[0]
             if sample_end_idx < sequence_length:
@@ -60,100 +64,6 @@ def sample_sequence(
             data[sample_start_idx:sample_end_idx] = sample
         result[key] = data
     return result
-
-
-# normalize data
-def get_data_stats(data):
-    data = data.reshape(-1, data.shape[-1])
-    stats = {"min": np.min(data, axis=0), "max": np.max(data, axis=0)}
-    return stats
-
-
-def normalize_data(data, stats):
-    # nomalize to [0,1]
-    ndata = (data - stats["min"]) / (stats["max"] - stats["min"])
-    # normalize to [-1, 1]
-    ndata = ndata * 2 - 1
-    return ndata
-
-
-def unnormalize_data(ndata, stats):
-    ndata = (ndata + 1) / 2
-    data = ndata * (stats["max"] - stats["min"]) + stats["min"]
-    return data
-
-
-class SimpleFurnitureDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_path, pred_horizon, obs_horizon, action_horizon):
-        # read from zarr dataset
-        dataset = zarr.open(dataset_path, "r")
-        # Marks one-past the last index for each episode
-        self.episode_ends = dataset["episode_ends"][:]
-        print(f"Loading dataset of {len(self.episode_ends)} episodes")
-
-        # All demonstration episodes are concatinated in the first dimension N
-        train_data = {
-            # (N, action_dim)
-            "action": dataset["actions"][:].astype(np.float32),
-            # (N, obs_dim)
-            "obs": dataset["observations"][:].astype(np.float32),
-        }
-
-        # compute start and end of each state-action sequence
-        # also handles padding
-        indices = create_sample_indices(
-            episode_ends=self.episode_ends,
-            sequence_length=pred_horizon,
-            # add padding such that each timestep in the dataset are seen
-            pad_before=obs_horizon - 1,
-            pad_after=action_horizon - 1,
-        )
-
-        # compute statistics and normalized data to [-1,1]
-        stats = dict()
-        normalized_train_data = dict()
-        for key, data in train_data.items():
-            stats[key] = get_data_stats(data)
-            normalized_train_data[key] = normalize_data(data, stats[key])
-
-        self.indices = indices
-        self.stats = stats
-        self.normalized_train_data = normalized_train_data
-        self.pred_horizon = pred_horizon
-        self.action_horizon = action_horizon
-        self.obs_horizon = obs_horizon
-
-        # Add action and observation dimensions to the dataset
-        self.action_dim = train_data["action"].shape[-1]
-        self.obs_dim = train_data["obs"].shape[-1]
-        self.robot_state_dim = 14
-
-    def __len__(self):
-        # all possible segments of the dataset
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        # get the start/end indices for this datapoint
-        (
-            buffer_start_idx,
-            buffer_end_idx,
-            sample_start_idx,
-            sample_end_idx,
-        ) = self.indices[idx]
-
-        # get normalized data using these indices
-        nsample = sample_sequence(
-            train_data=self.normalized_train_data,
-            sequence_length=self.pred_horizon,
-            buffer_start_idx=buffer_start_idx,
-            buffer_end_idx=buffer_end_idx,
-            sample_start_idx=sample_start_idx,
-            sample_end_idx=sample_end_idx,
-        )
-
-        # discard unused observations
-        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
-        return nsample
 
 
 class FurnitureImageDataset(torch.utils.data.Dataset):
@@ -192,11 +102,17 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # compute statistics and normalized data to [-1,1]
         normalized_train_data = dict()
         for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
+            normalized_train_data[key] = normalizer(
+                torch.from_numpy(data), key, forward=True
+            ).numpy()
 
         # int8, [0,255], (N,224,224,3)
-        normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
-        normalized_train_data["color_image2"] = dataset["color_image2"][: self.episode_ends[-1]]
+        normalized_train_data["color_image1"] = dataset["color_image1"][
+            : self.episode_ends[-1]
+        ]
+        normalized_train_data["color_image2"] = dataset["color_image2"][
+            : self.episode_ends[-1]
+        ]
 
         # If augment_image is False, assert that the images are of size (224, 224, 3)
         if not augment_image:
@@ -310,15 +226,23 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
                 stats = get_data_stats(data)
                 normalizer.stats[feature] = nn.ParameterDict(
                     {
-                        "min": nn.Parameter(torch.from_numpy(stats["min"]), requires_grad=False),
-                        "max": nn.Parameter(torch.from_numpy(stats["max"]), requires_grad=False),
+                        "min": nn.Parameter(
+                            torch.from_numpy(stats["min"]), requires_grad=False
+                        ),
+                        "max": nn.Parameter(
+                            torch.from_numpy(stats["max"]), requires_grad=False
+                        ),
                     }
                 )
-                normalized_train_data[feature] = normalizer(torch.from_numpy(data), feature, forward=True).numpy()
+                normalized_train_data[feature] = normalizer(
+                    torch.from_numpy(data), feature, forward=True
+                ).numpy()
 
         # compute statistics and normalized data to [-1,1]
         for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
+            normalized_train_data[key] = normalizer(
+                torch.from_numpy(data), key, forward=True
+            ).numpy()
 
         self.indices = indices
         self.normalized_train_data = normalized_train_data
