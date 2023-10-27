@@ -18,7 +18,7 @@ from src.models.actor import DoubleImageActor
 from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
-from torch.utils.data import random_split
+from torch.utils.data import random_split, DataLoader
 
 
 from ml_collections import ConfigDict
@@ -104,7 +104,7 @@ def main(config: ConfigDict):
     )
     wandb.config.update(config)
 
-    # create dataloader
+    # Create dataloaders
     trainloader = FixedStepsDataloader(
         dataset=train_dataset,
         n_batches=config.steps_per_epoch,
@@ -116,9 +116,8 @@ def main(config: ConfigDict):
         persistent_workers=True,
     )
 
-    testloader = FixedStepsDataloader(
+    testloader = DataLoader(
         dataset=test_dataset,
-        n_batches=10,
         batch_size=config.batch_size,
         num_workers=config.dataloader_workers,
         shuffle=False,
