@@ -75,7 +75,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256, s
     )
 
 
-def process_demos_to_image(in_dir, out_dir, highres=False):
+def process_demos_to_image(in_dir, out_dir):
     file_paths = glob(f"{in_dir}/**/*.pkl", recursive=True)
     print(f"Number of trajectories: {len(file_paths)}")
 
@@ -120,10 +120,6 @@ def process_demos_to_image(in_dir, out_dir, highres=False):
     color_image1 = (np.array(color_image1, dtype=np.uint8),)
     color_image2 = (np.array(color_image2, dtype=np.uint8),)
 
-    if highres:
-        color_image1 = F.resize(torch.from_numpy(color_image1), (228, 405)).numpy()
-        color_image2 = F.resize(torch.from_numpy(color_image2), (228, 405)).numpy()
-
     # Save to file
     out_dir.mkdir(parents=True, exist_ok=True)
     zarr.save(
@@ -165,10 +161,6 @@ if __name__ == "__main__":
         assert args.encoder is not None, "Must specify encoder when using feature obs"
 
     data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-
-    # obs_out_path = args.obs_out + ("_separate" if args.features_separate else "")
-    # obs_out_path = obs_out_path + ("_highres" if args.highres else "")
-    # obs_in_path = args.obs_in + ("_highres" if args.highres else "")
 
     obs_in_path = args.obs_in
     obs_out_path = args.obs_out
