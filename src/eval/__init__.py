@@ -179,11 +179,4 @@ def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate,
         wandb.save(save_path)
         wandb.log({"best_success_rate": best_success_rate})
 
-    # Checkpoint the model
-    save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-    torch.save(
-        actor.state_dict(),
-        save_path,
-    )
-
     return best_success_rate

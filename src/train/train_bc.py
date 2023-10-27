@@ -226,6 +226,13 @@ def main(config: ConfigDict):
             and (epoch_idx + 1) % config.rollout.every == 0
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
+            # Checkpoint the model
+            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+            torch.save(
+                actor.state_dict(),
+                save_path,
+            )
+
             # Do no load the environment until we successfuly made it this far
             if env is None:
                 env = get_env(
