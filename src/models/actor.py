@@ -171,8 +171,8 @@ class DoubleImageActor(torch.nn.Module):
             feature2 = batch["feature2"]
 
             if self.noise_augment:
-                feature1 += torch.normal(mean=0.0, std=0.05, size=features.size()).to(features.device)
-                feature2 += torch.normal(mean=0.0, std=0.05, size=features.size()).to(features.device)
+                feature1 += torch.normal(mean=0.0, std=self.noise_augment, size=feature1.size()).to(feature1.device)
+                feature2 += torch.normal(mean=0.0, std=self.noise_augment, size=feature2.size()).to(feature2.device)
 
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
             B = nobs.shape[0]

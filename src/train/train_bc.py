@@ -34,7 +34,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Test with images produced as 224x224 from sim directly.",
+        notes="Test with a tiny bit of noise added to the features to guard against overfitting.",
     )
 
     # Create model save dir
@@ -102,7 +102,7 @@ def main(config: ConfigDict):
             "stats": normalizer.stats_dict,
         }
     )
-    wandb.config.update(config)
+    wandb.config.update(config.to_dict())
 
     # Create dataloaders
     trainloader = FixedStepsDataloader(
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = 10
+    num_envs = maybe(16, fb=2)
 
     config = ConfigDict()
 
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/crimson-haze-327/actor_24.pt"
+    config.load_checkpoint_path = None
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
@@ -294,12 +294,12 @@ if __name__ == "__main__":
     config.randomness = "low"
     config.weight_decay = 1e-6
     config.test_split = 0.1
-    config.noise_augment = False
+    config.noise_augment = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.every = 5 if args.dryrun is False else 1
     config.rollout.loss_threshold = 0.015 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 750
+    config.rollout.max_steps = 750 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -308,7 +308,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_features = False
 
@@ -316,11 +316,8 @@ if __name__ == "__main__":
 
     assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    # config.datasim_path = (
-    #     data_base_dir / f"processed/sim/feature_separate/{config.vision_encoder.model}/one_leg/data.zarr"
-    # )
     config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

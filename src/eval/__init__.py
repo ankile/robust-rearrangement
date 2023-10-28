@@ -38,6 +38,13 @@ def rollout(
     imgs2 = [obs["color_image2"].cpu()]
     rewards = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
+
+    # Define a noop tensor to use when done
+    # It is zero everywhere except for the first element of the rotation
+    # as the quaternion noop is (1, 0, 0, 0)
+    # The elements are: (x, y, z) + (a, b, c, d) + (w,)
+    noop = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda")
+
     step_idx = 0
 
     pbar = tqdm(
@@ -59,10 +66,10 @@ def rollout(
         # without replanning
         for i in range(action.shape[1]):
             # stepping env
-            done_expanded = done.expand_as(action[:, i, :])
-            this_action = torch.where(~done_expanded, action[:, i, :], torch.tensor(0.0).to(action.device))
+            curr_action = action[:, i, :].clone()
+            curr_action[done.nonzero()] = noop
 
-            obs, reward, done, _ = env.step(this_action)
+            obs, reward, done, _ = env.step(curr_action)
 
             # save observations
             obs_deque.append(obs)
