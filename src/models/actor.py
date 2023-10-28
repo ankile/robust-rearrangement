@@ -34,6 +34,7 @@ class DoubleImageActor(torch.nn.Module):
         self.obs_horizon = config.obs_horizon
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
+        self.noise_augment = config.noise_augment
         # This is the number of environments only used for inference, not training
         # Maybe it makes sense to do this another way
         self.B = config.num_envs
@@ -62,9 +63,7 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
-            if not freeze_encoder
-            else self.encoder1
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device) if not freeze_encoder else self.encoder1
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
@@ -101,19 +100,6 @@ class DoubleImageActor(torch.nn.Module):
         img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
             self.B * self.obs_horizon, *img_size
         )
-
-        # But first account for images that are not of size 224x224
-        if img1.shape[-3:] != (224, 224, 3):
-            # Resize images to 224x224x3 by first putting channels first
-            # then resizing to 405x228, then center cropping to 224x224
-            img1 = F.center_crop(
-                F.resize(img1.permute(0, 3, 1, 2), (228, 405), antialias=True),
-                (224, 224),
-            ).permute(0, 2, 3, 1)
-            img2 = F.center_crop(
-                F.resize(img2.permute(0, 3, 1, 2), (228, 405), antialias=True),
-                (224, 224),
-            ).permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
@@ -183,6 +169,11 @@ class DoubleImageActor(torch.nn.Module):
             # All observations already normalized in the dataset
             feature1 = batch["feature1"]
             feature2 = batch["feature2"]
+
+            if self.noise_augment:
+                feature1 += torch.normal(mean=0.0, std=0.05, size=features.size()).to(features.device)
+                feature2 += torch.normal(mean=0.0, std=0.05, size=features.size()).to(features.device)
+
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
             B = nobs.shape[0]
 

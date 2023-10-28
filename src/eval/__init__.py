@@ -60,8 +60,9 @@ def rollout(
         for i in range(action.shape[1]):
             # stepping env
             done_expanded = done.expand_as(action[:, i, :])
-            action[:, i, :][done_expanded] = 0
-            obs, reward, done, _ = env.step(action[:, i, :])
+            this_action = torch.where(~done_expanded, action[:, i, :], torch.tensor(0.0).to(action.device))
+
+            obs, reward, done, _ = env.step(this_action)
 
             # save observations
             obs_deque.append(obs)

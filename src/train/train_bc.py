@@ -294,11 +294,12 @@ if __name__ == "__main__":
     config.randomness = "low"
     config.weight_decay = 1e-6
     config.test_split = 0.1
+    config.noise_augment = False
 
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
     config.rollout.loss_threshold = 0.015 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.max_steps = 750 if args.dryrun is False else 750
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
