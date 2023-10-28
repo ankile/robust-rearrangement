@@ -19,7 +19,7 @@ from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
-
+from src.common.earlystop import EarlyStopper
 
 from ml_collections import ConfigDict
 
@@ -145,6 +145,11 @@ def main(config: ConfigDict):
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
     best_success_rate = float("-inf")
 
+    early_stopper = EarlyStopper(
+        patience=config.early_stopper.patience,
+        smooth_factor=config.early_stopper.smooth_factor,
+    )
+
     # Train loop
     test_loss_mean = 0.0
     for epoch_idx in tglobal:
@@ -220,6 +225,13 @@ def main(config: ConfigDict):
         )
 
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
+
+        # Early stopping
+        if early_stopper.update(test_loss_mean):
+            print(
+                f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
+            )
+            break
 
         if (
             config.rollout.every != -1
@@ -311,6 +323,10 @@ if __name__ == "__main__":
     config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_features = False
+
+    config.early_stopper = ConfigDict()
+    config.early_stopper.smooth_factor = 0.9
+    config.early_stopper.patience = 5
 
     config.model_save_dir = "models"
 
