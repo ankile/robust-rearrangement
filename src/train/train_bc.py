@@ -30,8 +30,8 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="furniture-diffusion",
-        entity="ankile",
+        project="robot-rearrangement",
+        entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
         notes="Test with images produced as 224x224 from sim directly.",
