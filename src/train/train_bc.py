@@ -306,7 +306,7 @@ if __name__ == "__main__":
     config.randomness = "low"
     config.weight_decay = 1e-6
     config.test_split = 0.1
-    config.noise_augment = 0.05
+    config.noise_augment = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 5 if args.dryrun is False else 1
