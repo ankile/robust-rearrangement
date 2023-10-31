@@ -159,8 +159,6 @@ def calculate_success_rate(
         }
     )
 
-    # Log the success rate to wandb
-    wandb.log({"success_rate": n_success / n_rollouts, "epoch": epoch_idx})
     pbar.close()
 
     return n_success / n_rollouts
@@ -185,6 +183,8 @@ def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate,
         )
 
         wandb.save(save_path)
-        wandb.log({"best_success_rate": best_success_rate})
+
+    # Log the success rate to wandb
+    wandb.log({"success_rate": success_rate, "best_success_rate": best_success_rate, "epoch": epoch_idx})
 
     return best_success_rate

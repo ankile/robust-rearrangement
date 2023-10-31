@@ -34,7 +34,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Test with a tiny bit of noise added to the features to guard against overfitting.",
+        notes="Test with dropout on the features.",
     )
 
     # Create model save dir
@@ -84,6 +84,9 @@ def main(config: ConfigDict):
         normalizer=normalizer,
         config=config,
     )
+
+    # Watch the model
+    wandb.watch(actor, log="all")
 
     if config.load_checkpoint_path is not None:
         print(f"Loading checkpoint from {config.load_checkpoint_path}")
@@ -233,6 +236,15 @@ def main(config: ConfigDict):
             )
             break
 
+        # Log the early stopping stats
+        wandb.log(
+            {
+                "early_stopper/counter": early_stopper.counter,
+                "early_stopper/best_loss": early_stopper.best_loss,
+                "early_stopper/ema_loss": early_stopper.ema_loss,
+            }
+        )
+
         if (
             config.rollout.every != -1
             and (epoch_idx + 1) % config.rollout.every == 0
@@ -304,9 +316,7 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.weight_decay = 1e-6
     config.test_split = 0.1
-    config.noise_augment = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 5 if args.dryrun is False else 1
@@ -327,6 +337,11 @@ if __name__ == "__main__":
     config.early_stopper = ConfigDict()
     config.early_stopper.smooth_factor = 0.9
     config.early_stopper.patience = 5
+
+    # Regularization
+    config.weight_decay = 1e-6
+    config.feature_dropout = 0.5
+    config.noise_augment = False
 
     config.model_save_dir = "models"
 

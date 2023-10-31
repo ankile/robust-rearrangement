@@ -75,6 +75,8 @@ class DoubleImageActor(torch.nn.Module):
             down_dims=config.down_dims,
         ).to(device)
 
+        self.dropout = nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+
         self.print_model_params()
 
     def print_model_params(self: torch.nn.Module):
@@ -174,6 +176,7 @@ class DoubleImageActor(torch.nn.Module):
                 feature1 += torch.normal(mean=0.0, std=self.noise_augment, size=feature1.size()).to(feature1.device)
                 feature2 += torch.normal(mean=0.0, std=self.noise_augment, size=feature2.size()).to(feature2.device)
 
+            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
             B = nobs.shape[0]
 
@@ -182,6 +185,10 @@ class DoubleImageActor(torch.nn.Module):
         obs_cond = nobs[:, : self.obs_horizon, :]
         # (B, obs_horizon * obs_dim)
         obs_cond = obs_cond.flatten(start_dim=1)
+
+        # Apply Dropout to the observation conditioning if specified
+        if self.dropout:
+            obs_cond = self.dropout(obs_cond)
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
