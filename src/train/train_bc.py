@@ -34,7 +34,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Test with dropout on the features.",
+        notes="Fine-tune with unfreezed encoder and image augmentation (translation).",
     )
 
     # Create model save dir
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.actor_lr = 5e-6
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
@@ -299,20 +299,20 @@ if __name__ == "__main__":
     config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
-    config.down_dims = [512, 1024, 2048]
+    config.down_dims = [256, 512, 1024]
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = None
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_94.pt"
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 200
     config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.obs_horizon = 2
-    config.observation_type = "feature"
-    config.augment_image = False
+    config.observation_type = "image"
+    config.augment_image = True
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -330,8 +330,8 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
-    config.vision_encoder.freeze = True
+    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -339,17 +339,15 @@ if __name__ == "__main__":
     config.early_stopper.patience = 5
 
     # Regularization
-    config.weight_decay = 1e-6
-    config.feature_dropout = 0.5
+    config.weight_decay = 1e-5
+    config.feature_dropout = False
     config.noise_augment = False
 
     config.model_save_dir = "models"
 
     assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
-    )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

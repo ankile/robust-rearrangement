@@ -19,9 +19,7 @@ def process_buffer(buffer, encoder):
     return encoder(tensor).cpu().numpy()
 
 
-def process_demos_to_feature(
-    input_path, output_path, encoder, batch_size=256
-):
+def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
     file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
 
     actions, rewards, skills, episode_ends, furniture = [], [], [], [], []
@@ -44,9 +42,7 @@ def process_demos_to_feature(
         furniture.append(data["furniture"])
 
         obs = data["observations"]
-        robot_state_buffer = [
-            filter_and_concat_robot_state(o["robot_state"]) for o in obs
-        ]
+        robot_state_buffer = [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
         img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
         img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
 
@@ -75,65 +71,111 @@ def process_demos_to_feature(
     )
 
 
-def process_demos_to_image(in_dir, out_dir):
+def initialize_zarr_store(out_dir, initial_data):
+    """
+    Initialize the Zarr store with datasets based on the initial data sample.
+    """
+    z = zarr.open(str(out_dir / "data.zarr"), mode="w")
+    z.attrs["time_created"] = str(np.datetime64("now"))
+
+    # Initialize datasets with shapes based on the initial data
+    z.create_dataset(
+        "robot_state",
+        shape=(0, len(filter_and_concat_robot_state(initial_data["observations"][0]["robot_state"]))),
+        dtype=np.float32,
+        chunks=True,
+    )
+    z.create_dataset(
+        "color_image1",
+        shape=(0,) + initial_data["observations"][0]["color_image1"].shape,
+        dtype=np.uint8,
+        chunks=True,
+    )
+    z.create_dataset(
+        "color_image2",
+        shape=(0,) + initial_data["observations"][0]["color_image2"].shape,
+        dtype=np.uint8,
+        chunks=True,
+    )
+    z.create_dataset(
+        "action",
+        shape=(0, len(initial_data["actions"][0])),
+        dtype=np.float32,
+        chunks=True,
+    )
+    z.create_dataset(
+        "reward",
+        shape=(0,),
+        dtype=np.float32,
+        chunks=True,
+    )
+    z.create_dataset(
+        "skill",
+        shape=(0,),
+        dtype=np.float32,
+        chunks=True,
+    )
+    z.create_dataset(
+        "episode_ends",
+        shape=(0,),
+        dtype=np.uint32,
+        chunks=True,
+    )
+    # z.create_dataset(
+    #     "furniture",
+    #     shape=(0,),
+    #     dtype=np.object,
+    #     chunks=True,
+    #     maxshape=(None,),
+    # )
+
+    return z
+
+
+def process_pickle_file(z, pickle_path):
+    """
+    Process a single pickle file and append data to the Zarr store.
+    """
+    with open(pickle_path, "rb") as f:
+        data = pickle.load(f)
+
+    obs = data["observations"]
+    z["robot_state"].append([filter_and_concat_robot_state(o["robot_state"]) for o in obs])
+    z["color_image1"].append([o["color_image1"] for o in obs])
+    z["color_image2"].append([o["color_image2"] for o in obs])
+    z["action"].append(data["actions"])
+    z["reward"].append(data["rewards"])
+    z["skill"].append(data["skills"])
+    curr_index = z["episode_ends"][-1] if len(z["episode_ends"]) > 0 else 0
+    z["episode_ends"].append([curr_index + len(data["actions"])])
+    # z["furniture"].append(data["furniture"])
+
+
+def create_zarr_dataset(in_dir, out_dir):
+    """
+    Create a Zarr dataset from multiple pickle files in a directory.
+    """
     file_paths = glob(f"{in_dir}/**/*.pkl", recursive=True)
     print(f"Number of trajectories: {len(file_paths)}")
 
-    (
-        robot_state,
-        color_image1,
-        color_image2,
-        actions,
-        rewards,
-        skills,
-        episode_ends,
-        furniture,
-    ) = (
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-    )
-    end_index = 0
-
-    for path in tqdm(file_paths):
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-
-        obs = data["observations"]
-        robot_state += [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
-        color_image1 += [o["color_image1"] for o in obs]
-        color_image2 += [o["color_image2"] for o in obs]
-
-        actions += data["actions"]
-        rewards += data["rewards"]
-        skills += data["skills"]
-
-        end_index += len(data["actions"])
-        episode_ends.append(end_index)
-        furniture.append(data["furniture"])
-
-    color_image1 = (np.array(color_image1, dtype=np.uint8),)
-    color_image2 = (np.array(color_image2, dtype=np.uint8),)
-
-    # Save to file
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    zarr.save(
-        str(out_dir / "data.zarr"),
-        robot_state=np.array(robot_state, dtype=np.float32),
-        color_image1=color_image1,
-        color_image2=np.array(color_image2, dtype=np.uint8),
-        action=np.array(actions, dtype=np.float32),
-        reward=np.array(rewards, dtype=np.float32),
-        skills=np.array(skills, dtype=np.float32),
-        episode_ends=np.array(episode_ends, dtype=np.uint32),
-        furniture=furniture,
-        time_created=np.datetime64("now"),
-    )
+
+    # Load one file to initialize the Zarr store
+    with open(file_paths[0], "rb") as f:
+        initial_data = pickle.load(f)
+
+    z = initialize_zarr_store(out_dir, initial_data)
+
+    # Process the first file
+    process_pickle_file(z, file_paths[0])
+
+    # Process the remaining files
+    for path in tqdm(file_paths[1:], desc="Processing pickle files"):
+        process_pickle_file(z, path)
+
+    # Update any final metadata if necessary
+    z.attrs["time_finished"] = str(np.datetime64("now"))
 
 
 if __name__ == "__main__":
@@ -165,12 +207,12 @@ if __name__ == "__main__":
     obs_out_path = args.obs_out
 
     if args.highres:
-        obs_out_path = obs_out_path + "_highres"
         obs_in_path = obs_in_path + "_highres"
+        obs_out_path = obs_out_path + "_highres"
 
     if args.lowres:
-        obs_out_path = obs_out_path + "_small"
         obs_in_path = obs_in_path + "_small"
+        obs_out_path = obs_out_path + "_small"
 
     raw_data_path = data_base_path / "raw" / args.env / obs_in_path / args.furniture
     output_path = data_base_path / "processed" / args.env / obs_out_path
@@ -198,4 +240,4 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
         )
     elif args.obs_out == "image":
-        process_demos_to_image(raw_data_path, output_path)
+        create_zarr_dataset(raw_data_path, output_path)

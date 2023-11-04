@@ -2,6 +2,34 @@ import torch
 import random
 import torchvision.transforms.functional as F
 from ipdb import set_trace as bp
+import numpy as np
+
+
+def random_translate(img, max_translation=50):
+    H, W, _ = img.shape[1:]
+    translated_images = np.zeros_like(img)
+
+    translation_height = np.random.randint(-max_translation, max_translation)
+    translation_width = np.random.randint(-max_translation, max_translation)
+
+    # Calculate the indices for zero-padded array
+    start_height = max(translation_height, 0)
+    end_height = H + min(translation_height, 0)
+    start_width = max(translation_width, 0)
+    end_width = W + min(translation_width, 0)
+
+    # Calculate the indices for the original image
+    start_height_orig = -min(translation_height, 0)
+    end_height_orig = H - max(translation_height, 0)
+    start_width_orig = -min(translation_width, 0)
+    end_width_orig = W - max(translation_width, 0)
+
+    # Index into the zero-padded array and place the original image
+    translated_images[:, start_height:end_height, start_width:end_width, :] = img[
+        :, start_height_orig:end_height_orig, start_width_orig:end_width_orig, :
+    ]
+
+    return translated_images
 
 
 class ImageAugmentation:

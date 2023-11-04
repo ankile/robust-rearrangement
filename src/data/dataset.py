@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import zarr
 from src.data.normalizer import StateActionNormalizer
-from src.data.augmentation import ImageAugmentation
+from src.data.augmentation import ImageAugmentation, random_translate
 import torchvision.transforms.functional as F
 
 from ipdb import set_trace as bp
@@ -34,9 +34,7 @@ def create_sample_indices(
             end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
-            indices.append(
-                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
-            )
+            indices.append([buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx])
     indices = np.array(indices)
     return indices
 
@@ -54,9 +52,7 @@ def sample_sequence(
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
-            data = np.zeros(
-                shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
-            )
+            data = np.zeros(shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype)
             if sample_start_idx > 0:
                 data[:sample_start_idx] = sample[0]
             if sample_end_idx < sequence_length:
@@ -102,26 +98,17 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # compute statistics and normalized data to [-1,1]
         normalized_train_data = dict()
         for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(
-                torch.from_numpy(data), key, forward=True
-            ).numpy()
+            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
 
         # int8, [0,255], (N,224,224,3)
-        normalized_train_data["color_image1"] = dataset["color_image1"][
-            : self.episode_ends[-1]
-        ]
-        normalized_train_data["color_image2"] = dataset["color_image2"][
-            : self.episode_ends[-1]
-        ]
+        normalized_train_data["color_image1"] = dataset["color_image1"][: self.episode_ends[-1]]
+        normalized_train_data["color_image2"] = dataset["color_image2"][: self.episode_ends[-1]]
 
-        # If augment_image is False, assert that the images are of size (224, 224, 3)
-        if not augment_image:
-            assert normalized_train_data["color_image1"].shape[1:] == (224, 224, 3)
-            assert normalized_train_data["color_image2"].shape[1:] == (224, 224, 3)
+        assert normalized_train_data["color_image1"].shape[1:] == (224, 224, 3)
+        assert normalized_train_data["color_image2"].shape[1:] == (224, 224, 3)
 
         # Add image augmentation
         self.augment_image = augment_image
-        self.image_augmentation = ImageAugmentation()
 
         self.indices = indices
         self.normalized_train_data = normalized_train_data
@@ -135,11 +122,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.indices)
-
-    def transform(self, image):
-        image = F.resize(image, (228, 405), antialias=True)
-        image = self.image_augmentation(image)
-        return image
 
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
@@ -165,12 +147,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
 
         if self.augment_image:
-            nsample["color_image1"] = self.transform(
-                torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
-            ).permute(0, 2, 3, 1)
-            nsample["color_image2"] = self.transform(
-                torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
-            ).permute(0, 2, 3, 1)
+            nsample["color_image1"] = random_translate(nsample["color_image1"])
+            nsample["color_image2"] = random_translate(nsample["color_image2"])
 
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
@@ -226,23 +204,15 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
                 stats = get_data_stats(data)
                 normalizer.stats[feature] = nn.ParameterDict(
                     {
-                        "min": nn.Parameter(
-                            torch.from_numpy(stats["min"]), requires_grad=False
-                        ),
-                        "max": nn.Parameter(
-                            torch.from_numpy(stats["max"]), requires_grad=False
-                        ),
+                        "min": nn.Parameter(torch.from_numpy(stats["min"]), requires_grad=False),
+                        "max": nn.Parameter(torch.from_numpy(stats["max"]), requires_grad=False),
                     }
                 )
-                normalized_train_data[feature] = normalizer(
-                    torch.from_numpy(data), feature, forward=True
-                ).numpy()
+                normalized_train_data[feature] = normalizer(torch.from_numpy(data), feature, forward=True).numpy()
 
         # compute statistics and normalized data to [-1,1]
         for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(
-                torch.from_numpy(data), key, forward=True
-            ).numpy()
+            normalized_train_data[key] = normalizer(torch.from_numpy(data), key, forward=True).numpy()
 
         self.indices = indices
         self.normalized_train_data = normalized_train_data
