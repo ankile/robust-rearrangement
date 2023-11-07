@@ -297,7 +297,7 @@ if __name__ == "__main__":
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
     config.clip_sample = True
-    config.data_subset = 200 if args.dryrun is False else 10
+    config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
