@@ -34,7 +34,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Fine-tune with unfreezed encoder and image augmentation (translation).",
+        notes="Fine-tune with unfreezed encoder and image augmentation (translation), take 2.",
     )
 
     # Create model save dir
@@ -291,12 +291,13 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-6
+    config.actor_lr = 5e-5
+    config.augment_image = True
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
     config.clip_sample = True
-    config.data_subset = None if args.dryrun is False else 10
+    config.data_subset = 200 if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
@@ -304,18 +305,17 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_94.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_199.pt"
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 200
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.obs_horizon = 2
     config.observation_type = "image"
-    config.augment_image = True
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
+    config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
@@ -336,10 +336,10 @@ if __name__ == "__main__":
 
     config.early_stopper = ConfigDict()
     config.early_stopper.smooth_factor = 0.9
-    config.early_stopper.patience = 5
+    config.early_stopper.patience = 10
 
     # Regularization
-    config.weight_decay = 1e-5
+    config.weight_decay = 1e-6
     config.feature_dropout = False
     config.noise_augment = False
 
