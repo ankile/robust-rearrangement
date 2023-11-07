@@ -10,6 +10,7 @@ from src.common.pytorch_util import replace_submodules
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 import torchvision.transforms.functional as F
+from src.models.value import DoubleCritic, ValueNetwork
 
 from ipdb import set_trace as bp
 import numpy as np
@@ -63,19 +64,24 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device) if not freeze_encoder else self.encoder1
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            if not freeze_encoder
+            else self.encoder1
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
-        self.obs_dim = config.robot_state_dim + self.encoding_dim
+        self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
+        self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
         self.model = ConditionalUnet1D(
             input_dim=config.action_dim,
-            global_cond_dim=self.obs_dim * config.obs_horizon,
+            global_cond_dim=self.obs_dim,
             down_dims=config.down_dims,
         ).to(device)
 
-        self.dropout = nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+        self.dropout = (
+            nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+        )
 
         self.print_model_params()
 
@@ -150,35 +156,8 @@ class DoubleImageActor(torch.nn.Module):
 
     # === Training ===
     def compute_loss(self, batch):
-        nrobot_state = batch["robot_state"]
-        if self.observation_type == "image":
-            # State already normalized in the dataset
-            B = nrobot_state.shape[0]
-
-            # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
-            # so that it's compatible with the encoder
-            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
-            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
-
-            # Encode images and reshape back to (B, obs_horizon, -1)
-            image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-            image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
-
-            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
-
-        elif self.observation_type == "feature":
-            # All observations already normalized in the dataset
-            feature1 = batch["feature1"]
-            feature2 = batch["feature2"]
-
-            if self.noise_augment:
-                feature1 += torch.normal(mean=0.0, std=self.noise_augment, size=feature1.size()).to(feature1.device)
-                feature2 += torch.normal(mean=0.0, std=self.noise_augment, size=feature2.size()).to(feature2.device)
-
-            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            B = nobs.shape[0]
+        # State already normalized in the dataset
+        nobs = self._training_obs(batch)
 
         # observation as FiLM conditioning
         # (B, obs_horizon, obs_dim)
@@ -200,7 +179,7 @@ class DoubleImageActor(torch.nn.Module):
         timesteps = torch.randint(
             0,
             self.train_noise_scheduler.config.num_train_timesteps,
-            (B,),
+            (nobs.shape[0],),
             device=self.device,
         ).long()
 
@@ -213,3 +192,102 @@ class DoubleImageActor(torch.nn.Module):
         loss = nn.functional.mse_loss(noise_pred, noise)
 
         return loss
+
+    def _training_obs(self, batch):
+        nrobot_state = batch["robot_state"]
+        B = nrobot_state.shape[0]
+
+        if self.observation_type == "image":
+            # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
+            # so that it's compatible with the encoder
+            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
+            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
+
+            # Encode images and reshape back to (B, obs_horizon, -1)
+            image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+            image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+
+            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+            nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
+
+        elif self.observation_type == "feature":
+            # All observations already normalized in the dataset
+            feature1 = batch["feature1"]
+            feature2 = batch["feature2"]
+
+            if self.noise_augment:
+                feature1 += torch.normal(
+                    mean=0.0, std=self.noise_augment, size=feature1.size()
+                ).to(feature1.device)
+                feature2 += torch.normal(
+                    mean=0.0, std=self.noise_augment, size=feature2.size()
+                ).to(feature2.device)
+
+            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+        return nobs
+
+
+class ImplicitQActor(DoubleImageActor):
+    def __init__(
+        self,
+        device: Union[str, torch.device],
+        encoder_name: str,
+        freeze_encoder: bool,
+        normalizer: StateActionNormalizer,
+        config,
+    ) -> None:
+        super().__init__(device, encoder_name, freeze_encoder, normalizer, config)
+
+        # Add hyperparameters specific to IDQL
+        self.expectile = 0.9
+        self.tau = None
+        self.discount = None
+        self.temperature = None
+        self.discount = 0.99
+
+        # Add networks for the Q function
+        self.q_network = DoubleCritic(
+            input_dim=self.obs_dim,
+            hidden_dims=[256, 256],
+            dropout=0.1,
+        ).to(device)
+
+        # Create a copy of the Q network for the target network with the same weights and grad tracking disabled
+        self.q_target_network = self.q_network.copy().to(device)
+        self.q_target_network.eval()
+        for param in self.q_target_network.parameters():
+            param.requires_grad = False
+
+        # Add networks for the value function
+        self.value_network = ValueNetwork(
+            input_dim=self.obs_dim,
+            hidden_dims=[256, 256],
+            dropout=0.1,
+        ).to(device)
+
+    def _value_loss(self, batch):
+        def loss(diff, expectile=0.8):
+            weight = torch.where(
+                diff > 0,
+                torch.full_like(diff, expectile),
+                torch.full_like(diff, 1 - expectile),
+            )
+            return weight * (diff**2)
+
+        # Compute the value loss
+        nobs = self._training_obs(batch)
+        naction = batch["action"]
+
+        # Compute the Q values
+        q1, q2 = self.q_target_network(nobs, naction)
+        q = torch.min(q1, q2)
+        v = self.value_network(nobs)
+
+        # Compute the value loss
+        value_loss = loss(q - v, expectile=self.expectile).mean()
+
+        return value_loss
+
+    def _q_loss(self, batch):
+        next_obs = self._training_obs(batch)

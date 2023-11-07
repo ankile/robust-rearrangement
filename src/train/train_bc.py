@@ -26,7 +26,9 @@ from ml_collections import ConfigDict
 
 def main(config: ConfigDict):
     env = None
-    device = torch.device(f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
+    )
 
     # Init wandb
     wandb.init(
@@ -93,7 +95,7 @@ def main(config: ConfigDict):
         actor.load_state_dict(torch.load(config.load_checkpoint_path))
 
     # Update the config object with the observation dimension
-    config.obs_dim = actor.obs_dim
+    config.timestep_obs_dim = actor.timestep_obs_dim
 
     # save stats to wandb and update the config object
     wandb.log(
@@ -175,7 +177,9 @@ def main(config: ConfigDict):
 
             # Gradient clipping
             if config.clip_grad_norm:
-                torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=config.clip_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    actor.parameters(), max_norm=config.clip_grad_norm
+                )
 
             # optimizer step
             opt_noise.step()
@@ -208,7 +212,9 @@ def main(config: ConfigDict):
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
-                test_batch = dict_apply(test_batch, lambda x: x.to(device, non_blocking=True))
+                test_batch = dict_apply(
+                    test_batch, lambda x: x.to(device, non_blocking=True)
+                )
 
                 # Get test loss
                 test_loss_val = actor.compute_loss(test_batch)
@@ -267,7 +273,9 @@ def main(config: ConfigDict):
                     randomness=config.randomness,
                     resize_img=not config.augment_image,
                 )
-            best_success_rate = do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx)
+            best_success_rate = do_rollout_evaluation(
+                config, env, model_save_dir, actor, best_success_rate, epoch_idx
+            )
 
     tglobal.close()
     wandb.finish()
@@ -305,7 +313,9 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_199.pt"
+    config.load_checkpoint_path = (
+        "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_199.pt"
+    )
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
@@ -345,7 +355,9 @@ if __name__ == "__main__":
 
     config.model_save_dir = "models"
 
-    assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
+    assert (
+        config.rollout.count % config.num_envs == 0
+    ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data.zarr"
 
