@@ -29,7 +29,7 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="robot-rearrangement",
+        project="iql-offline",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
@@ -168,7 +168,10 @@ def main(config: ConfigDict):
             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
             # Get loss
-            loss = actor.compute_loss(batch)
+            bc_loss, q_loss, value_loss = actor.compute_loss(batch)
+
+            # Sum the losses
+            loss = bc_loss + q_loss + value_loss
 
             # backward pass
             loss.backward()
@@ -184,16 +187,23 @@ def main(config: ConfigDict):
             lr_scheduler.step()
 
             # logging
-            loss_cpu = loss.item()
-            epoch_loss.append(loss_cpu)
+            loss = loss.item()
+            bc_loss = bc_loss.item()
+            q_loss = q_loss.item()
+            value_loss = value_loss.item()
+
+            epoch_loss.append(loss)
             wandb.log(
                 dict(
                     lr=lr_scheduler.get_last_lr()[0],
-                    batch_loss=loss_cpu,
+                    batch_loss=loss,
+                    batch_bc_loss=bc_loss,
+                    batch_q_loss=q_loss,
+                    batch_value_loss=value_loss,
                 )
             )
 
-            tepoch.set_postfix(loss=loss_cpu)
+            tepoch.set_postfix(loss=loss)
 
         tepoch.close()
 

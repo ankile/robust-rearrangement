@@ -244,7 +244,7 @@ class ImplicitQActor(DoubleImageActor):
         self.tau = None
         self.discount = None
         self.temperature = None
-        self.discount = 0.99
+        self.discount = 0.995
 
         # Add networks for the Q function
         self.q_network = DoubleCritic(
@@ -293,5 +293,23 @@ class ImplicitQActor(DoubleImageActor):
         return value_loss
 
     def _q_loss(self, batch):
-        next_obs = self._training_obs(batch)
+        curr_obs = self._training_obs(batch["curr_obs"])
+        next_obs = self._training_obs(batch["next_obs"])
+        action = batch["action"]
+
         next_v = self.value_network(next_obs)
+        target_q = batch["reward"] + self.discount * next_v
+
+        q1, q2 = self.q_network(curr_obs, action)
+
+        q1_loss = nn.functional.mse_loss(q1, target_q)
+        q2_loss = nn.functional.mse_loss(q2, target_q)
+
+        return (q1_loss + q2_loss) / 2
+
+    def compute_loss(self, batch):
+        bc_loss = super().compute_loss({**batch["curr_obs"], "action": batch["action"]})
+        q_loss = self._q_loss(batch)
+        value_loss = self._value_loss(batch)
+
+        return bc_loss, q_loss, value_loss
