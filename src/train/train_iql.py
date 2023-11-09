@@ -5,16 +5,13 @@ import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
-from src.data.dataset import (
-    FurnitureImageDataset,
-    FurnitureFeatureDataset,
-)
+from src.data.dataset import FurnitureQFeatureDataset
 from src.data.normalizer import StateActionNormalizer
 from src.eval import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
-from src.models.actor import DoubleImageActor
+from src.models.actor import ImplicitQActor
 from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -26,7 +23,9 @@ from ml_collections import ConfigDict
 
 def main(config: ConfigDict):
     env = None
-    device = torch.device(f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
+    )
 
     # Init wandb
     wandb.init(
@@ -44,17 +43,18 @@ def main(config: ConfigDict):
     normalizer = StateActionNormalizer()
 
     if config.observation_type == "image":
-        dataset = FurnitureImageDataset(
-            dataset_path=config.datasim_path,
-            pred_horizon=config.pred_horizon,
-            obs_horizon=config.obs_horizon,
-            action_horizon=config.action_horizon,
-            normalizer=normalizer,
-            augment_image=config.augment_image,
-            data_subset=config.data_subset,
-        )
+        # dataset = FurnitureImageDataset(
+        #     dataset_path=config.datasim_path,
+        #     pred_horizon=config.pred_horizon,
+        #     obs_horizon=config.obs_horizon,
+        #     action_horizon=config.action_horizon,
+        #     normalizer=normalizer,
+        #     augment_image=config.augment_image,
+        #     data_subset=config.data_subset,
+        # )
+        raise NotImplementedError("Image dataset not implemented yet")
     elif config.observation_type == "feature":
-        dataset = FurnitureFeatureDataset(
+        dataset = FurnitureQFeatureDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
@@ -77,7 +77,7 @@ def main(config: ConfigDict):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
-    actor = DoubleImageActor(
+    actor = ImplicitQActor(
         device=device,
         encoder_name=config.vision_encoder.model,
         freeze_encoder=config.vision_encoder.freeze,
@@ -175,7 +175,9 @@ def main(config: ConfigDict):
 
             # Gradient clipping
             if config.clip_grad_norm:
-                torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=config.clip_grad_norm)
+                torch.nn.utils.clip_grad_norm_(
+                    actor.parameters(), max_norm=config.clip_grad_norm
+                )
 
             # optimizer step
             opt_noise.step()
@@ -208,7 +210,9 @@ def main(config: ConfigDict):
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
-                test_batch = dict_apply(test_batch, lambda x: x.to(device, non_blocking=True))
+                test_batch = dict_apply(
+                    test_batch, lambda x: x.to(device, non_blocking=True)
+                )
 
                 # Get test loss
                 test_loss_val = actor.compute_loss(test_batch)
@@ -267,7 +271,9 @@ def main(config: ConfigDict):
                     randomness=config.randomness,
                     resize_img=not config.augment_image,
                 )
-            best_success_rate = do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx)
+            best_success_rate = do_rollout_evaluation(
+                config, env, model_save_dir, actor, best_success_rate, epoch_idx
+            )
 
     tglobal.close()
     wandb.finish()
@@ -305,13 +311,13 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_199.pt"
+    config.load_checkpoint_path = None
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 200
     config.obs_horizon = 2
-    config.observation_type = "image"
+    config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -330,8 +336,8 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
-    config.vision_encoder.freeze = False
+    config.vision_encoder.model = "vip"
+    config.vision_encoder.freeze = True
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -345,9 +351,11 @@ if __name__ == "__main__":
 
     config.model_save_dir = "models"
 
-    assert config.rollout.count % config.num_envs == 0, "n_rollouts must be divisible by num_envs"
+    assert (
+        config.rollout.count % config.num_envs == 0
+    ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data.zarr"
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

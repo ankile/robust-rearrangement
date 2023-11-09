@@ -248,16 +248,19 @@ class ImplicitQActor(DoubleImageActor):
 
         # Add networks for the Q function
         self.q_network = DoubleCritic(
-            input_dim=self.obs_dim,
+            state_dim=self.obs_dim,
+            action_dim=self.action_dim * self.action_horizon,
             hidden_dims=[256, 256],
             dropout=0.1,
         ).to(device)
 
         # Create a copy of the Q network for the target network with the same weights and grad tracking disabled
-        self.q_target_network = self.q_network.copy().to(device)
-        self.q_target_network.eval()
-        for param in self.q_target_network.parameters():
-            param.requires_grad = False
+        self.q_target_network = DoubleCritic(
+            state_dim=self.obs_dim,
+            action_dim=self.action_dim * self.action_horizon,
+            hidden_dims=[256, 256],
+            dropout=0.1,
+        ).to(device)
 
         # Add networks for the value function
         self.value_network = ValueNetwork(
@@ -276,7 +279,7 @@ class ImplicitQActor(DoubleImageActor):
             return weight * (diff**2)
 
         # Compute the value loss
-        nobs = self._training_obs(batch)
+        nobs = self._training_obs(batch["curr_obs"])
         naction = batch["action"]
 
         # Compute the Q values
@@ -291,3 +294,4 @@ class ImplicitQActor(DoubleImageActor):
 
     def _q_loss(self, batch):
         next_obs = self._training_obs(batch)
+        next_v = self.value_network(next_obs)
