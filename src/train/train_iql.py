@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="",
+        notes="Initial IDQL runs",
     )
 
     # Create model save dir
@@ -186,6 +186,9 @@ def main(config: ConfigDict):
             opt_noise.step()
             lr_scheduler.step()
 
+            # Update the target network
+            actor.polyak_update_target(config.q_target_update_step)
+
             # logging
             loss = loss.item()
             bc_loss = bc_loss.item()
@@ -228,7 +231,7 @@ def main(config: ConfigDict):
                 test_loss_val = actor.compute_loss(test_batch)
 
                 # logging
-                test_loss_cpu = test_loss_val.item()
+                test_loss_cpu = sum(test_loss_val).item()
                 test_loss.append(test_loss_cpu)
                 test_tepoch.set_postfix(loss=test_loss_cpu)
 
@@ -358,6 +361,11 @@ if __name__ == "__main__":
     config.weight_decay = 1e-6
     config.feature_dropout = False
     config.noise_augment = False
+
+    # Q-learning (tau is not to be confused with the expectile)
+    config.expectile = 0.9
+    config.q_target_update_step = 0.005
+    config.discount = 0.995
 
     config.model_save_dir = "models"
 

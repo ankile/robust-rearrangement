@@ -157,13 +157,7 @@ class DoubleImageActor(torch.nn.Module):
     # === Training ===
     def compute_loss(self, batch):
         # State already normalized in the dataset
-        nobs = self._training_obs(batch)
-
-        # observation as FiLM conditioning
-        # (B, obs_horizon, obs_dim)
-        obs_cond = nobs[:, : self.obs_horizon, :]
-        # (B, obs_horizon * obs_dim)
-        obs_cond = obs_cond.flatten(start_dim=1)
+        obs_cond = self._training_obs(batch)
 
         # Apply Dropout to the observation conditioning if specified
         if self.dropout:
@@ -179,7 +173,7 @@ class DoubleImageActor(torch.nn.Module):
         timesteps = torch.randint(
             0,
             self.train_noise_scheduler.config.num_train_timesteps,
-            (nobs.shape[0],),
+            (obs_cond.shape[0],),
             device=self.device,
         ).long()
 
@@ -225,6 +219,7 @@ class DoubleImageActor(torch.nn.Module):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+            nobs = nobs.flatten(start_dim=1)
         return nobs
 
 
@@ -240,11 +235,10 @@ class ImplicitQActor(DoubleImageActor):
         super().__init__(device, encoder_name, freeze_encoder, normalizer, config)
 
         # Add hyperparameters specific to IDQL
-        self.expectile = 0.9
-        self.tau = None
-        self.discount = None
-        self.temperature = None
-        self.discount = 0.995
+        self.expectile = config.expectile
+        self.tau = config.q_target_update_step
+        self.discount = config.discount
+        # self.temperature = None
 
         # Add networks for the Q function
         self.q_network = DoubleCritic(
@@ -254,7 +248,6 @@ class ImplicitQActor(DoubleImageActor):
             dropout=0.1,
         ).to(device)
 
-        # Create a copy of the Q network for the target network with the same weights and grad tracking disabled
         self.q_target_network = DoubleCritic(
             state_dim=self.obs_dim,
             action_dim=self.action_dim * self.action_horizon,
@@ -269,6 +262,12 @@ class ImplicitQActor(DoubleImageActor):
             dropout=0.1,
         ).to(device)
 
+    def _flat_action(self, action):
+        start = self.obs_horizon - 1
+        end = start + self.action_horizon
+        naction = action[:, start:end, :].flatten(start_dim=1)
+        return naction
+
     def _value_loss(self, batch):
         def loss(diff, expectile=0.8):
             weight = torch.where(
@@ -280,11 +279,13 @@ class ImplicitQActor(DoubleImageActor):
 
         # Compute the value loss
         nobs = self._training_obs(batch["curr_obs"])
-        naction = batch["action"]
+        naction = self._flat_action(batch["action"])
 
         # Compute the Q values
-        q1, q2 = self.q_target_network(nobs, naction)
-        q = torch.min(q1, q2)
+        with torch.no_grad():
+            q1, q2 = self.q_target_network(nobs, naction)
+            q = torch.min(q1, q2)
+
         v = self.value_network(nobs)
 
         # Compute the value loss
@@ -295,15 +296,17 @@ class ImplicitQActor(DoubleImageActor):
     def _q_loss(self, batch):
         curr_obs = self._training_obs(batch["curr_obs"])
         next_obs = self._training_obs(batch["next_obs"])
-        action = batch["action"]
+        naction = self._flat_action(batch["action"])
 
-        next_v = self.value_network(next_obs)
+        with torch.no_grad():
+            next_v = self.value_network(next_obs).squeeze(-1)
+
         target_q = batch["reward"] + self.discount * next_v
 
-        q1, q2 = self.q_network(curr_obs, action)
+        q1, q2 = self.q_network(curr_obs, naction)
 
-        q1_loss = nn.functional.mse_loss(q1, target_q)
-        q2_loss = nn.functional.mse_loss(q2, target_q)
+        q1_loss = nn.functional.mse_loss(q1.squeeze(-1), target_q)
+        q2_loss = nn.functional.mse_loss(q2.squeeze(-1), target_q)
 
         return (q1_loss + q2_loss) / 2
 
@@ -313,3 +316,12 @@ class ImplicitQActor(DoubleImageActor):
         value_loss = self._value_loss(batch)
 
         return bc_loss, q_loss, value_loss
+
+    def polyak_update_target(self, tau):
+        with torch.no_grad():
+            for param, target_param in zip(
+                self.q_network.parameters(), self.q_target_network.parameters()
+            ):
+                target_param.data.copy_(
+                    tau * param.data + (1 - tau) * target_param.data
+                )
