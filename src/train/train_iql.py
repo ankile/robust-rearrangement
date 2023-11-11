@@ -33,7 +33,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Initial IDQL runs",
+        notes="Increase value capacity and regularization",
     )
 
     # Create model save dir
@@ -85,6 +85,27 @@ def main(config: ConfigDict):
         config=config,
     )
 
+    # AdamW optimizer for the actor
+    optimizer = torch.optim.AdamW(
+        [
+            {
+                "params": actor.model.parameters(),
+                "lr": config.actor_lr,
+                "weight_decay": config.weight_decay,
+            },
+            {
+                "params": actor.q_network.parameters(),
+                "lr": config.critic_lr,
+                "weight_decay": config.critic_weight_decay,
+            },
+            {
+                "params": actor.value_network.parameters(),
+                "lr": config.critic_lr,
+                "weight_decay": config.critic_weight_decay,
+            },
+        ]
+    )
+
     # Watch the model
     wandb.watch(actor, log="all")
 
@@ -129,18 +150,11 @@ def main(config: ConfigDict):
         persistent_workers=True,
     )
 
-    # AdamW optimizer for noise_net
-    opt_noise = torch.optim.AdamW(
-        params=actor.parameters(),
-        lr=config.actor_lr,
-        weight_decay=config.weight_decay,
-    )
-
     n_batches = len(trainloader)
 
     lr_scheduler = get_scheduler(
         name=config.lr_scheduler.name,
-        optimizer=opt_noise,
+        optimizer=optimizer,
         num_warmup_steps=config.lr_scheduler.warmup_steps,
         num_training_steps=len(trainloader) * config.num_epochs,
     )
@@ -162,7 +176,7 @@ def main(config: ConfigDict):
         # batch loop
         tepoch = tqdm(trainloader, desc="Batch", leave=False, total=n_batches)
         for batch in tepoch:
-            opt_noise.zero_grad()
+            optimizer.zero_grad()
 
             # device transfer
             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
@@ -183,7 +197,7 @@ def main(config: ConfigDict):
                 )
 
             # optimizer step
-            opt_noise.step()
+            optimizer.step()
             lr_scheduler.step()
 
             # Update the target network
@@ -314,9 +328,9 @@ if __name__ == "__main__":
     config.augment_image = True
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
-    config.clip_grad_norm = False
+    config.clip_grad_norm = 1
     config.clip_sample = True
-    config.data_subset = 200 if args.dryrun is False else 10
+    config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
@@ -339,7 +353,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = 5 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.015 if args.dryrun is False else float("inf")
+    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
@@ -366,6 +380,10 @@ if __name__ == "__main__":
     config.expectile = 0.9
     config.q_target_update_step = 0.005
     config.discount = 0.995
+    config.critic_dropout = 0.5
+    config.critic_lr = 1e-6
+    config.critic_weight_decay = 1e-4
+    config.critic_hidden_dims = [512, 512]
 
     config.model_save_dir = "models"
 

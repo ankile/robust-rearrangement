@@ -244,22 +244,26 @@ class ImplicitQActor(DoubleImageActor):
         self.q_network = DoubleCritic(
             state_dim=self.obs_dim,
             action_dim=self.action_dim * self.action_horizon,
-            hidden_dims=[256, 256],
-            dropout=0.1,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
         ).to(device)
 
         self.q_target_network = DoubleCritic(
             state_dim=self.obs_dim,
             action_dim=self.action_dim * self.action_horizon,
-            hidden_dims=[256, 256],
-            dropout=0.1,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
         ).to(device)
+
+        # Turn off gradients for the target network
+        for param in self.q_target_network.parameters():
+            param.requires_grad = False
 
         # Add networks for the value function
         self.value_network = ValueNetwork(
             input_dim=self.obs_dim,
-            hidden_dims=[256, 256],
-            dropout=0.1,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
         ).to(device)
 
     def _flat_action(self, action):
