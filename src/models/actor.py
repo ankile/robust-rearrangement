@@ -136,9 +136,19 @@ class DoubleImageActor(torch.nn.Module):
     # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
-        obs_cond = self._normalized_obs(obs)
+        nobs = self._normalized_obs(obs)
 
         # initialize action from Guassian noise
+        naction = self._normalized_action(nobs)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred
+
+    def _normalized_action(self, nobs):
+        # Important! `nobs` needs to be normalized before passing to this function
         noisy_action = torch.randn(
             (self.B, self.pred_horizon, self.action_dim),
             device=self.device,
@@ -151,18 +161,14 @@ class DoubleImageActor(torch.nn.Module):
         for k in self.inference_noise_scheduler.timesteps:
             # predict noise
             # Print dtypes of all tensors to the model
-            noise_pred = self.model(sample=naction, timestep=k, global_cond=obs_cond)
+            noise_pred = self.model(sample=naction, timestep=k, global_cond=nobs)
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
                 model_output=noise_pred, timestep=k, sample=naction
             ).prev_sample
 
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
-
-        return action_pred
+        return naction
 
     # === Training ===
     def compute_loss(self, batch):
@@ -346,8 +352,6 @@ class ImplicitQActor(DoubleImageActor):
     # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
-        # TODO: See how this joves with multiple environments
-
         # 1. Observe current state s
         nobs = self._normalized_obs(obs)
 
@@ -355,7 +359,7 @@ class ImplicitQActor(DoubleImageActor):
         # The observation will be properly handled in the call to super().action
         actions = torch.stack(
             [
-                super(ImplicitQActor, self).action(obs)
+                super(ImplicitQActor, self)._normalized_action(nobs)
                 for _ in range(self.n_action_samples)
             ],
             dim=0,
