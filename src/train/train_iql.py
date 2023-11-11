@@ -319,7 +319,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = maybe(16, fb=2)
+    num_envs = maybe(2, fb=2)
 
     config = ConfigDict()
 
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
     config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.max_steps = 100 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()

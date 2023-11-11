@@ -19,6 +19,15 @@ from typing import Union
 from src.common.pytorch_util import dict_apply
 
 
+class PostInitCaller(type):
+    def __call__(cls, *args, **kwargs):
+        """Called when you call BaseClass()"""
+        print(f"{__class__.__name__}.__call__({args}, {kwargs})")
+        obj = type.__call__(cls, *args, **kwargs)
+        obj.__post_init__(*args, **kwargs)
+        return obj
+
+
 class DoubleImageActor(torch.nn.Module):
     def __init__(
         self,
@@ -83,6 +92,7 @@ class DoubleImageActor(torch.nn.Module):
             nn.Dropout(config.feature_dropout) if config.feature_dropout else None
         )
 
+    def __post_init__(self, *args, **kwargs):
         self.print_model_params()
 
     def print_model_params(self: torch.nn.Module):
@@ -265,6 +275,9 @@ class ImplicitQActor(DoubleImageActor):
             hidden_dims=config.critic_hidden_dims,
             dropout=config.critic_dropout,
         ).to(device)
+
+    def __post_init__(self, *args, **kwargs):
+        self.print_model_params()
 
     def _flat_action(self, action):
         start = self.obs_horizon - 1
