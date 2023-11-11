@@ -164,7 +164,9 @@ def calculate_success_rate(
     return n_success / n_rollouts
 
 
-def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx) -> float:
+def do_rollout_evaluation(
+    config, env, model_save_dir, actor, best_success_rate, epoch_idx
+) -> float:
     # Perform a rollout with the current model
     success_rate = calculate_success_rate(
         env,
@@ -176,15 +178,21 @@ def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate,
 
     if success_rate > best_success_rate:
         best_success_rate = success_rate
-        save_path = str(model_save_dir / f"actor_best.pt")
-        torch.save(
-            actor.state_dict(),
-            save_path,
-        )
+        # save_path = str(model_save_dir / f"actor_best.pt")
+        # torch.save(
+        #     actor.state_dict(),
+        #     save_path,
+        # )
 
-        wandb.save(save_path)
+        # wandb.save(save_path)
 
     # Log the success rate to wandb
-    wandb.log({"success_rate": success_rate, "best_success_rate": best_success_rate, "epoch": epoch_idx})
+    wandb.log(
+        {
+            "success_rate": success_rate,
+            "best_success_rate": best_success_rate,
+            "epoch": epoch_idx,
+        }
+    )
 
     return best_success_rate

@@ -3,7 +3,7 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_O
 
 import gym
 
-from src.common.context import suppress_print, suppress_all_output
+from src.common.context import suppress_all_output
 
 
 def get_env(

@@ -238,7 +238,7 @@ class ImplicitQActor(DoubleImageActor):
         self.expectile = config.expectile
         self.tau = config.q_target_update_step
         self.discount = config.discount
-        # self.temperature = None
+        self.n_action_samples = config.n_action_samples
 
         # Add networks for the Q function
         self.q_network = DoubleCritic(
@@ -329,3 +329,46 @@ class ImplicitQActor(DoubleImageActor):
                 target_param.data.copy_(
                     tau * param.data + (1 - tau) * target_param.data
                 )
+
+    # === Inference ===
+    @torch.no_grad()
+    def action(self, obs: deque):
+        # TODO: See how this joves with multiple environments
+
+        # 1. Observe current state s
+        nobs = self._normalized_obs(obs)
+
+        # 2. Sample action actions a_i ~ pi(a_i | s_i) for i = 1, ..., N
+        # The observation will be properly handled in the call to super().action
+        actions = torch.stack(
+            [
+                super(ImplicitQActor, self).action(obs)
+                for _ in range(self.n_action_samples)
+            ],
+            dim=0,
+        )[:, :, : self.action_horizon, :]
+
+        # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
+        # Assuming compute_q and compute_v are defined elsewhere in your PyTorch code
+        qs = torch.min(
+            *self.q_network(
+                nobs.unsqueeze(0).expand(5, -1, -1), actions.flatten(start_dim=2)
+            )
+        ).squeeze(-1)
+        vs = self.value_network(nobs).squeeze(-1)
+        adv = qs - vs
+
+        # if self.critic_objective == 'expectile':
+        tau_weights = torch.where(
+            adv > 0,
+            torch.full_like(adv, self.expectile),
+            torch.full_like(adv, 1 - self.expectile),
+        )
+        probabilities = torch.softmax(tau_weights, dim=0)
+        sample_idx = torch.multinomial(probabilities.T, num_samples=1)
+        env_indices = torch.arange(actions.size(1), device=sample_idx.device).unsqueeze(
+            1
+        )
+        action = actions[sample_idx, env_indices, :, :].squeeze(1)
+
+        return action

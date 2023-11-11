@@ -282,11 +282,11 @@ def main(config: ConfigDict):
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
             # Checkpoint the model
-            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-            torch.save(
-                actor.state_dict(),
-                save_path,
-            )
+            # save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+            # torch.save(
+            #     actor.state_dict(),
+            #     save_path,
+            # )
 
             # Do no load the environment until we successfuly made it this far
             if env is None:
@@ -384,6 +384,7 @@ if __name__ == "__main__":
     config.critic_lr = 1e-6
     config.critic_weight_decay = 1e-4
     config.critic_hidden_dims = [512, 512]
+    config.n_action_samples = 5
 
     config.model_save_dir = "models"
 
