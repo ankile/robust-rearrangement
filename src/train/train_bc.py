@@ -313,15 +313,13 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = (
-        "/data/scratch/ankile/furniture-diffusion/models/glorious-bee-13/actor_199.pt"
-    )
+    config.load_checkpoint_path = None
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "image"
+    config.observation_type = "feature"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -329,9 +327,9 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.03 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 1.03 if args.dryrun is False else float("inf")
+    config.rollout.max_steps = 100 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -340,7 +338,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "vip"
     config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
@@ -359,7 +357,7 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data.zarr"
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
