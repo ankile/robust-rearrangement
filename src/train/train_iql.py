@@ -352,8 +352,8 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 5 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
+    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 750 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
