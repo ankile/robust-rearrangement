@@ -1,24 +1,26 @@
+import argparse
 import os
 from pathlib import Path
-import furniture_bench
+
+import furniture_bench  # noqa: F401
 import numpy as np
 import torch
-import wandb
 from diffusers.optimization import get_scheduler
+
+# from ipdb import set_trace as bp
+from ml_collections import ConfigDict
+from src.common.earlystop import EarlyStopper
+from src.common.pytorch_util import dict_apply
+from src.data.dataloader import FixedStepsDataloader
 from src.data.dataset import FurnitureQFeatureDataset
 from src.data.normalizer import StateActionNormalizer
 from src.eval import do_rollout_evaluation
 from src.gym import get_env
-from tqdm import tqdm
-from ipdb import set_trace as bp
 from src.models.actor import ImplicitQActor
-from src.data.dataloader import FixedStepsDataloader
-from src.common.pytorch_util import dict_apply
-import argparse
-from torch.utils.data import random_split, DataLoader
-from src.common.earlystop import EarlyStopper
+from torch.utils.data import DataLoader, random_split
+from tqdm import tqdm
 
-from ml_collections import ConfigDict
+import wandb
 
 
 def main(config: ConfigDict):
@@ -33,7 +35,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Increase value capacity and regularization",
+        notes="Run with IDQL rollouts and the cache issue solved.",
     )
 
     # Create model save dir
@@ -319,7 +321,7 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = maybe(2, fb=2)
+    num_envs = maybe(16, fb=2)
 
     config = ConfigDict()
 
@@ -380,7 +382,7 @@ if __name__ == "__main__":
     config.expectile = 0.9
     config.q_target_update_step = 0.005
     config.discount = 0.995
-    config.critic_dropout = 0.5
+    config.critic_dropout = 0.25
     config.critic_lr = 1e-6
     config.critic_weight_decay = 1e-4
     config.critic_hidden_dims = [512, 512]

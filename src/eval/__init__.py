@@ -138,26 +138,26 @@ def calculate_success_rate(
         pbar.update(env.num_envs)
         pbar.set_postfix(success=n_success)
 
-    # for rollout_idx in range(n_rollouts):
-    #     # Get the rewards and images for this rollout
-    #     rewards = all_rewards[rollout_idx].numpy()
-    #     video1 = all_imgs1[rollout_idx].numpy()
-    #     video2 = all_imgs2[rollout_idx].numpy()
+    for rollout_idx in range(n_rollouts):
+        # Get the rewards and images for this rollout
+        rewards = all_rewards[rollout_idx].numpy()
+        video1 = all_imgs1[rollout_idx].numpy()
+        video2 = all_imgs2[rollout_idx].numpy()
 
-    #     # Stack the two videoes side by side into a single video
-    #     # and swap the axes from (T, H, W, C) to (T, C, H, W)
-    #     video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
-    #     success = (rewards.sum() > 0).item()
+        # Stack the two videoes side by side into a single video
+        # and swap the axes from (T, H, W, C) to (T, C, H, W)
+        video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
+        success = (rewards.sum() > 0).item()
 
-    #     tbl.add_data(wandb.Video(video, fps=10), success, epoch_idx)
+        tbl.add_data(wandb.Video(video, fps=10), success, epoch_idx)
 
-    # # Log the videos to wandb table
-    # wandb.log(
-    #     {
-    #         "rollouts": tbl,
-    #         "epoch": epoch_idx,
-    #     }
-    # )
+    # Log the videos to wandb table
+    wandb.log(
+        {
+            "rollouts": tbl,
+            "epoch": epoch_idx,
+        }
+    )
 
     pbar.close()
 

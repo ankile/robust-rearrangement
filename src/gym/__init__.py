@@ -1,4 +1,4 @@
-import furniture_bench
+import furniture_bench  # noqa: F401
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_OBS
 
 import gym
