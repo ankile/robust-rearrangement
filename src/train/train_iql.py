@@ -143,11 +143,11 @@ def main(config: ConfigDict):
 
     # Init wandb (move it down so that we can fail before starting a run in case we fail)
     wandb.init(
-        project="iql-offline",
+        project="iql-offline-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Fix problem with wrong dimension of images from simulator.",
+        notes="Fix store videos as mp4 and add calculation of return.",
     )
 
     # Watch the model
@@ -171,6 +171,8 @@ def main(config: ConfigDict):
 
     # Train loop
     test_loss_mean = 0.0
+    bc_loss_running_mean = 0.0
+
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
@@ -212,6 +214,10 @@ def main(config: ConfigDict):
             value_loss = value_loss.item()
 
             epoch_loss.append(loss)
+            bc_loss_running_mean = (
+                0.9 * bc_loss_running_mean + 0.1 * bc_loss
+            )  # EMA of the BC loss
+
             wandb.log(
                 dict(
                     lr=lr_scheduler.get_last_lr()[0],
@@ -219,10 +225,11 @@ def main(config: ConfigDict):
                     batch_bc_loss=bc_loss,
                     batch_q_loss=q_loss,
                     batch_value_loss=value_loss,
+                    bc_loss_running_mean=bc_loss_running_mean,
                 )
             )
 
-            tepoch.set_postfix(loss=loss)
+            tepoch.set_postfix(loss=loss, bc_loss_running_mean=bc_loss_running_mean)
 
         tepoch.close()
 
@@ -235,6 +242,7 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
+        test_losses = dict(bc_loss=list(), q_loss=list(), value_loss=list())
         test_tepoch = tqdm(testloader, desc="Test Batch", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -244,16 +252,25 @@ def main(config: ConfigDict):
                 )
 
                 # Get test loss
-                test_loss_val = actor.compute_loss(test_batch)
+                test_bc_loss, test_q_loss, test_value_loss = actor.compute_loss(
+                    test_batch
+                )
+
+                test_losses["bc_loss"].append(test_bc_loss.item())
+                test_losses["q_loss"].append(test_q_loss.item())
+                test_losses["value_loss"].append(test_value_loss.item())
 
                 # logging
-                test_loss_cpu = sum(test_loss_val).item()
+                test_loss_cpu = (test_bc_loss + test_q_loss + test_value_loss).item()
                 test_loss.append(test_loss_cpu)
                 test_tepoch.set_postfix(loss=test_loss_cpu)
 
         test_tepoch.close()
 
         test_loss_mean = np.mean(test_loss)
+        for key, value in test_losses.items():
+            wandb.log({f"test_{key}": np.mean(value), "epoch": epoch_idx})
+
         tglobal.set_postfix(
             loss=train_loss_mean,
             test_loss=test_loss_mean,
@@ -281,7 +298,7 @@ def main(config: ConfigDict):
         if (
             config.rollout.every != -1
             and (epoch_idx + 1) % config.rollout.every == 0
-            and np.mean(epoch_loss) < config.rollout.loss_threshold
+            and bc_loss_running_mean < config.rollout.loss_threshold
         ):
             # Checkpoint the model
             # save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
@@ -371,9 +388,9 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = maybe(10, fb=1)
-    config.rollout.loss_threshold = maybe(0.05, fb=float("inf"))
-    config.rollout.max_steps = maybe(750, fb=10)
+    config.rollout.every = maybe(1, fb=1)
+    config.rollout.loss_threshold = maybe(10, fb=float("inf"))
+    config.rollout.max_steps = maybe(100, fb=10)
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -396,13 +413,13 @@ if __name__ == "__main__":
     config.noise_augment = False
 
     # Q-learning
-    config.expectile = 0.9
+    config.expectile = 0.75
     config.q_target_update_step = 0.005
-    config.discount = 0.995
+    config.discount = 0.997
     config.critic_dropout = 0.25
-    config.critic_lr = 1e-6
-    config.critic_weight_decay = 1e-4
-    config.critic_hidden_dims = [512, 512]
+    config.critic_lr = 5e-7
+    config.critic_weight_decay = 5e-4
+    config.critic_hidden_dims = [512, 256]
     config.n_action_samples = 5
 
     config.model_save_dir = "models"

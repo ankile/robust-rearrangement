@@ -9,7 +9,6 @@ import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
-from src.gym import get_env
 
 from src.models.actor import DoubleImageActor
 
@@ -121,8 +120,9 @@ def calculate_success_rate(
     n_rollouts: int,
     rollout_max_steps: int,
     epoch_idx: int,
+    gamma: float = 0.99,
 ):
-    tbl = wandb.Table(columns=["rollout", "success", "epoch"])
+    tbl = wandb.Table(columns=["rollout", "success", "epoch", "return"])
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
@@ -156,6 +156,7 @@ def calculate_success_rate(
         pbar.update(env.num_envs)
         pbar.set_postfix(success=n_success)
 
+    total_return = 0
     for rollout_idx in range(n_rollouts):
         # Get the rewards and images for this rollout
         rewards = all_rewards[rollout_idx].numpy()
@@ -163,18 +164,24 @@ def calculate_success_rate(
         video2 = all_imgs2[rollout_idx].numpy()
 
         # Stack the two videoes side by side into a single video
-        # and swap the axes from (T, H, W, C) to (T, C, H, W)
-        video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
+        # and keep axes as (T, H, W, C)
+        video = np.concatenate([video1, video2], axis=2)
         video = create_in_memory_mp4(video, fps=10)
 
         success = (rewards.sum() > 0).item()
-        tbl.add_data(wandb.Video(video, fps=10), success, epoch_idx)
+        episode_return = np.sum(rewards[::-1] * gamma ** np.arange(len(rewards)))
+        total_return += episode_return
+
+        tbl.add_data(
+            wandb.Video(video, fps=10, format="mp4"), success, epoch_idx, episode_return
+        )
 
     # Log the videos to wandb table
     wandb.log(
         {
             "rollouts": tbl,
             "epoch": epoch_idx,
+            "epoch_mean_return": total_return / n_rollouts,
         }
     )
 
@@ -193,6 +200,7 @@ def do_rollout_evaluation(
         n_rollouts=config.rollout.count,
         rollout_max_steps=config.rollout.max_steps,
         epoch_idx=epoch_idx,
+        gamma=config.discount,
     )
 
     if success_rate > best_success_rate:
