@@ -29,19 +29,6 @@ def main(config: ConfigDict):
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    # Init wandb
-    wandb.init(
-        project="iql-offline",
-        entity="robot-rearrangement",
-        config=config.to_dict(),
-        mode="online" if not config.dryrun else "disabled",
-        notes="Run with IDQL rollouts and the cache issue solved.",
-    )
-
-    # Create model save dir
-    model_save_dir = Path(config.model_save_dir) / wandb.run.name
-    model_save_dir.mkdir(parents=True, exist_ok=True)
-
     normalizer = StateActionNormalizer()
 
     if config.observation_type == "image":
@@ -108,27 +95,12 @@ def main(config: ConfigDict):
         ]
     )
 
-    # Watch the model
-    wandb.watch(actor, log="all")
-
     if config.load_checkpoint_path is not None:
         print(f"Loading checkpoint from {config.load_checkpoint_path}")
         actor.load_state_dict(torch.load(config.load_checkpoint_path))
 
     # Update the config object with the observation dimension
     config.obs_dim = actor.obs_dim
-
-    # save stats to wandb and update the config object
-    wandb.log(
-        {
-            "num_samples": len(train_dataset),
-            "num_samples_test": len(test_dataset),
-            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
-            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": normalizer.stats_dict,
-        }
-    )
-    wandb.config.update(config.to_dict())
 
     # Create dataloaders
     trainloader = FixedStepsDataloader(
@@ -168,6 +140,34 @@ def main(config: ConfigDict):
         patience=config.early_stopper.patience,
         smooth_factor=config.early_stopper.smooth_factor,
     )
+
+    # Init wandb (move it down so that we can fail before starting a run in case we fail)
+    wandb.init(
+        project="iql-offline",
+        entity="robot-rearrangement",
+        config=config.to_dict(),
+        mode="online" if not config.dryrun else "disabled",
+        notes="Fix problem with wrong dimension of images from simulator.",
+    )
+
+    # Watch the model
+    wandb.watch(actor, log="all")
+
+    # Save stats to wandb and update the config object
+    wandb.log(
+        {
+            "num_samples": len(train_dataset),
+            "num_samples_test": len(test_dataset),
+            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
+            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
+            "stats": normalizer.stats_dict,
+        }
+    )
+    wandb.config.update(config.to_dict())
+
+    # Create model save dir
+    model_save_dir = Path(config.model_save_dir) / wandb.run.name
+    model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # Train loop
     test_loss_mean = 0.0
@@ -308,6 +308,21 @@ def main(config: ConfigDict):
     wandb.finish()
 
 
+def validate_config(config):
+    assert (
+        config.rollout.count % config.num_envs == 0
+    ), "n_rollouts must be divisible by num_envs"
+
+    assert (
+        config.datasim_path.exists()
+    ), f"Data path {config.datasim_path} does not exist"
+    assert config.augment_image is False, "Image augmentation not implemented yet"
+    assert not config.augment_image or config.observation_type == "image", (
+        "Image augmentation only works with image observations. "
+        f"Got observation type {config.observation_type}"
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
@@ -317,8 +332,10 @@ if __name__ == "__main__":
     parser.add_argument("--wb-mode", "-w", type=str, default="online")
     args = parser.parse_args()
 
+    def maybe(x, fb=1):
+        return x if args.dryrun is False else fb
+
     data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
     num_envs = maybe(16, fb=2)
@@ -327,12 +344,12 @@ if __name__ == "__main__":
 
     config.action_horizon = 8
     config.actor_lr = 5e-5
-    config.augment_image = True
+    config.augment_image = False
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = 1
     config.clip_sample = True
-    config.data_subset = None if args.dryrun is False else 10
+    config.data_subset = maybe(None, fb=10)
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
@@ -350,13 +367,13 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
+    config.steps_per_epoch = maybe(200, fb=10)
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 5 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.every = maybe(10, fb=1)
+    config.rollout.loss_threshold = maybe(0.05, fb=float("inf"))
+    config.rollout.max_steps = maybe(750, fb=10)
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -378,7 +395,7 @@ if __name__ == "__main__":
     config.feature_dropout = False
     config.noise_augment = False
 
-    # Q-learning (tau is not to be confused with the expectile)
+    # Q-learning
     config.expectile = 0.9
     config.q_target_update_step = 0.005
     config.discount = 0.995
@@ -390,11 +407,11 @@ if __name__ == "__main__":
 
     config.model_save_dir = "models"
 
-    assert (
-        config.rollout.count % config.num_envs == 0
-    ), "n_rollouts must be divisible by num_envs"
+    config.datasim_path = (
+        data_base_dir / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+    )
 
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+    validate_config(config)
 
     print(f"Using data from {config.datasim_path}")
 

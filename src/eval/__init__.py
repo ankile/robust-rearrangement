@@ -2,6 +2,8 @@ import furniture_bench
 import torch
 
 import collections
+import imageio
+from io import BytesIO
 
 import numpy as np
 from tqdm import tqdm, trange
@@ -96,6 +98,22 @@ def rollout(
     )
 
 
+def create_in_memory_mp4(np_images, fps=10):
+    output = BytesIO()
+
+    writer_options = {"fps": fps}
+    writer_options["format"] = "mp4"
+    writer_options["codec"] = "libx264"
+    writer_options["pixelformat"] = "yuv420p"
+
+    with imageio.get_writer(output, **writer_options) as writer:
+        for img in np_images:
+            writer.append_data(img)
+
+    output.seek(0)
+    return output
+
+
 @torch.no_grad()
 def calculate_success_rate(
     env: FurnitureSimEnv,
@@ -147,8 +165,9 @@ def calculate_success_rate(
         # Stack the two videoes side by side into a single video
         # and swap the axes from (T, H, W, C) to (T, C, H, W)
         video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
-        success = (rewards.sum() > 0).item()
+        video = create_in_memory_mp4(video, fps=10)
 
+        success = (rewards.sum() > 0).item()
         tbl.add_data(wandb.Video(video, fps=10), success, epoch_idx)
 
     # Log the videos to wandb table
