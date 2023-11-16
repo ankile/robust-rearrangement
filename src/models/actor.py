@@ -357,7 +357,7 @@ class ImplicitQActor(DoubleImageActor):
 
         # 2. Sample action actions a_i ~ pi(a_i | s_i) for i = 1, ..., N
         # The observation will be properly handled in the call to super().action
-        actions = torch.stack(
+        nactions = torch.stack(
             [
                 super(ImplicitQActor, self)._normalized_action(nobs)
                 for _ in range(self.n_action_samples)
@@ -369,7 +369,8 @@ class ImplicitQActor(DoubleImageActor):
         # Assuming compute_q and compute_v are defined elsewhere in your PyTorch code
         qs = torch.min(
             *self.q_network(
-                nobs.unsqueeze(0).expand(5, -1, -1), actions.flatten(start_dim=2)
+                nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1),
+                nactions.flatten(start_dim=2),
             )
         ).squeeze(-1)
         vs = self.value_network(nobs).squeeze(-1)
@@ -383,9 +384,13 @@ class ImplicitQActor(DoubleImageActor):
         )
         probabilities = torch.softmax(tau_weights, dim=0)
         sample_idx = torch.multinomial(probabilities.T, num_samples=1)
-        env_indices = torch.arange(actions.size(1), device=sample_idx.device).unsqueeze(
-            1
-        )
-        action = actions[sample_idx, env_indices, :, :].squeeze(1)
+        env_indices = torch.arange(
+            nactions.size(1), device=sample_idx.device
+        ).unsqueeze(1)
+        naction = nactions[sample_idx, env_indices, :, :].squeeze(1)
 
-        return action
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred

@@ -205,13 +205,13 @@ def do_rollout_evaluation(
 
     if success_rate > best_success_rate:
         best_success_rate = success_rate
-        # save_path = str(model_save_dir / f"actor_best.pt")
-        # torch.save(
-        #     actor.state_dict(),
-        #     save_path,
-        # )
+        save_path = str(model_save_dir / "actor_best.pt")
+        torch.save(
+            actor.state_dict(),
+            save_path,
+        )
 
-        # wandb.save(save_path)
+        wandb.save(save_path)
 
     # Log the success rate to wandb
     wandb.log(

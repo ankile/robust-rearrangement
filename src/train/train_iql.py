@@ -74,6 +74,12 @@ def main(config: ConfigDict):
         config=config,
     )
 
+    # TODO: Remove this hacky way of doing things:
+    # Warm-start only the actor from the following file:
+    noise_net_wts_path = "/data/scratch/ankile/furniture-diffusion/models/actor_best.pt"
+    # Allow missing keys as we are only loading the actor
+    actor.load_state_dict(torch.load(noise_net_wts_path), strict=False)
+
     # AdamW optimizer for the actor
     optimizer = torch.optim.AdamW(
         [
@@ -133,9 +139,6 @@ def main(config: ConfigDict):
         num_training_steps=len(trainloader) * config.num_epochs,
     )
 
-    tglobal = tqdm(range(config.num_epochs), desc="Epoch")
-    best_success_rate = float("-inf")
-
     early_stopper = EarlyStopper(
         patience=config.early_stopper.patience,
         smooth_factor=config.early_stopper.smooth_factor,
@@ -147,7 +150,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Fix store videos as mp4 and add calculation of return.",
+        notes="Remembered to unnormalize actions, maybe that will help?",
     )
 
     # Watch the model
@@ -170,8 +173,41 @@ def main(config: ConfigDict):
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # Train loop
+    run_training_loop(
+        config,
+        env,
+        device,
+        actor,
+        optimizer,
+        trainloader,
+        testloader,
+        n_batches,
+        lr_scheduler,
+        early_stopper,
+        model_save_dir,
+    )
+
+    wandb.finish()
+
+
+def run_training_loop(
+    config,
+    env,
+    device,
+    actor,
+    optimizer,
+    trainloader,
+    testloader,
+    n_batches,
+    lr_scheduler,
+    early_stopper,
+    model_save_dir,
+):
     test_loss_mean = 0.0
     bc_loss_running_mean = 0.0
+
+    tglobal = tqdm(range(config.num_epochs), desc="Epoch")
+    best_success_rate = float("-inf")
 
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -301,11 +337,12 @@ def main(config: ConfigDict):
             and bc_loss_running_mean < config.rollout.loss_threshold
         ):
             # Checkpoint the model
-            # save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-            # torch.save(
-            #     actor.state_dict(),
-            #     save_path,
-            # )
+            if config.checkpoint_model:
+                save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+                torch.save(
+                    actor.state_dict(),
+                    save_path,
+                )
 
             # Do no load the environment until we successfuly made it this far
             if env is None:
@@ -322,7 +359,6 @@ def main(config: ConfigDict):
             )
 
     tglobal.close()
-    wandb.finish()
 
 
 def validate_config(config):
@@ -360,10 +396,11 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.actor_lr = 5e-7
     config.augment_image = False
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
+    config.checkpoint_model = False
     config.clip_grad_norm = 1
     config.clip_sample = True
     config.data_subset = maybe(None, fb=10)
@@ -390,7 +427,7 @@ if __name__ == "__main__":
     config.rollout = ConfigDict()
     config.rollout.every = maybe(1, fb=1)
     config.rollout.loss_threshold = maybe(10, fb=float("inf"))
-    config.rollout.max_steps = maybe(100, fb=10)
+    config.rollout.max_steps = maybe(750, fb=10)
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -420,7 +457,7 @@ if __name__ == "__main__":
     config.critic_lr = 5e-7
     config.critic_weight_decay = 5e-4
     config.critic_hidden_dims = [512, 256]
-    config.n_action_samples = 5
+    config.n_action_samples = 2
 
     config.model_save_dir = "models"
 
