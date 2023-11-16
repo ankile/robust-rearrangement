@@ -358,10 +358,7 @@ class ImplicitQActor(DoubleImageActor):
         # 2. Sample action actions a_i ~ pi(a_i | s_i) for i = 1, ..., N
         # The observation will be properly handled in the call to super().action
         nactions = torch.stack(
-            [
-                super(ImplicitQActor, self)._normalized_action(nobs)
-                for _ in range(self.n_action_samples)
-            ],
+            [self._normalized_action(nobs) for _ in range(self.n_action_samples)],
             dim=0,
         )[:, :, : self.action_horizon, :]
 

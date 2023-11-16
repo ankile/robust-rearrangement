@@ -425,7 +425,7 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = maybe(1, fb=1)
+    config.rollout.every = maybe(10, fb=1)
     config.rollout.loss_threshold = maybe(10, fb=float("inf"))
     config.rollout.max_steps = maybe(750, fb=10)
     config.rollout.count = num_envs
@@ -453,11 +453,11 @@ if __name__ == "__main__":
     config.expectile = 0.75
     config.q_target_update_step = 0.005
     config.discount = 0.997
-    config.critic_dropout = 0.25
+    config.critic_dropout = 0.5
     config.critic_lr = 5e-7
     config.critic_weight_decay = 5e-4
     config.critic_hidden_dims = [512, 256]
-    config.n_action_samples = 2
+    config.n_action_samples = 5
 
     config.model_save_dir = "models"
 

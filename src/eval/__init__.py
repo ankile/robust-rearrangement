@@ -157,6 +157,7 @@ def calculate_success_rate(
         pbar.set_postfix(success=n_success)
 
     total_return = 0
+    table_rows = []
     for rollout_idx in range(n_rollouts):
         # Get the rewards and images for this rollout
         rewards = all_rewards[rollout_idx].numpy()
@@ -172,9 +173,15 @@ def calculate_success_rate(
         episode_return = np.sum(rewards[::-1] * gamma ** np.arange(len(rewards)))
         total_return += episode_return
 
-        tbl.add_data(
+        table_rows.append(
             wandb.Video(video, fps=10, format="mp4"), success, epoch_idx, episode_return
         )
+
+    # Sort the table rows by return (highest at the top)
+    table_rows = sorted(table_rows, key=lambda x: x[3], reverse=True)
+
+    for row in table_rows:
+        tbl.add_data(*row)
 
     # Log the videos to wandb table
     wandb.log(
