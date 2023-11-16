@@ -20,7 +20,7 @@ def rollout(
     env: FurnitureSimEnv,
     actor: DoubleImageActor,
     rollout_max_steps: int,
-    pbar=True,
+    pbar: tqdm = None,
 ):
     # get first observation
     obs = env.reset()
@@ -47,12 +47,6 @@ def rollout(
     noop = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda")
 
     step_idx = 0
-
-    pbar = tqdm(
-        total=rollout_max_steps,
-        desc="Eval OneLeg State Env",
-        disable=not pbar,
-    )
     while not done.all():
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
@@ -82,8 +76,9 @@ def rollout(
 
             # update progress bar
             step_idx += 1
-            pbar.update(1)
-            pbar.set_postfix(reward=reward)
+            if pbar is not None:
+                pbar.set_postfix(step=step_idx)
+
             if step_idx >= rollout_max_steps:
                 done = torch.ones((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
@@ -126,7 +121,6 @@ def calculate_success_rate(
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
-        postfix=dict(success=0),
         leave=False,
     )
     n_success = 0
@@ -170,11 +164,22 @@ def calculate_success_rate(
         video = create_in_memory_mp4(video, fps=10)
 
         success = (rewards.sum() > 0).item()
-        episode_return = np.sum(rewards[::-1] * gamma ** np.arange(len(rewards)))
+
+        # Calculate the return for this rollout
+        # Get index of first non-zero reward (to cut off the rest after it terminated)
+        first_nonzero_idx = np.argmax(rewards != 0) + 1
+        episode_return = np.sum(
+            rewards[:first_nonzero_idx][::-1] * gamma ** np.arange(len(rewards))
+        )
         total_return += episode_return
 
         table_rows.append(
-            wandb.Video(video, fps=10, format="mp4"), success, epoch_idx, episode_return
+            [
+                wandb.Video(video, fps=10, format="mp4"),
+                success,
+                epoch_idx,
+                episode_return,
+            ]
         )
 
     # Sort the table rows by return (highest at the top)

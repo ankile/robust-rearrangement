@@ -150,7 +150,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Remembered to unnormalize actions, maybe that will help?",
+        notes="Fix the return calculation, hopefully.",
     )
 
     # Watch the model
@@ -356,6 +356,11 @@ def run_training_loop(
                 )
             best_success_rate = do_rollout_evaluation(
                 config, env, model_save_dir, actor, best_success_rate, epoch_idx
+            )
+            tglobal.set_postfix(
+                loss=train_loss_mean,
+                test_loss=test_loss_mean,
+                best_success_rate=best_success_rate,
             )
 
     tglobal.close()
