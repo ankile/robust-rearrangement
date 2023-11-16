@@ -1,4 +1,4 @@
-import furniture_bench
+import furniture_bench  # noqa: F401
 import torch
 
 import collections
@@ -7,7 +7,7 @@ from io import BytesIO
 
 import numpy as np
 from tqdm import tqdm, trange
-from ipdb import set_trace as bp
+from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from src.models.actor import DoubleImageActor

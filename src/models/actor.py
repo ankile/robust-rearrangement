@@ -1,22 +1,15 @@
 from collections import deque
 import torch
 import torch.nn as nn
-from torchvision import transforms
-from functools import partial
 from src.data.normalizer import StateActionNormalizer
-from src.models.vision import ResnetEncoder, get_encoder
+from src.models.vision import get_encoder
 from src.models.unet import ConditionalUnet1D
-from src.common.pytorch_util import replace_submodules
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-import torchvision.transforms.functional as F
 from src.models.value import DoubleCritic, ValueNetwork
 
-from ipdb import set_trace as bp
-import numpy as np
-from src.models.module_attr_mixin import ModuleAttrMixin
+from ipdb import set_trace as bp  # noqa
 from typing import Union
-from src.common.pytorch_util import dict_apply
 
 
 class PostInitCaller(type):
@@ -45,9 +38,6 @@ class DoubleImageActor(torch.nn.Module):
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
-        # This is the number of environments only used for inference, not training
-        # Maybe it makes sense to do this another way
-        self.B = config.num_envs
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
@@ -108,20 +98,22 @@ class DoubleImageActor(torch.nn.Module):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
+        B = nrobot_state.shape[0]
+
         # Get size of the image
         img_size = obs[0]["color_image1"].shape[-3:]
 
         # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
         img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, *img_size
+            B * self.obs_horizon, *img_size
         )
         img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, *img_size
+            B * self.obs_horizon, *img_size
         )
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
-        features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
+        features1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
+        features2 = self.encoder2(img2).reshape(B, self.obs_horizon, -1)
 
         if "feature1" in self.normalizer.stats:
             features1 = self.normalizer(features1, "feature1", forward=True)
@@ -148,9 +140,10 @@ class DoubleImageActor(torch.nn.Module):
         return action_pred
 
     def _normalized_action(self, nobs):
+        B = nobs.shape[0]
         # Important! `nobs` needs to be normalized before passing to this function
         noisy_action = torch.randn(
-            (self.B, self.pred_horizon, self.action_dim),
+            (B, self.pred_horizon, self.action_dim),
             device=self.device,
         )
         naction = noisy_action
@@ -356,11 +349,13 @@ class ImplicitQActor(DoubleImageActor):
         nobs = self._normalized_obs(obs)
 
         # 2. Sample action actions a_i ~ pi(a_i | s_i) for i = 1, ..., N
-        # The observation will be properly handled in the call to super().action
-        nactions = torch.stack(
-            [self._normalized_action(nobs) for _ in range(self.n_action_samples)],
-            dim=0,
-        )[:, :, : self.action_horizon, :]
+        # But do it in parallel by packing all environments * action samples into a single batch
+        # The observation will be properly handled in the call to self._normalized_action
+        nstacked_obs = nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1)
+        nactions = self._normalized_action(
+            nstacked_obs.reshape(self.n_action_samples * nobs.shape[0], -1)
+        ).reshape(self.n_action_samples, nobs.shape[0], self.pred_horizon, -1)
+        nactions = nactions[:, :, : self.action_horizon, :]
 
         # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
         # Assuming compute_q and compute_v are defined elsewhere in your PyTorch code
