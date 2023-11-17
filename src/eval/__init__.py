@@ -134,7 +134,7 @@ def calculate_success_rate(
             env,
             actor,
             rollout_max_steps,
-            pbar=False,
+            pbar=pbar,
         )
 
         # Calculate the success rate
@@ -166,11 +166,7 @@ def calculate_success_rate(
         success = (rewards.sum() > 0).item()
 
         # Calculate the return for this rollout
-        # Get index of first non-zero reward (to cut off the rest after it terminated)
-        first_nonzero_idx = np.argmax(rewards != 0) + 1
-        episode_return = np.sum(
-            rewards[:first_nonzero_idx][::-1] * gamma ** np.arange(len(rewards))
-        )
+        episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
         total_return += episode_return
 
         table_rows.append(

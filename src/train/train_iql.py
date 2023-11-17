@@ -146,7 +146,7 @@ def main(config: ConfigDict):
 
     # Init wandb (move it down so that we can fail before starting a run in case we fail)
     wandb.init(
-        project="iql-offline-test",
+        project="iql-offline",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     config.critic_lr = 5e-7
     config.critic_weight_decay = 5e-4
     config.critic_hidden_dims = [512, 256]
-    config.n_action_samples = 5
+    config.n_action_samples = 10
 
     config.model_save_dir = "models"
 
