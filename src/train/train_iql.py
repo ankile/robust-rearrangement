@@ -80,26 +80,37 @@ def main(config: ConfigDict):
     # Allow missing keys as we are only loading the actor
     actor.load_state_dict(torch.load(noise_net_wts_path), strict=False)
 
+    # Freeze the policy network for experiments
+    if config.freeze_policy:
+        for param in actor.model.parameters():
+            param.requires_grad = False
+
     # AdamW optimizer for the actor
-    optimizer = torch.optim.AdamW(
-        [
+    parameter_groups = []
+
+    if not config.freeze_policy:
+        parameter_groups.append(
             {
                 "params": actor.model.parameters(),
                 "lr": config.actor_lr,
                 "weight_decay": config.weight_decay,
-            },
-            {
-                "params": actor.q_network.parameters(),
-                "lr": config.critic_lr,
-                "weight_decay": config.critic_weight_decay,
-            },
-            {
-                "params": actor.value_network.parameters(),
-                "lr": config.critic_lr,
-                "weight_decay": config.critic_weight_decay,
-            },
-        ]
+            }
+        )
+    parameter_groups.append(
+        {
+            "params": actor.q_network.parameters(),
+            "lr": config.critic_lr,
+            "weight_decay": config.critic_weight_decay,
+        }
     )
+    parameter_groups.append(
+        {
+            "params": actor.value_network.parameters(),
+            "lr": config.critic_lr,
+            "weight_decay": config.critic_weight_decay,
+        }
+    )
+    optimizer = torch.optim.AdamW(parameter_groups)
 
     if config.load_checkpoint_path is not None:
         print(f"Loading checkpoint from {config.load_checkpoint_path}")
@@ -146,11 +157,11 @@ def main(config: ConfigDict):
 
     # Init wandb (move it down so that we can fail before starting a run in case we fail)
     wandb.init(
-        project="iql-offline",
+        project="iql-offline-comparison",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Fix the return calculation, hopefully.",
+        notes="Run baseline: Don't use IQL.",
     )
 
     # Watch the model
@@ -399,6 +410,9 @@ if __name__ == "__main__":
     num_envs = maybe(16, fb=2)
 
     config = ConfigDict()
+
+    # TODO: Only for IDQL experiments
+    config.freeze_policy = True
 
     config.action_horizon = 8
     config.actor_lr = 5e-7
