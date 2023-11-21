@@ -221,6 +221,7 @@ class DoubleImageActor(torch.nn.Module):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
+            nobs = nobs.flatten(start_dim=1)
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
