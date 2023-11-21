@@ -1,5 +1,5 @@
-import furniture_bench
-from ml_collections import ConfigDict  # noqa: F401
+import furniture_bench  # noqa: F401
+from ml_collections import ConfigDict
 import torch
 
 import collections

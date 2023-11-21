@@ -30,15 +30,6 @@ def main(config: ConfigDict):
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    # Init wandb
-    wandb.init(
-        project="robot-rearrangement",
-        entity="robot-rearrangement",
-        config=config.to_dict(),
-        mode="online" if not config.dryrun else "disabled",
-        notes="Fine-tune with unfreezed encoder and image augmentation (translation), take 2.",
-    )
-
     # Create model save dir
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -87,27 +78,12 @@ def main(config: ConfigDict):
         config=config,
     )
 
-    # Watch the model
-    wandb.watch(actor, log="all")
+    # Update the config object with the observation dimension
+    config.timestep_obs_dim = actor.timestep_obs_dim
 
     if config.load_checkpoint_path is not None:
         print(f"Loading checkpoint from {config.load_checkpoint_path}")
         actor.load_state_dict(torch.load(config.load_checkpoint_path))
-
-    # Update the config object with the observation dimension
-    config.timestep_obs_dim = actor.timestep_obs_dim
-
-    # save stats to wandb and update the config object
-    wandb.log(
-        {
-            "num_samples": len(train_dataset),
-            "num_samples_test": len(test_dataset),
-            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
-            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": normalizer.stats_dict,
-        }
-    )
-    wandb.config.update(config.to_dict())
 
     # Create dataloaders
     trainloader = FixedStepsDataloader(
@@ -154,6 +130,30 @@ def main(config: ConfigDict):
         patience=config.early_stopper.patience,
         smooth_factor=config.early_stopper.smooth_factor,
     )
+
+    # Init wandb
+    wandb.init(
+        project="robot-rearrangement",
+        entity="robot-rearrangement",
+        config=config.to_dict(),
+        mode="online" if not config.dryrun else "disabled",
+        notes="Fine-tune with unfreezed encoder and image augmentation (translation), take 3.",
+    )
+
+    # Watch the model
+    wandb.watch(actor, log="all")
+
+    # save stats to wandb and update the config object
+    wandb.log(
+        {
+            "num_samples": len(train_dataset),
+            "num_samples_test": len(test_dataset),
+            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
+            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
+            "stats": normalizer.stats_dict,
+        }
+    )
+    wandb.config.update(config.to_dict())
 
     # Train loop
     test_loss_mean = 0.0
@@ -271,7 +271,9 @@ def main(config: ConfigDict):
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
-                    resize_img=not config.augment_image,
+                    # resize_img=not config.augment_image,
+                    # Make sure the image is 224x224 out of the simulator for consistency
+                    resize_img=True,
                 )
             best_success_rate = do_rollout_evaluation(
                 config, env, model_save_dir, actor, best_success_rate, epoch_idx
@@ -313,13 +315,15 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = None
+    config.load_checkpoint_path = (
+        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    )
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "feature"
+    config.observation_type = "image"
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
@@ -338,8 +342,8 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
-    config.vision_encoder.freeze = True
+    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -357,7 +361,7 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
