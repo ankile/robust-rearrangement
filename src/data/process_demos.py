@@ -42,7 +42,9 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
         furniture.append(data["furniture"])
 
         obs = data["observations"]
-        robot_state_buffer = [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+        robot_state_buffer = [
+            filter_and_concat_robot_state(o["robot_state"]) for o in obs
+        ]
         img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
         img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
 
@@ -63,7 +65,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
         str(output_path / "data.zarr"),
         action=np.array(actions, dtype=np.float32),
         episode_ends=np.array(episode_ends, dtype=np.uint32),
-        rewards=np.array(rewards, dtype=np.float32),
+        reward=np.array(rewards, dtype=np.float32),
         skills=np.array(skills, dtype=np.float32),
         furniture=furniture,
         time_created=np.datetime64("now"),
@@ -81,7 +83,14 @@ def initialize_zarr_store(out_dir, initial_data):
     # Initialize datasets with shapes based on the initial data
     z.create_dataset(
         "robot_state",
-        shape=(0, len(filter_and_concat_robot_state(initial_data["observations"][0]["robot_state"]))),
+        shape=(
+            0,
+            len(
+                filter_and_concat_robot_state(
+                    initial_data["observations"][0]["robot_state"]
+                )
+            ),
+        ),
         dtype=np.float32,
         chunks=True,
     )
@@ -140,7 +149,9 @@ def process_pickle_file(z, pickle_path):
         data = pickle.load(f)
 
     obs = data["observations"]
-    z["robot_state"].append([filter_and_concat_robot_state(o["robot_state"]) for o in obs])
+    z["robot_state"].append(
+        [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+    )
     z["color_image1"].append([o["color_image1"] for o in obs])
     z["color_image2"].append([o["color_image2"] for o in obs])
     z["action"].append(data["actions"])

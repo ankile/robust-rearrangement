@@ -1,21 +1,24 @@
 from collections import deque
 import torch
 import torch.nn as nn
-from torchvision import transforms
-from functools import partial
 from src.data.normalizer import StateActionNormalizer
-from src.models.vision import ResnetEncoder, get_encoder
+from src.models.vision import get_encoder
 from src.models.unet import ConditionalUnet1D
-from src.common.pytorch_util import replace_submodules
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-import torchvision.transforms.functional as F
+from src.models.value import DoubleCritic, ValueNetwork
 
-from ipdb import set_trace as bp
-import numpy as np
-from src.models.module_attr_mixin import ModuleAttrMixin
+from ipdb import set_trace as bp  # noqa
 from typing import Union
-from src.common.pytorch_util import dict_apply
+
+
+class PostInitCaller(type):
+    def __call__(cls, *args, **kwargs):
+        """Called when you call BaseClass()"""
+        print(f"{__class__.__name__}.__call__({args}, {kwargs})")
+        obj = type.__call__(cls, *args, **kwargs)
+        obj.__post_init__(*args, **kwargs)
+        return obj
 
 
 class DoubleImageActor(torch.nn.Module):
@@ -35,9 +38,6 @@ class DoubleImageActor(torch.nn.Module):
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
-        # This is the number of environments only used for inference, not training
-        # Maybe it makes sense to do this another way
-        self.B = config.num_envs
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
@@ -63,20 +63,26 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device) if not freeze_encoder else self.encoder1
+            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            if not freeze_encoder
+            else self.encoder1
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
-        self.obs_dim = config.robot_state_dim + self.encoding_dim
+        self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
+        self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
         self.model = ConditionalUnet1D(
             input_dim=config.action_dim,
-            global_cond_dim=self.obs_dim * config.obs_horizon,
+            global_cond_dim=self.obs_dim,
             down_dims=config.down_dims,
         ).to(device)
 
-        self.dropout = nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+        self.dropout = (
+            nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+        )
 
+    def __post_init__(self, *args, **kwargs):
         self.print_model_params()
 
     def print_model_params(self: torch.nn.Module):
@@ -92,20 +98,22 @@ class DoubleImageActor(torch.nn.Module):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
+        B = nrobot_state.shape[0]
+
         # Get size of the image
         img_size = obs[0]["color_image1"].shape[-3:]
 
         # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
         img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, *img_size
+            B * self.obs_horizon, *img_size
         )
         img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            self.B * self.obs_horizon, *img_size
+            B * self.obs_horizon, *img_size
         )
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        features1 = self.encoder1(img1).reshape(self.B, self.obs_horizon, -1)
-        features2 = self.encoder2(img2).reshape(self.B, self.obs_horizon, -1)
+        features1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
+        features2 = self.encoder2(img2).reshape(B, self.obs_horizon, -1)
 
         if "feature1" in self.normalizer.stats:
             features1 = self.normalizer(features1, "feature1", forward=True)
@@ -120,11 +128,22 @@ class DoubleImageActor(torch.nn.Module):
     # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
-        obs_cond = self._normalized_obs(obs)
+        nobs = self._normalized_obs(obs)
 
         # initialize action from Guassian noise
+        naction = self._normalized_action(nobs)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred
+
+    def _normalized_action(self, nobs):
+        B = nobs.shape[0]
+        # Important! `nobs` needs to be normalized before passing to this function
         noisy_action = torch.randn(
-            (self.B, self.pred_horizon, self.action_dim),
+            (B, self.pred_horizon, self.action_dim),
             device=self.device,
         )
         naction = noisy_action
@@ -135,26 +154,53 @@ class DoubleImageActor(torch.nn.Module):
         for k in self.inference_noise_scheduler.timesteps:
             # predict noise
             # Print dtypes of all tensors to the model
-            noise_pred = self.model(sample=naction, timestep=k, global_cond=obs_cond)
+            noise_pred = self.model(sample=naction, timestep=k, global_cond=nobs)
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
                 model_output=noise_pred, timestep=k, sample=naction
             ).prev_sample
 
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
-
-        return action_pred
+        return naction
 
     # === Training ===
     def compute_loss(self, batch):
-        nrobot_state = batch["robot_state"]
-        if self.observation_type == "image":
-            # State already normalized in the dataset
-            B = nrobot_state.shape[0]
+        # State already normalized in the dataset
+        obs_cond = self._training_obs(batch)
 
+        # Apply Dropout to the observation conditioning if specified
+        if self.dropout:
+            obs_cond = self.dropout(obs_cond)
+
+        # Action already normalized in the dataset
+        # naction = normalize_data(batch["action"], stats=self.stats["action"])
+        naction = batch["action"]
+        # sample noise to add to actions
+        noise = torch.randn(naction.shape, device=self.device)
+
+        # sample a diffusion iteration for each data point
+        timesteps = torch.randint(
+            0,
+            self.train_noise_scheduler.config.num_train_timesteps,
+            (obs_cond.shape[0],),
+            device=self.device,
+        ).long()
+
+        # add noise to the clean images according to the noise magnitude at each diffusion iteration
+        # (this is the forward diffusion process)
+        noisy_action = self.train_noise_scheduler.add_noise(naction, noise, timesteps)
+
+        # forward pass
+        noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
+        loss = nn.functional.mse_loss(noise_pred, noise)
+
+        return loss
+
+    def _training_obs(self, batch):
+        nrobot_state = batch["robot_state"]
+        B = nrobot_state.shape[0]
+
+        if self.observation_type == "image":
             # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
             # so that it's compatible with the encoder
             image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
@@ -173,43 +219,170 @@ class DoubleImageActor(torch.nn.Module):
             feature2 = batch["feature2"]
 
             if self.noise_augment:
-                feature1 += torch.normal(mean=0.0, std=self.noise_augment, size=feature1.size()).to(feature1.device)
-                feature2 += torch.normal(mean=0.0, std=self.noise_augment, size=feature2.size()).to(feature2.device)
+                feature1 += torch.normal(
+                    mean=0.0, std=self.noise_augment, size=feature1.size()
+                ).to(feature1.device)
+                feature2 += torch.normal(
+                    mean=0.0, std=self.noise_augment, size=feature2.size()
+                ).to(feature2.device)
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            B = nobs.shape[0]
+            nobs = nobs.flatten(start_dim=1)
+        return nobs
 
-        # observation as FiLM conditioning
-        # (B, obs_horizon, obs_dim)
-        obs_cond = nobs[:, : self.obs_horizon, :]
-        # (B, obs_horizon * obs_dim)
-        obs_cond = obs_cond.flatten(start_dim=1)
 
-        # Apply Dropout to the observation conditioning if specified
-        if self.dropout:
-            obs_cond = self.dropout(obs_cond)
+class ImplicitQActor(DoubleImageActor):
+    def __init__(
+        self,
+        device: Union[str, torch.device],
+        encoder_name: str,
+        freeze_encoder: bool,
+        normalizer: StateActionNormalizer,
+        config,
+    ) -> None:
+        super().__init__(device, encoder_name, freeze_encoder, normalizer, config)
 
-        # Action already normalized in the dataset
-        # naction = normalize_data(batch["action"], stats=self.stats["action"])
-        naction = batch["action"]
-        # sample noise to add to actions
-        noise = torch.randn(naction.shape, device=self.device)
+        # Add hyperparameters specific to IDQL
+        self.expectile = config.expectile
+        self.tau = config.q_target_update_step
+        self.discount = config.discount
+        self.n_action_samples = config.n_action_samples
 
-        # sample a diffusion iteration for each data point
-        timesteps = torch.randint(
-            0,
-            self.train_noise_scheduler.config.num_train_timesteps,
-            (B,),
-            device=self.device,
-        ).long()
+        # Add networks for the Q function
+        self.q_network = DoubleCritic(
+            state_dim=self.obs_dim,
+            action_dim=self.action_dim * self.action_horizon,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
+        ).to(device)
 
-        # add noise to the clean images according to the noise magnitude at each diffusion iteration
-        # (this is the forward diffusion process)
-        noisy_action = self.train_noise_scheduler.add_noise(naction, noise, timesteps)
+        self.q_target_network = DoubleCritic(
+            state_dim=self.obs_dim,
+            action_dim=self.action_dim * self.action_horizon,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
+        ).to(device)
 
-        # forward pass
-        noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
-        loss = nn.functional.mse_loss(noise_pred, noise)
+        # Turn off gradients for the target network
+        for param in self.q_target_network.parameters():
+            param.requires_grad = False
 
-        return loss
+        # Add networks for the value function
+        self.value_network = ValueNetwork(
+            input_dim=self.obs_dim,
+            hidden_dims=config.critic_hidden_dims,
+            dropout=config.critic_dropout,
+        ).to(device)
+
+    def __post_init__(self, *args, **kwargs):
+        self.print_model_params()
+
+    def _flat_action(self, action):
+        start = self.obs_horizon - 1
+        end = start + self.action_horizon
+        naction = action[:, start:end, :].flatten(start_dim=1)
+        return naction
+
+    def _value_loss(self, batch):
+        def loss(diff, expectile=0.8):
+            weight = torch.where(
+                diff > 0,
+                torch.full_like(diff, expectile),
+                torch.full_like(diff, 1 - expectile),
+            )
+            return weight * (diff**2)
+
+        # Compute the value loss
+        nobs = self._training_obs(batch["curr_obs"])
+        naction = self._flat_action(batch["action"])
+
+        # Compute the Q values
+        with torch.no_grad():
+            q1, q2 = self.q_target_network(nobs, naction)
+            q = torch.min(q1, q2)
+
+        v = self.value_network(nobs)
+
+        # Compute the value loss
+        value_loss = loss(q - v, expectile=self.expectile).mean()
+
+        return value_loss
+
+    def _q_loss(self, batch):
+        curr_obs = self._training_obs(batch["curr_obs"])
+        next_obs = self._training_obs(batch["next_obs"])
+        naction = self._flat_action(batch["action"])
+
+        with torch.no_grad():
+            next_v = self.value_network(next_obs).squeeze(-1)
+
+        target_q = batch["reward"] + self.discount * next_v
+
+        q1, q2 = self.q_network(curr_obs, naction)
+
+        q1_loss = nn.functional.mse_loss(q1.squeeze(-1), target_q)
+        q2_loss = nn.functional.mse_loss(q2.squeeze(-1), target_q)
+
+        return (q1_loss + q2_loss) / 2
+
+    def compute_loss(self, batch):
+        bc_loss = super().compute_loss({**batch["curr_obs"], "action": batch["action"]})
+        q_loss = self._q_loss(batch)
+        value_loss = self._value_loss(batch)
+
+        return bc_loss, q_loss, value_loss
+
+    def polyak_update_target(self, tau):
+        with torch.no_grad():
+            for param, target_param in zip(
+                self.q_network.parameters(), self.q_target_network.parameters()
+            ):
+                target_param.data.copy_(
+                    tau * param.data + (1 - tau) * target_param.data
+                )
+
+    # === Inference ===
+    @torch.no_grad()
+    def action(self, obs: deque):
+        # 1. Observe current state s
+        nobs = self._normalized_obs(obs)
+
+        # 2. Sample action actions a_i ~ pi(a_i | s_i) for i = 1, ..., N
+        # But do it in parallel by packing all environments * action samples into a single batch
+        # The observation will be properly handled in the call to self._normalized_action
+        nstacked_obs = nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1)
+        nactions = self._normalized_action(
+            nstacked_obs.reshape(self.n_action_samples * nobs.shape[0], -1)
+        ).reshape(self.n_action_samples, nobs.shape[0], self.pred_horizon, -1)
+        nactions = nactions[:, :, : self.action_horizon, :]
+
+        # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
+        # Assuming compute_q and compute_v are defined elsewhere in your PyTorch code
+        qs = torch.min(
+            *self.q_network(
+                nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1),
+                nactions.flatten(start_dim=2),
+            )
+        ).squeeze(-1)
+        vs = self.value_network(nobs).squeeze(-1)
+        adv = qs - vs
+
+        # if self.critic_objective == 'expectile':
+        tau_weights = torch.where(
+            adv > 0,
+            torch.full_like(adv, self.expectile),
+            torch.full_like(adv, 1 - self.expectile),
+        )
+        probabilities = torch.softmax(tau_weights, dim=0)
+        sample_idx = torch.multinomial(probabilities.T, num_samples=1)
+        env_indices = torch.arange(
+            nactions.size(1), device=sample_idx.device
+        ).unsqueeze(1)
+        naction = nactions[sample_idx, env_indices, :, :].squeeze(1)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred

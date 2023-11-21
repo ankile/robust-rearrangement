@@ -1,13 +1,14 @@
-import furniture_bench
+import furniture_bench  # noqa: F401
 import torch
 
 import collections
+import imageio
+from io import BytesIO
 
 import numpy as np
 from tqdm import tqdm, trange
-from ipdb import set_trace as bp
+from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
-from src.gym import get_env
 
 from src.models.actor import DoubleImageActor
 
@@ -19,7 +20,7 @@ def rollout(
     env: FurnitureSimEnv,
     actor: DoubleImageActor,
     rollout_max_steps: int,
-    pbar=True,
+    pbar: tqdm = None,
 ):
     # get first observation
     obs = env.reset()
@@ -46,12 +47,6 @@ def rollout(
     noop = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda")
 
     step_idx = 0
-
-    pbar = tqdm(
-        total=rollout_max_steps,
-        desc="Eval OneLeg State Env",
-        disable=not pbar,
-    )
     while not done.all():
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
@@ -81,8 +76,9 @@ def rollout(
 
             # update progress bar
             step_idx += 1
-            pbar.update(1)
-            pbar.set_postfix(reward=reward)
+            if pbar is not None:
+                pbar.set_postfix(step=step_idx)
+
             if step_idx >= rollout_max_steps:
                 done = torch.ones((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
@@ -96,6 +92,22 @@ def rollout(
     )
 
 
+def create_in_memory_mp4(np_images, fps=10):
+    output = BytesIO()
+
+    writer_options = {"fps": fps}
+    writer_options["format"] = "mp4"
+    writer_options["codec"] = "libx264"
+    writer_options["pixelformat"] = "yuv420p"
+
+    with imageio.get_writer(output, **writer_options) as writer:
+        for img in np_images:
+            writer.append_data(img)
+
+    output.seek(0)
+    return output
+
+
 @torch.no_grad()
 def calculate_success_rate(
     env: FurnitureSimEnv,
@@ -103,12 +115,12 @@ def calculate_success_rate(
     n_rollouts: int,
     rollout_max_steps: int,
     epoch_idx: int,
+    gamma: float = 0.99,
 ):
-    tbl = wandb.Table(columns=["rollout", "success", "epoch"])
+    tbl = wandb.Table(columns=["rollout", "success", "epoch", "return"])
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
-        postfix=dict(success=0),
         leave=False,
     )
     n_success = 0
@@ -122,7 +134,7 @@ def calculate_success_rate(
             env,
             actor,
             rollout_max_steps,
-            pbar=False,
+            pbar=pbar,
         )
 
         # Calculate the success rate
@@ -138,6 +150,8 @@ def calculate_success_rate(
         pbar.update(env.num_envs)
         pbar.set_postfix(success=n_success)
 
+    total_return = 0
+    table_rows = []
     for rollout_idx in range(n_rollouts):
         # Get the rewards and images for this rollout
         rewards = all_rewards[rollout_idx].numpy()
@@ -145,17 +159,37 @@ def calculate_success_rate(
         video2 = all_imgs2[rollout_idx].numpy()
 
         # Stack the two videoes side by side into a single video
-        # and swap the axes from (T, H, W, C) to (T, C, H, W)
-        video = np.concatenate([video1, video2], axis=2).transpose(0, 3, 1, 2)
+        # and keep axes as (T, H, W, C)
+        video = np.concatenate([video1, video2], axis=2)
+        video = create_in_memory_mp4(video, fps=10)
+
         success = (rewards.sum() > 0).item()
 
-        tbl.add_data(wandb.Video(video, fps=10), success, epoch_idx)
+        # Calculate the return for this rollout
+        episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
+        total_return += episode_return
+
+        table_rows.append(
+            [
+                wandb.Video(video, fps=10, format="mp4"),
+                success,
+                epoch_idx,
+                episode_return,
+            ]
+        )
+
+    # Sort the table rows by return (highest at the top)
+    table_rows = sorted(table_rows, key=lambda x: x[3], reverse=True)
+
+    for row in table_rows:
+        tbl.add_data(*row)
 
     # Log the videos to wandb table
     wandb.log(
         {
             "rollouts": tbl,
             "epoch": epoch_idx,
+            "epoch_mean_return": total_return / n_rollouts,
         }
     )
 
@@ -164,7 +198,9 @@ def calculate_success_rate(
     return n_success / n_rollouts
 
 
-def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate, epoch_idx) -> float:
+def do_rollout_evaluation(
+    config, env, model_save_dir, actor, best_success_rate, epoch_idx
+) -> float:
     # Perform a rollout with the current model
     success_rate = calculate_success_rate(
         env,
@@ -172,11 +208,12 @@ def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate,
         n_rollouts=config.rollout.count,
         rollout_max_steps=config.rollout.max_steps,
         epoch_idx=epoch_idx,
+        gamma=config.discount,
     )
 
     if success_rate > best_success_rate:
         best_success_rate = success_rate
-        save_path = str(model_save_dir / f"actor_best.pt")
+        save_path = str(model_save_dir / "actor_best.pt")
         torch.save(
             actor.state_dict(),
             save_path,
@@ -185,6 +222,12 @@ def do_rollout_evaluation(config, env, model_save_dir, actor, best_success_rate,
         wandb.save(save_path)
 
     # Log the success rate to wandb
-    wandb.log({"success_rate": success_rate, "best_success_rate": best_success_rate, "epoch": epoch_idx})
+    wandb.log(
+        {
+            "success_rate": success_rate,
+            "best_success_rate": best_success_rate,
+            "epoch": epoch_idx,
+        }
+    )
 
     return best_success_rate

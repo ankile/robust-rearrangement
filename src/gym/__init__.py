@@ -1,9 +1,9 @@
-import furniture_bench
+import furniture_bench  # noqa: F401
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_OBS
 
 import gym
 
-from src.common.context import suppress_print, suppress_all_output
+from src.common.context import suppress_all_output
 
 
 def get_env(

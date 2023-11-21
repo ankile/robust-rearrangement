@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 
 
+def get_data_stats(data):
+    data = data.reshape(-1, data.shape[-1])
+    stats = {"min": np.min(data, axis=0), "max": np.max(data, axis=0)}
+    return stats
+
+
 # For now, these stats come from calculating the min/max of data
 # collected from the robot in the sim for the `one_leg` task,
 # for 490 trajectories, roughly evenly split between low, medium, and high randomness.
