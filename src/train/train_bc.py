@@ -305,7 +305,7 @@ if __name__ == "__main__":
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
     config.clip_sample = True
-    config.data_subset = 200 if args.dryrun is False else 10
+    config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 500
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.pred_horizon = 16
@@ -327,9 +327,9 @@ if __name__ == "__main__":
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 5 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.015 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 1.03 if args.dryrun is False else float("inf")
+    config.rollout.max_steps = 100 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
