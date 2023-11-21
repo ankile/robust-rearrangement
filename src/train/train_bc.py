@@ -30,10 +30,6 @@ def main(config: ConfigDict):
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    # Create model save dir
-    model_save_dir = Path(config.model_save_dir) / wandb.run.name
-    model_save_dir.mkdir(parents=True, exist_ok=True)
-
     normalizer = StateActionNormalizer()
 
     if config.observation_type == "image":
@@ -154,6 +150,10 @@ def main(config: ConfigDict):
         }
     )
     wandb.config.update(config.to_dict())
+
+    # Create model save dir
+    model_save_dir = Path(config.model_save_dir) / wandb.run.name
+    model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # Train loop
     test_loss_mean = 0.0
@@ -361,7 +361,7 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
+    config.datasim_path = data_base_dir / "processed/sim/image_small/one_leg/data.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
