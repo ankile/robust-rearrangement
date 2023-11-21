@@ -16,7 +16,7 @@ from src.data.dataset import FurnitureQFeatureDataset
 from src.data.normalizer import StateActionNormalizer
 from src.eval import do_rollout_evaluation
 from src.gym import get_env
-from src.models.actor import ImplicitQActor
+from src.behavior.actor import ImplicitQActor
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
@@ -32,15 +32,6 @@ def main(config: ConfigDict):
     normalizer = StateActionNormalizer()
 
     if config.observation_type == "image":
-        # dataset = FurnitureImageDataset(
-        #     dataset_path=config.datasim_path,
-        #     pred_horizon=config.pred_horizon,
-        #     obs_horizon=config.obs_horizon,
-        #     action_horizon=config.action_horizon,
-        #     normalizer=normalizer,
-        #     augment_image=config.augment_image,
-        #     data_subset=config.data_subset,
-        # )
         raise NotImplementedError("Image dataset not implemented yet")
     elif config.observation_type == "feature":
         dataset = FurnitureQFeatureDataset(

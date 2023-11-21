@@ -1,3 +1,4 @@
+from abc import ABC
 from collections import deque
 import torch
 import torch.nn as nn
@@ -19,6 +20,14 @@ class PostInitCaller(type):
         obj = type.__call__(cls, *args, **kwargs)
         obj.__post_init__(*args, **kwargs)
         return obj
+
+
+class Actor(ABC):
+    obs_horizon: int
+    action_horizon: int
+
+    def action(self, obs: deque):
+        raise NotImplementedError
 
 
 class DoubleImageActor(torch.nn.Module):

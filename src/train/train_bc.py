@@ -14,7 +14,7 @@ from src.eval import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
-from src.models.actor import DoubleImageActor
+from src.behavior.actor import DoubleImageActor
 from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse

@@ -1,4 +1,5 @@
-import furniture_bench  # noqa: F401
+import furniture_bench
+from ml_collections import ConfigDict  # noqa: F401
 import torch
 
 import collections
@@ -10,7 +11,7 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-from src.models.actor import DoubleImageActor
+from src.behavior.actor import Actor
 
 
 import wandb
@@ -18,7 +19,7 @@ import wandb
 
 def rollout(
     env: FurnitureSimEnv,
-    actor: DoubleImageActor,
+    actor: Actor,
     rollout_max_steps: int,
     pbar: tqdm = None,
 ):
@@ -111,7 +112,7 @@ def create_in_memory_mp4(np_images, fps=10):
 @torch.no_grad()
 def calculate_success_rate(
     env: FurnitureSimEnv,
-    actor: DoubleImageActor,
+    actor: Actor,
     n_rollouts: int,
     rollout_max_steps: int,
     epoch_idx: int,
@@ -199,7 +200,12 @@ def calculate_success_rate(
 
 
 def do_rollout_evaluation(
-    config, env, model_save_dir, actor, best_success_rate, epoch_idx
+    config: ConfigDict,
+    env: FurnitureSimEnv,
+    model_save_dir: str,
+    actor: Actor,
+    best_success_rate: float,
+    epoch_idx: int,
 ) -> float:
     # Perform a rollout with the current model
     success_rate = calculate_success_rate(
