@@ -118,7 +118,7 @@ def calculate_success_rate(
     epoch_idx: int,
     gamma: float = 0.99,
 ):
-    tbl = wandb.Table(columns=["rollout", "success", "epoch", "return"])
+    tbl = wandb.Table(columns=["rollout", "success", "epoch", "return", "steps"])
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
@@ -165,6 +165,7 @@ def calculate_success_rate(
         video = create_in_memory_mp4(video, fps=10)
 
         success = (rewards.sum() > 0).item()
+        n_steps = np.argmax(rewards) + 1
 
         # Calculate the return for this rollout
         episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
@@ -176,6 +177,7 @@ def calculate_success_rate(
                 success,
                 epoch_idx,
                 episode_return,
+                n_steps,
             ]
         )
 
@@ -207,7 +209,6 @@ def do_rollout_evaluation(
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
-    # Perform a rollout with the current model
     success_rate = calculate_success_rate(
         env,
         actor,

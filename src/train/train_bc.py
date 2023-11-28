@@ -133,7 +133,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Fine-tune with unfreezed encoder and image augmentation (translation), take 3.",
+        notes="",
     )
 
     # Watch the model
@@ -154,6 +154,18 @@ def main(config: ConfigDict):
     # Create model save dir
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
+
+    # # Set all batchnorm layers to eval mode
+    for m in actor.encoder1.model.modules():
+        if isinstance(m, torch.nn.BatchNorm2d):
+            m.momentum = 0
+
+    for m in actor.encoder2.model.modules():
+        if isinstance(m, torch.nn.BatchNorm2d):
+            m.momentum = 0
+
+    actor.encoder1.model.eval()
+    actor.encoder2.model.eval()
 
     # Train loop
     test_loss_mean = 0.0
@@ -301,13 +313,12 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.action_horizon = 8
-    config.actor_lr = 5e-5
-    config.augment_image = True
+    config.actor_lr = 5e-8
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
     config.clip_sample = True
-    config.data_subset = None if args.dryrun is False else 10
+    config.data_subset = 50 if args.dryrun is False else 10
     config.dataloader_workers = n_workers
     config.demo_source = "sim"
     config.down_dims = [256, 512, 1024]
@@ -327,13 +338,13 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
+    config.steps_per_epoch = 100 if args.dryrun is False else 10
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
     config.rollout.loss_threshold = 1.03 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 750 if args.dryrun is False else 10
+    config.rollout.max_steps = 600 if args.dryrun is False else 10
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()
@@ -355,6 +366,7 @@ if __name__ == "__main__":
     # Regularization
     config.weight_decay = 1e-6
     config.feature_dropout = False
+    config.augment_image = True
     config.noise_augment = False
 
     config.model_save_dir = "models"
@@ -363,7 +375,11 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = data_base_dir / "processed/sim/image_small/one_leg/data.zarr"
+    config.datasim_path = (
+        # data_base_dir / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
+        data_base_dir
+        / "processed/sim/image_small/one_leg/data.zarr"
+    )
 
     print(f"Using data from {config.datasim_path}")
 

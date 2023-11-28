@@ -158,8 +158,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
 
         if self.augment_image:
-            nsample["color_image1"] = random_translate(nsample["color_image1"])
-            nsample["color_image2"] = random_translate(nsample["color_image2"])
+            max_translation = 10
+            nsample["color_image1"] = random_translate(
+                nsample["color_image1"], max_translation
+            )
+            nsample["color_image2"] = random_translate(
+                nsample["color_image2"], max_translation
+            )
 
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
