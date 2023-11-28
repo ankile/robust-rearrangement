@@ -47,6 +47,7 @@ class DoubleImageActor(torch.nn.Module):
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
+        self.freeze_encoder = freeze_encoder
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
@@ -72,9 +73,9 @@ class DoubleImageActor(torch.nn.Module):
 
         self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         self.encoder2 = (
-            get_encoder(encoder_name, freeze=freeze_encoder, device=device)
-            if not freeze_encoder
-            else self.encoder1
+            self.encoder1
+            if freeze_encoder
+            else get_encoder(encoder_name, freeze=freeze_encoder, device=device)
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
@@ -137,9 +138,10 @@ class DoubleImageActor(torch.nn.Module):
     # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
+        # Normalize observations
         nobs = self._normalized_obs(obs)
 
-        # initialize action from Guassian noise
+        # Predict normalized action
         naction = self._normalized_action(nobs)
 
         # unnormalize action
@@ -151,11 +153,11 @@ class DoubleImageActor(torch.nn.Module):
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
         # Important! `nobs` needs to be normalized before passing to this function
-        noisy_action = torch.randn(
+        # Initialize action from Guassian noise
+        naction = torch.randn(
             (B, self.pred_horizon, self.action_dim),
             device=self.device,
         )
-        naction = noisy_action
 
         # init scheduler
         self.inference_noise_scheduler.set_timesteps(self.inference_steps)
@@ -239,6 +241,9 @@ class DoubleImageActor(torch.nn.Module):
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
             nobs = nobs.flatten(start_dim=1)
+        else:
+            raise ValueError(f"Invalid observation type: {self.observation_type}")
+
         return nobs
 
 
