@@ -11,11 +11,11 @@ from src.common.pytorch_util import replace_submodules
 
 def get_encoder(encoder_name, freeze=True, device="cuda"):
     if encoder_name == "dinov2-base":
-        return DinoEncoder(size="base", freeze=freeze, device=device)
+        return DinoV2Encoder(size="base", freeze=freeze, device=device)
     if encoder_name == "dinov2-large":
-        return DinoEncoder(size="large", freeze=freeze, device=device)
+        return DinoV2Encoder(size="large", freeze=freeze, device=device)
     if encoder_name == "dinov2-small":
-        return DinoEncoder(size="small", freeze=freeze, device=device)
+        return DinoV2Encoder(size="small", freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
         return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name == "vip":
@@ -24,6 +24,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return ResnetEncoder(
             model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
         )
+    if encoder_name == "dino":
+        return DinoEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
@@ -88,7 +90,7 @@ class ResnetEncoder(ModuleAttrMixin):
         return x
 
 
-class DinoEncoder(torch.nn.Module):
+class DinoV2Encoder(torch.nn.Module):
     def __init__(self, size="base", freeze=True, device="cuda"):
         super().__init__()
         assert size in ["small", "base", "large", "giant"]
@@ -161,5 +163,36 @@ class R3MEncoder(torch.nn.Module):
     def forward(self, x):
         # Move channels to the front
         x = x.permute(0, 3, 1, 2)
+        x = self.model(x)
+        return x
+
+
+class DinoEncoder(torch.nn.Module):
+    def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
+        super().__init__()
+        self.device = device
+
+        # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
+        self.model = torch.hub.load("facebookresearch/dino:main", "dino_vits16")
+
+        self.encoding_dim = self.model.norm.normalized_shape
+
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            self.model.eval()
+
+        self.normalize = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+
+    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    def forward(self, x):
+        # Move channels to the front
+        x = x.permute(0, 3, 1, 2)
+        # Normalize images
+        x = x / 255.0
+        x = self.normalize(x)
         x = self.model(x)
         return x
