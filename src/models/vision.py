@@ -175,13 +175,15 @@ class DinoEncoder(torch.nn.Module):
         # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
         self.model = torch.hub.load("facebookresearch/dino:main", "dino_vits16")
 
-        self.encoding_dim = self.model.norm.normalized_shape
+        self.encoding_dim = self.model.norm.normalized_shape[0]
 
         if freeze:
             for param in self.model.parameters():
                 param.requires_grad = False
 
             self.model.eval()
+
+        self.model = self.model.to(device)
 
         self.normalize = torchvision.transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
