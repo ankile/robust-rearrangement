@@ -13,7 +13,7 @@ from ipdb import set_trace as bp  # noqa
 from typing import Union
 
 
-class DoubleImageActor(Actor):
+class DiffusionPolicy(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
@@ -86,53 +86,7 @@ class DoubleImageActor(Actor):
             params = sum(p.numel() for p in submodule.parameters())
             print(f"{name}: {params:.2e} parameters")
 
-    def _normalized_obs(self, obs: deque):
-        # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
-        robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
-        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
-
-        B = nrobot_state.shape[0]
-
-        # Get size of the image
-        img_size = obs[0]["color_image1"].shape[-3:]
-
-        # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
-        img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
-        img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
-
-        # Encode the images and reshape back to (B, obs_horizon, -1)
-        features1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
-        features2 = self.encoder2(img2).reshape(B, self.obs_horizon, -1)
-
-        if "feature1" in self.normalizer.stats:
-            features1 = self.normalizer(features1, "feature1", forward=True)
-            features2 = self.normalizer(features2, "feature2", forward=True)
-
-        # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
-        nobs = nobs.flatten(start_dim=1)
-
-        return nobs
-
     # === Inference ===
-    @torch.no_grad()
-    def action(self, obs: deque):
-        # Normalize observations
-        nobs = self._normalized_obs(obs)
-
-        # Predict normalized action
-        naction = self._normalized_action(nobs)
-
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
-
-        return action_pred
-
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
         # Important! `nobs` needs to be normalized before passing to this function
@@ -156,6 +110,20 @@ class DoubleImageActor(Actor):
             ).prev_sample
 
         return naction
+
+    @torch.no_grad()
+    def action(self, obs: deque):
+        # Normalize observations
+        nobs = self._normalized_obs(obs)
+
+        # Predict normalized action
+        naction = self._normalized_action(nobs)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred
 
     # === Training ===
     def compute_loss(self, batch):
@@ -189,42 +157,3 @@ class DoubleImageActor(Actor):
         loss = nn.functional.mse_loss(noise_pred, noise)
 
         return loss
-
-    def _training_obs(self, batch):
-        nrobot_state = batch["robot_state"]
-        B = nrobot_state.shape[0]
-
-        if self.observation_type == "image":
-            # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
-            # so that it's compatible with the encoder
-            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
-            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
-
-            # Encode images and reshape back to (B, obs_horizon, -1)
-            image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-            image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
-
-            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
-            nobs = nobs.flatten(start_dim=1)
-
-        elif self.observation_type == "feature":
-            # All observations already normalized in the dataset
-            feature1 = batch["feature1"]
-            feature2 = batch["feature2"]
-
-            if self.noise_augment:
-                feature1 += torch.normal(
-                    mean=0.0, std=self.noise_augment, size=feature1.size()
-                ).to(feature1.device)
-                feature2 += torch.normal(
-                    mean=0.0, std=self.noise_augment, size=feature2.size()
-                ).to(feature2.device)
-
-            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            nobs = nobs.flatten(start_dim=1)
-        else:
-            raise ValueError(f"Invalid observation type: {self.observation_type}")
-
-        return nobs
