@@ -133,11 +133,11 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run with DINO v1 encoder",
+        notes="Collect demos using BC for Q-learning later",
     )
 
     # Watch the model
-    wandb.watch(actor, log="all")
+    # wandb.watch(actor, log="all")
 
     # save stats to wandb and update the config object
     wandb.log(
@@ -304,7 +304,6 @@ if __name__ == "__main__":
     parser.add_argument("--wb-mode", "-w", type=str, default="online")
     args = parser.parse_args()
 
-    data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
@@ -312,8 +311,9 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     config.action_horizon = 8
-    config.actor_lr = 5e-5
+    config.actor_lr = 5e-6
     config.batch_size = args.batch_size
     config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
@@ -326,10 +326,10 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.inference_steps = 16
-    config.load_checkpoint_path = None
-    # config.load_checkpoint_path = (
-    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    # )
+    # config.load_checkpoint_path = None
+    config.load_checkpoint_path = (
+        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    )
     config.mixed_precision = False
     config.num_diffusion_iters = 100
     config.num_envs = num_envs
@@ -339,11 +339,11 @@ if __name__ == "__main__":
     config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
+    config.steps_per_epoch = 50 if args.dryrun is False else 10
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
-    config.rollout.every = 10 if args.dryrun is False else 1
+    config.rollout.every = 1 if args.dryrun is False else 1
     config.rollout.loss_threshold = 1.03 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 10
     config.rollout.count = num_envs
@@ -354,19 +354,19 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "dino"
+    config.vision_encoder.model = "r3m_18"
     config.vision_encoder.freeze = True
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
     config.early_stopper.smooth_factor = 0.9
-    config.early_stopper.patience = 10
+    config.early_stopper.patience = float("inf")
 
     config.discount = 0.997
 
     # Regularization
-    config.weight_decay = 1e-6
-    config.feature_dropout = False
+    config.weight_decay = 2e-6
+    config.feature_dropout = 0.1
     config.augment_image = True
     config.noise_augment = False
 
@@ -377,8 +377,9 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        data_base_dir
-        / "processed/sim/feature_small/dino/one_leg/data.zarr"
+        config.data_base_dir
+        / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
+        # / "processed/sim/feature_small/dino/one_leg/data.zarr"
         # data_base_dir
         # / "processed/sim/image_small/one_leg/data.zarr"
     )

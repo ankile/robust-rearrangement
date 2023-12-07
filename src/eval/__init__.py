@@ -1,15 +1,20 @@
+from re import A
 import furniture_bench  # noqa: F401
 from ml_collections import ConfigDict
+from sklearn import base
 import torch
 
 import collections
 import imageio
 from io import BytesIO
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+import pickle
 
 from src.behavior.actor import Actor
 
@@ -36,8 +41,10 @@ def rollout(
     )
 
     # save visualization and rewards
+    robot_states = [obs["robot_state"].cpu()]
     imgs1 = [obs["color_image1"].cpu()]
     imgs2 = [obs["color_image2"].cpu()]
+    actions = list()
     rewards = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
@@ -71,9 +78,11 @@ def rollout(
             obs_deque.append(obs)
 
             # and reward/vis
-            rewards.append(reward.cpu())
+            robot_states.append(obs["robot_state"].cpu())
             imgs1.append(obs["color_image1"].cpu())
             imgs2.append(obs["color_image2"].cpu())
+            actions.append(curr_action.cpu())
+            rewards.append(reward.cpu())
 
             # update progress bar
             step_idx += 1
@@ -87,9 +96,11 @@ def rollout(
                 break
 
     return (
-        torch.cat(rewards, dim=1),
+        torch.stack(robot_states).transpose(0, 1),
         torch.stack(imgs1).transpose(0, 1),
         torch.stack(imgs2).transpose(0, 1),
+        torch.stack(actions, dim=1),
+        torch.cat(rewards, dim=1),
     )
 
 
@@ -109,6 +120,34 @@ def create_in_memory_mp4(np_images, fps=10):
     return output
 
 
+def save_raw_rollout(
+    robot_states, imgs1, imgs2, actions, rewards, success, furniture, output_path
+):
+    observations = list()
+
+    for robot_state, image1, image2, action, reward in zip(
+        robot_states, imgs1, imgs2, actions, rewards
+    ):
+        observations.append(
+            {
+                "robot_state": robot_state,
+                "color_image1": image1,
+                "color_image2": image2,
+            }
+        )
+
+    data = {
+        "observations": observations,
+        "actions": action.tolist(),
+        "rewards": reward.tolist(),
+        "success": success,
+        "furniture": furniture,
+    }
+
+    with open(output_path, "wb") as f:
+        pickle.dump(data, f)
+
+
 @torch.no_grad()
 def calculate_success_rate(
     env: FurnitureSimEnv,
@@ -117,6 +156,7 @@ def calculate_success_rate(
     rollout_max_steps: int,
     epoch_idx: int,
     gamma: float = 0.99,
+    rollout_save_dir: str = None,
 ):
     tbl = wandb.Table(columns=["rollout", "success", "epoch", "return", "steps"])
     pbar = trange(
@@ -124,14 +164,25 @@ def calculate_success_rate(
         desc="Performing rollouts",
         leave=False,
     )
+    # To save the rollouts as training data for later, we need to save:
+    # observations
+    #  - robot_state
+    #  - color_image1
+    #  - color_image2
+    # actions
+    # rewards
+
     n_success = 0
-    all_rewards = list()
+
+    all_robot_states = list()
     all_imgs1 = list()
     all_imgs2 = list()
+    all_actions = list()
+    all_rewards = list()
 
     for _ in range(n_rollouts // env.num_envs):
         # Perform a rollout with the current model
-        rewards, imgs1, imgs2 = rollout(
+        robot_states, imgs1, imgs2, actions, rewards = rollout(
             env,
             actor,
             rollout_max_steps,
@@ -143,9 +194,11 @@ def calculate_success_rate(
         n_success += success.sum().item()
 
         # Save the results from the rollout
-        all_rewards.extend(rewards)
+        all_robot_states.extend(robot_states)
         all_imgs1.extend(imgs1)
         all_imgs2.extend(imgs2)
+        all_actions.extend(actions)
+        all_rewards.extend(rewards)
 
         # Update progress bar
         pbar.update(env.num_envs)
@@ -155,16 +208,19 @@ def calculate_success_rate(
     table_rows = []
     for rollout_idx in range(n_rollouts):
         # Get the rewards and images for this rollout
-        rewards = all_rewards[rollout_idx].numpy()
+        robot_states = all_robot_states[rollout_idx].numpy()
         video1 = all_imgs1[rollout_idx].numpy()
         video2 = all_imgs2[rollout_idx].numpy()
+        actions = all_actions[rollout_idx].numpy()
+        rewards = all_rewards[rollout_idx].numpy()
+        success = (rewards.sum() > 0).item()
+        furniture = env.furniture_name
 
-        # Stack the two videoes side by side into a single video
+        # Stack the two videos side by side into a single video
         # and keep axes as (T, H, W, C)
         video = np.concatenate([video1, video2], axis=2)
         video = create_in_memory_mp4(video, fps=10)
 
-        success = (rewards.sum() > 0).item()
         n_steps = np.argmax(rewards) + 1
 
         # Calculate the return for this rollout
@@ -180,6 +236,21 @@ def calculate_success_rate(
                 n_steps,
             ]
         )
+
+        if rollout_save_dir is not None:
+            output_path = rollout_save_dir / f"rollout_{rollout_idx}.pkl"
+
+            # Save the raw rollout data
+            save_raw_rollout(
+                robot_states,
+                video1,
+                video2,
+                actions,
+                rewards,
+                success,
+                furniture,
+                output_path,
+            )
 
     # Sort the table rows by return (highest at the top)
     table_rows = sorted(table_rows, key=lambda x: x[3], reverse=True)
@@ -209,6 +280,14 @@ def do_rollout_evaluation(
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
+    rollout_save_dir = (
+        Path(config.data_base_dir)
+        / "raw"
+        / "sim_rollouts"
+        / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    )
+    rollout_save_dir.mkdir(parents=True, exist_ok=True)
+
     success_rate = calculate_success_rate(
         env,
         actor,
@@ -216,6 +295,7 @@ def do_rollout_evaluation(
         rollout_max_steps=config.rollout.max_steps,
         epoch_idx=epoch_idx,
         gamma=config.discount,
+        rollout_save_dir=rollout_save_dir,
     )
 
     if success_rate > best_success_rate:
