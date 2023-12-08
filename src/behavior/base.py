@@ -10,7 +10,6 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.models.value import DoubleCritic, ValueNetwork
 
 from ipdb import set_trace as bp  # noqa
-from typing import Union
 
 
 class PostInitCaller(type):
@@ -104,7 +103,12 @@ class Actor(ABC, torch.nn.Module, metaclass=PostInitCaller):
 
         return nobs
 
-    def action(self, obs: deque):
+    def action(self, obs: deque) -> torch.Tensor:
+        """
+        Given a deque of observations, predict the action
+
+        The action is predicted for the next step for all the environments (n_envs, action_dim)
+        """
         raise NotImplementedError
 
     def compute_loss(self, batch):

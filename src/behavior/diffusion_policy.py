@@ -123,6 +123,18 @@ class DiffusionPolicy(Actor):
         # (B, pred_horizon, action_dim)
         action_pred = self.normalizer(naction, "action", forward=False)
 
+        raise NotImplementedError
+
+        # TODO: Implement that this thing stores the predicted actions
+        # and outputs the next one in the next step until the action_horizon is reached
+        # and then predict the next action_horizon actions
+
+        # only take action_horizon number of actions
+        start = obs_horizon - 1
+        end = start + action_horizon
+        action = action_pred[:, start:end, :]
+        # (num_envs, action_horizon, action_dim)
+
         return action_pred
 
     # === Training ===

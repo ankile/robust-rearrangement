@@ -1,5 +1,12 @@
+import torch
+import torch.nn as nn
+from typing import Union
+from collections import deque
+
 from src.behavior.base import Actor
 from src.models.mlp import MLP
+from src.models.vision import get_encoder
+from src.data.normalizer import StateActionNormalizer
 
 
 class MLPActor(Actor):
@@ -82,7 +89,7 @@ class MLPActor(Actor):
         naction = batch["action"]
 
         # forward pass
-        naction_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
+        naction_pred = self.model(obs_cond)
         loss = nn.functional.mse_loss(naction_pred, naction)
 
         return loss

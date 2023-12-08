@@ -14,7 +14,8 @@ from src.eval import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
-from src.behavior.actor import DoubleImageActor
+from src.behavior.diffusion_policy import DiffusionPolicy
+from src.behavior.mlp import MLPActor
 from src.data.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -66,13 +67,24 @@ def main(config: ConfigDict):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
-    actor = DoubleImageActor(
-        device=device,
-        encoder_name=config.vision_encoder.model,
-        freeze_encoder=config.vision_encoder.freeze,
-        normalizer=normalizer,
-        config=config,
-    )
+    if config.actor == "mlp":
+        actor = MLPActor(
+            device=device,
+            encoder_name=config.vision_encoder.model,
+            freeze_encoder=config.vision_encoder.freeze,
+            normalizer=normalizer,
+            config=config,
+        )
+    elif config.actor == "diffusion":
+        actor = DiffusionPolicy(
+            device=device,
+            encoder_name=config.vision_encoder.model,
+            freeze_encoder=config.vision_encoder.freeze,
+            normalizer=normalizer,
+            config=config,
+        )
+    else:
+        raise ValueError(f"Unknown actor type: {config.actor}")
 
     # Update the config object with the observation dimension
     config.timestep_obs_dim = actor.timestep_obs_dim
@@ -311,35 +323,38 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+    config.actor = "mlp"
+
     config.action_horizon = 8
+    config.beta_schedule = "squaredcos_cap_v2"
+    config.down_dims = [256, 512, 1024]
+    config.inference_steps = 16
+    config.pred_horizon = 16
+    config.prediction_type = "epsilon"
+    config.num_diffusion_iters = 100
+
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     config.actor_lr = 5e-6
     config.batch_size = args.batch_size
-    config.beta_schedule = "squaredcos_cap_v2"
     config.clip_grad_norm = False
-    config.clip_sample = True
     config.data_subset = None if args.dryrun is False else 10
     config.dataloader_workers = n_workers
+    config.clip_sample = True
     config.demo_source = "sim"
-    config.down_dims = [256, 512, 1024]
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
-    config.inference_steps = 16
     # config.load_checkpoint_path = None
     config.load_checkpoint_path = (
         "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
     )
     config.mixed_precision = False
-    config.num_diffusion_iters = 100
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
     config.observation_type = "feature"
-    config.pred_horizon = 16
-    config.prediction_type = "epsilon"
     config.randomness = "low"
-    config.steps_per_epoch = 50 if args.dryrun is False else 10
+    config.steps_per_epoch = 100 if args.dryrun is False else 10
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
