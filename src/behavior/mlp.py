@@ -2,14 +2,17 @@ import torch
 import torch.nn as nn
 from typing import Union
 from collections import deque
+from ipdb import set_trace as bp  # noqa
 
-from src.behavior.base import Actor
+from src.behavior.base import Actor, PostInitCaller
 from src.models.mlp import MLP
 from src.models.vision import get_encoder
 from src.data.normalizer import StateActionNormalizer
 
 
 class MLPActor(Actor):
+    __metaclass__ = PostInitCaller
+
     def __init__(
         self,
         device: Union[str, torch.device],
@@ -50,6 +53,10 @@ class MLPActor(Actor):
             dropout=config.actor_dropout,
         ).to(device)
 
+        self.dropout = (
+            nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+        )
+
     def __post_init__(self, *args, **kwargs):
         self.print_model_params()
 
@@ -67,13 +74,16 @@ class MLPActor(Actor):
         nobs = self._normalized_obs(obs)
 
         # Predict normalized action
-        naction = self.model(nobs)
+        naction = self.model(nobs).reshape(
+            nobs.shape[0], self.action_horizon, self.action_dim
+        )
 
         # unnormalize action
         # (B, pred_horizon, action_dim)
         action_pred = self.normalizer(naction, "action", forward=False)
 
-        return action_pred
+        # For now, only return the first action
+        return action_pred[:, 0, :]
 
     # === Training ===
     def compute_loss(self, batch):
@@ -86,10 +96,13 @@ class MLPActor(Actor):
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
-        naction = batch["action"]
+        naction = batch["action"][:, : self.action_horizon, :]
 
         # forward pass
-        naction_pred = self.model(obs_cond)
+        naction_pred = self.model(obs_cond).reshape(
+            naction.shape[0], self.action_horizon, self.action_dim
+        )
+
         loss = nn.functional.mse_loss(naction_pred, naction)
 
         return loss

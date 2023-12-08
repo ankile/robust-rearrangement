@@ -141,11 +141,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="robot-rearrangement",
+        project="mlp-baseline-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Collect demos using BC for Q-learning later",
+        notes="Run the MLP baseline with R3M encoder",
     )
 
     # Watch the model
@@ -324,6 +324,8 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.actor = "mlp"
+    config.actor_hidden_dims = [512, 256, 256]
+    config.actor_dropout = 0.2
 
     config.action_horizon = 8
     config.beta_schedule = "squaredcos_cap_v2"
@@ -344,10 +346,10 @@ if __name__ == "__main__":
     config.dryrun = args.dryrun
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
-    # config.load_checkpoint_path = None
-    config.load_checkpoint_path = (
-        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    )
+    config.load_checkpoint_path = None
+    # config.load_checkpoint_path = (
+    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    # )
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 500

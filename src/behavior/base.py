@@ -21,7 +21,7 @@ class PostInitCaller(type):
         return obj
 
 
-class Actor(ABC, torch.nn.Module, metaclass=PostInitCaller):
+class Actor(ABC, torch.nn.Module):
     obs_horizon: int
     action_horizon: int
 
