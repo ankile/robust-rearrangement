@@ -153,13 +153,6 @@ def calculate_success_rate(
         desc="Performing rollouts",
         leave=False,
     )
-    # To save the rollouts as training data for later, we need to save:
-    # observations
-    #  - robot_state
-    #  - color_image1
-    #  - color_image2
-    # actions
-    # rewards
 
     n_success = 0
 
@@ -210,10 +203,12 @@ def calculate_success_rate(
         video = np.concatenate([video1, video2], axis=2)
         video = create_in_memory_mp4(video, fps=10)
 
-        n_steps = np.argmax(rewards) + 1
+        n_steps = np.argmax(rewards) + 1 if success else len(rewards)
 
         # Calculate the return for this rollout
-        episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
+        episode_return = (
+            np.sum(rewards * gamma ** np.arange(len(rewards))) if success else 0
+        )
         total_return += episode_return
 
         table_rows.append(
