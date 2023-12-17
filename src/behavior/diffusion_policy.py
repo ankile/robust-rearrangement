@@ -23,10 +23,14 @@ class DiffusionPolicy(Actor):
         config,
     ) -> None:
         super().__init__()
+        self.obs_horizon = config.obs_horizon
         self.action_dim = config.action_dim
         self.pred_horizon = config.pred_horizon
         self.action_horizon = config.action_horizon
-        self.obs_horizon = config.obs_horizon
+
+        # A queue of the next actions to be executed in the current horizon
+        self.actions = deque(maxlen=self.action_horizon)
+
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
@@ -71,10 +75,6 @@ class DiffusionPolicy(Actor):
             down_dims=config.down_dims,
         ).to(device)
 
-        self.dropout = (
-            nn.Dropout(config.feature_dropout) if config.feature_dropout else None
-        )
-
     def __post_init__(self, *args, **kwargs):
         self.print_model_params()
 
@@ -116,26 +116,24 @@ class DiffusionPolicy(Actor):
         # Normalize observations
         nobs = self._normalized_obs(obs)
 
-        # Predict normalized action
-        naction = self._normalized_action(nobs)
+        # If the queue is empty, fill it with the predicted actions
+        if not self.actions:
+            # Predict normalized action
+            naction = self._normalized_action(nobs)
 
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
+            # unnormalize action
+            # (B, pred_horizon, action_dim)
+            action_pred = self.normalizer(naction, "action", forward=False)
 
-        raise NotImplementedError
+            # Add the actions to the queue
+            # only take action_horizon number of actions
+            start = self.obs_horizon - 1
+            end = start + self.action_horizon
+            for i in range(start, end):
+                self.actions.append(action_pred[:, i, :])
 
-        # TODO: Implement that this thing stores the predicted actions
-        # and outputs the next one in the next step until the action_horizon is reached
-        # and then predict the next action_horizon actions
-
-        # only take action_horizon number of actions
-        start = obs_horizon - 1
-        end = start + action_horizon
-        action = action_pred[:, start:end, :]
-        # (num_envs, action_horizon, action_dim)
-
-        return action_pred
+        # Return the first action in the queue
+        return self.actions.popleft()
 
     # === Training ===
     def compute_loss(self, batch):
@@ -143,8 +141,8 @@ class DiffusionPolicy(Actor):
         obs_cond = self._training_obs(batch)
 
         # Apply Dropout to the observation conditioning if specified
-        if self.dropout:
-            obs_cond = self.dropout(obs_cond)
+        # if self.dropout:
+        #     obs_cond = self.dropout(obs_cond)
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])

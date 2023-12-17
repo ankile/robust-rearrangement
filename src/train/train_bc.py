@@ -141,11 +141,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="mlp-baseline-test",
+        project="diffusion-policy-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run the MLP baseline with R3M encoder",
+        notes="Run with working model to see if the refactored setup for action unrolling works.",
     )
 
     # Watch the model
@@ -319,19 +319,20 @@ if __name__ == "__main__":
     maybe = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = maybe(16, fb=2)
+    num_envs = maybe(8, fb=2)
 
     config = ConfigDict()
 
-    config.actor = "mlp"
-    config.actor_hidden_dims = [512, 256, 256]
-    config.actor_dropout = 0.2
+    config.actor = "diffusion"
+    # config.actor_hidden_dims = [2048, 2048, 1024, 512]
+    # config.actor_dropout = 0.0
 
     config.action_horizon = 8
+    config.pred_horizon = 16
+
     config.beta_schedule = "squaredcos_cap_v2"
     config.down_dims = [256, 512, 1024]
     config.inference_steps = 16
-    config.pred_horizon = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
@@ -347,9 +348,9 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = (
-    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    # )
+    config.load_checkpoint_path = (
+        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    )
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 500
@@ -361,8 +362,8 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 1.03 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 600 if args.dryrun is False else 10
+    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
+    config.rollout.max_steps = 600 if args.dryrun is False else 100
     config.rollout.count = num_envs
 
     config.lr_scheduler = ConfigDict()

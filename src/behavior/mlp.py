@@ -4,15 +4,13 @@ from typing import Union
 from collections import deque
 from ipdb import set_trace as bp  # noqa
 
-from src.behavior.base import Actor, PostInitCaller
+from src.behavior.base import Actor
 from src.models.mlp import MLP
 from src.models.vision import get_encoder
 from src.data.normalizer import StateActionNormalizer
 
 
 class MLPActor(Actor):
-    __metaclass__ = PostInitCaller
-
     def __init__(
         self,
         device: Union[str, torch.device],
@@ -26,7 +24,6 @@ class MLPActor(Actor):
         self.pred_horizon = config.pred_horizon
         self.action_horizon = config.action_horizon
         self.obs_horizon = config.obs_horizon
-        self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
         self.freeze_encoder = freeze_encoder

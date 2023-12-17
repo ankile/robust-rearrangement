@@ -1,4 +1,3 @@
-from abc import ABC
 from collections import deque
 import torch
 import torch.nn as nn
@@ -12,16 +11,16 @@ from src.models.value import DoubleCritic, ValueNetwork
 from ipdb import set_trace as bp  # noqa
 
 
-class PostInitCaller(type):
+# Update the PostInitCaller to be compatible
+class PostInitCaller(type(torch.nn.Module)):
     def __call__(cls, *args, **kwargs):
-        """Called when you call BaseClass()"""
-        print(f"{__class__.__name__}.__call__({args}, {kwargs})")
-        obj = type.__call__(cls, *args, **kwargs)
+        # print(f"{cls.__name__}.__call__({args}, {kwargs})")
+        obj = super().__call__(*args, **kwargs)
         obj.__post_init__(*args, **kwargs)
         return obj
 
 
-class Actor(ABC, torch.nn.Module):
+class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
 
