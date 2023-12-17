@@ -145,7 +145,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run with working model to see if the refactored setup for action unrolling works.",
+        notes="Run with refactored code but from scratch to see if the erratic behacior still persists...",
     )
 
     # Watch the model
@@ -337,7 +337,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 5e-6
+    config.actor_lr = 5e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -362,7 +362,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = 1 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
+    config.rollout.loss_threshold = 0.02 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
     config.rollout.count = num_envs
 
@@ -384,8 +384,8 @@ if __name__ == "__main__":
 
     # Regularization
     config.weight_decay = 2e-6
-    config.feature_dropout = 0.1
-    config.augment_image = True
+    # config.feature_dropout = 0.1
+    # config.augment_image = True
     config.noise_augment = False
 
     config.model_save_dir = "models"

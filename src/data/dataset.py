@@ -90,6 +90,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
             "action": dataset["action"][: self.episode_ends[-1]],
         }
+        print("Loaded robot_state and action")
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -107,13 +108,16 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 torch.from_numpy(data), key, forward=True
             ).numpy()
 
+        print("Done normalizing robot_state and action, starting on images")
         # int8, [0,255], (N,224,224,3)
         normalized_train_data["color_image1"] = dataset["color_image1"][
             : self.episode_ends[-1]
         ]
+        print("Loaded color_image1")
         normalized_train_data["color_image2"] = dataset["color_image2"][
             : self.episode_ends[-1]
         ]
+        print("Loaded color_image2")
 
         assert normalized_train_data["color_image1"].shape[1:] == (224, 224, 3)
         assert normalized_train_data["color_image2"].shape[1:] == (224, 224, 3)
