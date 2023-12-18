@@ -24,6 +24,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
 
+    def __post_init__(self, *args, **kwargs):
+        self.print_model_params()
+
+    def print_model_params(self: torch.nn.Module):
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"Total parameters: {total_params / 1_000_000:.2f}M")
+
+        for name, submodule in self.named_children():
+            params = sum(p.numel() for p in submodule.parameters())
+            print(f"{name}: {params / 1_000_000:.2f}M parameters")
+
     def _normalized_obs(self, obs: deque):
         """
         Normalize the observations
@@ -111,7 +122,4 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         raise NotImplementedError
 
     def compute_loss(self, batch):
-        raise NotImplementedError
-
-    def __post_init__(self, *args, **kwargs):
         raise NotImplementedError

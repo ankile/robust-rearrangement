@@ -75,17 +75,6 @@ class DiffusionPolicy(Actor):
             down_dims=config.down_dims,
         ).to(device)
 
-    def __post_init__(self, *args, **kwargs):
-        self.print_model_params()
-
-    def print_model_params(self: torch.nn.Module):
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"Total parameters: {total_params:.2e}")
-
-        for name, submodule in self.named_children():
-            params = sum(p.numel() for p in submodule.parameters())
-            print(f"{name}: {params:.2e} parameters")
-
     # === Inference ===
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
