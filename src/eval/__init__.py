@@ -55,54 +55,33 @@ def rollout(
 
     step_idx = 0
     while not done.all():
-        # # Get the next actions from the actor
-        # action_pred = actor.action(obs_deque)
-        # curr_action = action_pred.clone()
-        # curr_action[done.nonzero()] = noop
-
-        # obs, reward, done, _ = env.step(action_pred)
-
-        # # save observations
-        # obs_deque.append(obs)
-
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
+        curr_action = action_pred.clone()
+        curr_action[done.nonzero()] = noop
 
-        # only take action_horizon number of actions
-        start = obs_horizon - 1
-        end = start + action_horizon
-        action = action_pred[:, start:end, :]
-        # (num_envs, action_horizon, action_dim)
+        obs, reward, done, _ = env.step(action_pred)
 
-        # execute action_horizon number of steps
-        # without replanning
-        for i in range(action.shape[1]):
-            # stepping env
-            curr_action = action[:, i, :].clone()
-            curr_action[done.nonzero()] = noop
+        # save observations
+        obs_deque.append(obs)
 
-            obs, reward, done, _ = env.step(curr_action)
+        # and reward/vis
+        robot_states.append(obs["robot_state"].cpu())
+        imgs1.append(obs["color_image1"].cpu())
+        imgs2.append(obs["color_image2"].cpu())
+        actions.append(curr_action.cpu())
+        rewards.append(reward.cpu())
 
-            # save observations
-            obs_deque.append(obs)
+        # update progress bar
+        step_idx += 1
+        if pbar is not None:
+            pbar.update()
 
-            # and reward/vis
-            robot_states.append(obs["robot_state"].cpu())
-            imgs1.append(obs["color_image1"].cpu())
-            imgs2.append(obs["color_image2"].cpu())
-            actions.append(curr_action.cpu())
-            rewards.append(reward.cpu())
+        if step_idx >= rollout_max_steps:
+            done = torch.ones((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
-            # update progress bar
-            step_idx += 1
-            if pbar is not None:
-                pbar.update()
-
-            if step_idx >= rollout_max_steps:
-                done = torch.ones((env.num_envs, 1), dtype=torch.bool, device="cuda")
-
-            if done.all():
-                break
+        if done.all():
+            break
 
     return (
         torch.stack(robot_states).transpose(0, 1),

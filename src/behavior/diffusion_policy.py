@@ -116,9 +116,6 @@ class DiffusionPolicy(Actor):
     def action(self, obs: deque):
         # Normalize observations
         nobs = self._normalized_obs(obs)
-        naction = self._normalized_action(nobs)
-        action_pred = self.normalizer(naction, "action", forward=False)
-        return action_pred
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:

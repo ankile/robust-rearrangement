@@ -337,7 +337,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 5e-4
+    config.actor_lr = 5e-8
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
