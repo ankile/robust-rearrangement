@@ -323,18 +323,18 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.actor = "diffusion"
-    # config.actor_hidden_dims = [2048, 2048, 1024, 512]
-    # config.actor_dropout = 0.0
+    config.actor = "mlp"
+    config.actor_hidden_dims = [4096, 4096, 2048]
+    config.actor_dropout = 0.1
 
     config.action_horizon = 8
     config.pred_horizon = 16
 
-    config.beta_schedule = "squaredcos_cap_v2"
-    config.down_dims = [256, 512]
-    config.inference_steps = 16
-    config.prediction_type = "epsilon"
-    config.num_diffusion_iters = 100
+    # config.beta_schedule = "squaredcos_cap_v2"
+    # config.down_dims = [256, 512]
+    # config.inference_steps = 16
+    # config.prediction_type = "epsilon"
+    # config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     config.actor_lr = 1e-5

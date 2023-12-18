@@ -100,7 +100,6 @@ class DiffusionPolicy(Actor):
 
         return naction
 
-    # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations

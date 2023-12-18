@@ -23,6 +23,10 @@ class MLPActor(Actor):
         self.action_dim = config.action_dim
         self.pred_horizon = config.pred_horizon
         self.action_horizon = config.action_horizon
+
+        # A queue of the next actions to be executed in the current horizon
+        self.actions = deque(maxlen=self.action_horizon)
+
         self.obs_horizon = config.obs_horizon
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
@@ -45,59 +49,53 @@ class MLPActor(Actor):
 
         self.model = MLP(
             input_dim=self.obs_dim,
-            output_dim=self.action_dim * self.action_horizon,
+            output_dim=self.action_dim * self.pred_horizon,
             hidden_dims=config.actor_hidden_dims,
             dropout=config.actor_dropout,
         ).to(device)
 
         self.dropout = (
-            nn.Dropout(config.feature_dropout) if config.feature_dropout else None
+            nn.Dropout(config.actor_dropout) if config.actor_dropout else None
         )
 
-    def __post_init__(self, *args, **kwargs):
-        self.print_model_params()
-
-    def print_model_params(self: torch.nn.Module):
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"Total parameters: {total_params:.2e}")
-
-        for name, submodule in self.named_children():
-            params = sum(p.numel() for p in submodule.parameters())
-            print(f"{name}: {params:.2e} parameters")
-
+    # === Inference ===
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations
         nobs = self._normalized_obs(obs)
 
-        # Predict normalized action
-        naction = self.model(nobs).reshape(
-            nobs.shape[0], self.action_horizon, self.action_dim
-        )
+        # If the queue is empty, fill it with the predicted actions
+        if not self.actions:
+            # Predict normalized action
+            naction = self.model(nobs).reshape(
+                nobs.shape[0], self.pred_horizon, self.action_dim
+            )
 
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
+            # unnormalize action
+            # (B, pred_horizon, action_dim)
+            action_pred = self.normalizer(naction, "action", forward=False)
 
-        # For now, only return the first action
-        return action_pred[:, 0, :]
+            # Add the actions to the queue
+            # only take action_horizon number of actions
+            start = self.obs_horizon - 1
+            end = start + self.action_horizon
+            for i in range(start, end):
+                self.actions.append(action_pred[:, i, :])
+
+        # Return the first action in the queue
+        return self.actions.popleft()
 
     # === Training ===
     def compute_loss(self, batch):
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch)
 
-        # Apply Dropout to the observation conditioning if specified
-        if self.dropout:
-            obs_cond = self.dropout(obs_cond)
-
         # Action already normalized in the dataset
-        # naction = normalize_data(batch["action"], stats=self.stats["action"])
-        naction = batch["action"][:, : self.action_horizon, :]
+        naction = batch["action"]
 
         # forward pass
         naction_pred = self.model(obs_cond).reshape(
-            naction.shape[0], self.action_horizon, self.action_dim
+            naction.shape[0], self.pred_horizon, self.action_dim
         )
 
         loss = nn.functional.mse_loss(naction_pred, naction)
