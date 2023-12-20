@@ -3,6 +3,7 @@ import pickle
 from glob import glob
 import argparse
 import os
+from urllib import robotparser
 import numpy as np
 import zarr
 from tqdm import tqdm
@@ -80,37 +81,40 @@ def initialize_zarr_store(out_dir, initial_data):
     z = zarr.open(str(out_dir / "data.zarr"), mode="w")
     z.attrs["time_created"] = str(np.datetime64("now"))
 
+    images_shape = initial_data["observations"][0]["color_image1"].shape
+    actions_shape = initial_data["actions"][0].shape
+    robot_state_shape = (
+        len(
+            filter_and_concat_robot_state(
+                initial_data["observations"][0]["robot_state"]
+            )
+        ),
+    )
+
     # Initialize datasets with shapes based on the initial data
     z.create_dataset(
         "robot_state",
-        shape=(
-            0,
-            len(
-                filter_and_concat_robot_state(
-                    initial_data["observations"][0]["robot_state"]
-                )
-            ),
-        ),
+        shape=(0,) + robot_state_shape,
         dtype=np.float32,
-        chunks=True,
+        chunks=(1,) + robot_state_shape,
     )
     z.create_dataset(
         "color_image1",
-        shape=(0,) + initial_data["observations"][0]["color_image1"].shape,
+        shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=True,
+        chunks=(1,) + images_shape,
     )
     z.create_dataset(
         "color_image2",
-        shape=(0,) + initial_data["observations"][0]["color_image2"].shape,
+        shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=True,
+        chunks=(1,) + images_shape,
     )
     z.create_dataset(
         "action",
-        shape=(0, len(initial_data["actions"][0])),
+        shape=(0,) + actions_shape,
         dtype=np.float32,
-        chunks=True,
+        chunks=(1,) + actions_shape,
     )
     z.create_dataset(
         "reward",
