@@ -31,15 +31,13 @@ def main(config: ConfigDict):
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    normalizer = StateActionNormalizer()
-
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
         )
@@ -49,7 +47,7 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
@@ -72,7 +70,7 @@ def main(config: ConfigDict):
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             config=config,
         )
     elif config.actor == "diffusion":
@@ -80,7 +78,7 @@ def main(config: ConfigDict):
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             config=config,
         )
     else:
@@ -141,15 +139,12 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="mlp-baseline-test",
+        project="scaling-analysis",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run a smaller diffusion policy to compare with the MLP baseline.",
+        notes="Run the 'large' size of ~XM parameters.",
     )
-
-    # Watch the model
-    # wandb.watch(actor, log="all")
 
     # save stats to wandb and update the config object
     wandb.log(
@@ -158,7 +153,7 @@ def main(config: ConfigDict):
             "num_samples_test": len(test_dataset),
             "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
             "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": normalizer.stats_dict,
+            "stats": StateActionNormalizer().stats_dict,
         }
     )
     wandb.config.update(config.to_dict())
@@ -281,11 +276,12 @@ def main(config: ConfigDict):
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
             # Checkpoint the model
-            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-            torch.save(
-                actor.state_dict(),
-                save_path,
-            )
+            if config.checkpoint_model:
+                save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+                torch.save(
+                    actor.state_dict(),
+                    save_path,
+                )
 
             # Do no load the environment until we successfuly made it this far
             if env is None:
@@ -323,18 +319,20 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.actor = "mlp"
-    config.actor_hidden_dims = [4096, 4096, 2048]
-    config.actor_dropout = 0.1
-
     config.action_horizon = 8
     config.pred_horizon = 16
 
-    # config.beta_schedule = "squaredcos_cap_v2"
-    # config.down_dims = [256, 512]
-    # config.inference_steps = 16
-    # config.prediction_type = "epsilon"
-    # config.num_diffusion_iters = 100
+    config.actor = "diffusion"
+    # MLP options
+    # config.actor_hidden_dims = [4096, 4096, 2048]
+    # config.actor_dropout = 0.2
+
+    # Diffusion options
+    config.beta_schedule = "squaredcos_cap_v2"
+    config.down_dims = [256, 512, 1024]
+    config.inference_steps = 16
+    config.prediction_type = "epsilon"
+    config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
     config.actor_lr = 1e-5
@@ -355,7 +353,7 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "feature"
+    config.observation_type = "image"
     config.randomness = "low"
     config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.test_split = 0.1
@@ -385,10 +383,11 @@ if __name__ == "__main__":
     # Regularization
     config.weight_decay = 1e-6
     # config.feature_dropout = 0.1
-    # config.augment_image = True
+    config.augment_image = True
     config.noise_augment = False
 
     config.model_save_dir = "models"
+    config.checkpoint_model = False
 
     assert (
         config.rollout.count % config.num_envs == 0
@@ -397,10 +396,9 @@ if __name__ == "__main__":
     config.datasim_path = (
         config.data_base_dir
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        # data_base_dir
-        # / "processed/sim/image_small/one_leg/data.zarr"
+        / "processed/sim/image_small/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

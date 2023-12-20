@@ -10,12 +10,8 @@ from src.common.pytorch_util import replace_submodules
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda"):
-    if encoder_name == "dinov2-base":
-        return DinoV2Encoder(size="base", freeze=freeze, device=device)
-    if encoder_name == "dinov2-large":
-        return DinoV2Encoder(size="large", freeze=freeze, device=device)
-    if encoder_name == "dinov2-small":
-        return DinoV2Encoder(size="small", freeze=freeze, device=device)
+    if encoder_name.startswith("dinov2"):
+        return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
         return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name == "vip":
@@ -91,12 +87,12 @@ class ResnetEncoder(ModuleAttrMixin):
 
 
 class DinoV2Encoder(torch.nn.Module):
-    def __init__(self, size="base", freeze=True, device="cuda"):
+    def __init__(self, model_name="dinov2-base", freeze=True, device="cuda"):
         super().__init__()
-        assert size in ["small", "base", "large", "giant"]
+        assert size in ["dinov2-small", "dinov2-base", "dinov2-large", "dinov2-giant"]
         self.device = device
 
-        model_name = f"facebook/dinov2-{size}"
+        model_name = f"facebook/{model_name}"
         self.trans = transformers.AutoImageProcessor.from_pretrained(model_name)
         self.model = transformers.AutoModel.from_pretrained(model_name).to(self.device)
         self.encoding_dim = self.model.config.hidden_size
@@ -119,7 +115,7 @@ class VIPEncoder(torch.nn.Module):
     def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
         self.device = device
-        self.model = load_vip(device=device).module
+        self.model = load_vip().module.to(device)
         self.encoding_dim = self.model.convnet.fc.out_features
 
         if freeze:

@@ -1,10 +1,10 @@
-from tracemalloc import start
 import numpy as np
 import torch
 import torch.nn as nn
 import zarr
 from src.data.normalizer import StateActionNormalizer, get_data_stats
 from src.data.augmentation import ImageAugmentation, random_translate
+from src.data.utils import ZarrSubsetView
 import torchvision.transforms.functional as F
 
 from ipdb import set_trace as bp
@@ -51,7 +51,7 @@ def sample_sequence(
     sample_end_idx,
 ):
     result = dict()
-    for key, input_arr in train_data.items():
+    for key, input_arr in train_data.observation_items():
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
@@ -78,62 +78,38 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         augment_image: bool = False,
         data_subset: int = None,
     ):
-        # read from zarr dataset
-        dataset = zarr.open(dataset_path, "r")
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+        self.normalizer = normalizer.cpu()
+
+        # Store the zarr dataset for later reading into
+        # (actions and robot_state will not be normalized in batch)
+        self.train_data = ZarrSubsetView(
+            zarr_group=zarr.open(dataset_path, "r"),
+            include_keys=["color_image1", "color_image2", "robot_state", "action"],
+        )
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = dataset["episode_ends"][:data_subset]
+        self.episode_ends = self.train_data["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
-        train_data = {
-            # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
-            "action": dataset["action"][: self.episode_ends[-1]],
-        }
-        print("Loaded robot_state and action")
 
         # compute start and end of each state-action sequence
         # also handles padding
-        indices = create_sample_indices(
+        self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
             sequence_length=pred_horizon,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1,
         )
 
-        # compute statistics and normalized data to [-1,1]
-        normalized_train_data = dict()
-        for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(
-                torch.from_numpy(data), key, forward=True
-            ).numpy()
-
-        print("Done normalizing robot_state and action, starting on images")
-        # int8, [0,255], (N,224,224,3)
-        normalized_train_data["color_image1"] = dataset["color_image1"][
-            : self.episode_ends[-1]
-        ]
-        print("Loaded color_image1")
-        normalized_train_data["color_image2"] = dataset["color_image2"][
-            : self.episode_ends[-1]
-        ]
-        print("Loaded color_image2")
-
-        assert normalized_train_data["color_image1"].shape[1:] == (224, 224, 3)
-        assert normalized_train_data["color_image2"].shape[1:] == (224, 224, 3)
-
         # Add image augmentation
         self.augment_image = augment_image
 
-        self.indices = indices
-        self.normalized_train_data = normalized_train_data
-        self.pred_horizon = pred_horizon
-        self.action_horizon = action_horizon
-        self.obs_horizon = obs_horizon
-
         # Add action and observation dimensions to the dataset
-        self.action_dim = train_data["action"].shape[-1]
-        self.robot_state_dim = train_data["robot_state"].shape[-1]
+        self.action_dim = self.train_data["action"].shape[-1]
+        self.robot_state_dim = self.train_data["robot_state"].shape[-1]
 
     def __len__(self):
         return len(self.indices)
@@ -149,7 +125,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # get normalized data using these indices
         nsample = sample_sequence(
-            train_data=self.normalized_train_data,
+            train_data=self.train_data,
             sequence_length=self.pred_horizon,
             buffer_start_idx=buffer_start_idx,
             buffer_end_idx=buffer_end_idx,
@@ -157,9 +133,16 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             sample_end_idx=sample_end_idx,
         )
 
-        # discard unused observations
+        # Discard unused observations
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
+        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
+        # Normalize the robot state and actions
+        for key in ["robot_state", "action"]:
+            nsample[key] = self.normalizer(
+                torch.from_numpy(nsample[key]), key, forward=True
+            ).numpy()
 
         if self.augment_image:
             max_translation = 10
@@ -169,8 +152,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             nsample["color_image2"] = random_translate(
                 nsample["color_image2"], max_translation
             )
-
-        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         return nsample
 
