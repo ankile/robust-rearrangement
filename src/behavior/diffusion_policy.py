@@ -34,6 +34,7 @@ class DiffusionPolicy(Actor):
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
         self.noise_augment = config.noise_augment
+        self.feature_dropout = config.feature_dropout
         self.freeze_encoder = freeze_encoder
         self.device = device
 
@@ -74,6 +75,9 @@ class DiffusionPolicy(Actor):
             global_cond_dim=self.obs_dim,
             down_dims=config.down_dims,
         ).to(device)
+
+        if self.feature_dropout:
+            self.dropout = nn.Dropout(p=config.feature_dropout)
 
     # === Inference ===
     def _normalized_action(self, nobs):
@@ -130,8 +134,8 @@ class DiffusionPolicy(Actor):
         obs_cond = self._training_obs(batch)
 
         # Apply Dropout to the observation conditioning if specified
-        # if self.dropout:
-        #     obs_cond = self.dropout(obs_cond)
+        if self.feature_dropout:
+            obs_cond = self.dropout(obs_cond)
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])

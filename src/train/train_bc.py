@@ -10,7 +10,7 @@ from src.data.dataset import (
     FurnitureFeatureDataset,
 )
 from src.data.normalizer import StateActionNormalizer
-from src.eval import do_rollout_evaluation
+from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
@@ -139,11 +139,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="scaling-analysis",
+        project="hyperparameter-search",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run the 'large' size of ~XM parameters.",
+        notes="Run 'standard' size and higher learning rate.",
     )
 
     # save stats to wandb and update the config object
@@ -329,13 +329,13 @@ if __name__ == "__main__":
 
     # Diffusion options
     config.beta_schedule = "squaredcos_cap_v2"
-    config.down_dims = [256, 512, 1024]
+    config.down_dims = [128, 256, 512]
     config.inference_steps = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 1e-5
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -353,14 +353,14 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "image"
+    config.observation_type = "feature"
     config.randomness = "low"
     config.steps_per_epoch = 200 if args.dryrun is False else 10
     config.test_split = 0.1
 
     config.rollout = ConfigDict()
     config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
+    config.rollout.loss_threshold = 0.05 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
     config.rollout.count = num_envs
 
@@ -382,7 +382,7 @@ if __name__ == "__main__":
 
     # Regularization
     config.weight_decay = 1e-6
-    # config.feature_dropout = 0.1
+    config.feature_dropout = False
     config.augment_image = True
     config.noise_augment = False
 
@@ -396,9 +396,9 @@ if __name__ == "__main__":
     config.datasim_path = (
         config.data_base_dir
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+        / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        / "processed/sim/image_small/one_leg/data.zarr"
+        # / "processed/sim/image_small/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

@@ -126,8 +126,8 @@ def save_raw_rollout(
 
     data = {
         "observations": observations,
-        "actions": action.tolist(),
-        "rewards": reward.tolist(),
+        "actions": actions.tolist(),
+        "rewards": rewards.tolist(),
         "success": success,
         "furniture": furniture,
     }

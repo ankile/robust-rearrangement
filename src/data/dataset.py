@@ -51,7 +51,7 @@ def sample_sequence(
     sample_end_idx,
 ):
     result = dict()
-    for key, input_arr in train_data.observation_items():
+    for key, input_arr in train_data.items():
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):

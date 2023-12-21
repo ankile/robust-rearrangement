@@ -40,7 +40,7 @@ class ZarrSubsetView:
         """
         return [key for key in self.zarr_group.keys() if key in self.include_keys]
 
-    def observation_items(self):
+    def items(self):
         """
         Return items not excluded.
         """
