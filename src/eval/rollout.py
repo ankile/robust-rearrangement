@@ -162,7 +162,8 @@ def calculate_success_rate(
     all_actions = list()
     all_rewards = list()
 
-    for _ in range(n_rollouts // env.num_envs):
+    for i in range(n_rollouts // env.num_envs):
+        pbar.set_description(f"Performing rollouts ({i+1}/{n_rollouts//env.num_envs})")
         # Perform a rollout with the current model
         robot_states, imgs1, imgs2, actions, rewards = rollout(
             env,
@@ -183,7 +184,6 @@ def calculate_success_rate(
         all_rewards.extend(rewards)
 
         # Update progress bar
-        pbar.update(env.num_envs)
         pbar.set_postfix(success=n_success)
 
     total_return = 0
