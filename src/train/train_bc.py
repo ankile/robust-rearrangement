@@ -335,7 +335,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 5e-8
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -346,9 +346,9 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = (
-        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    )
+    # config.load_checkpoint_path = (
+    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    # )
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 500
@@ -359,7 +359,7 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.every = 5 if args.dryrun is False else 1
     config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
     config.rollout.count = num_envs * 1
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.model = "resnet18"
     config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
@@ -398,7 +398,8 @@ if __name__ == "__main__":
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
         # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        / "processed/sim/image_small/one_leg/data.zarr"
+        # / "processed/sim/image_small/one_leg/data.zarr"
+        / "processed/sim/image_small/one_leg/data_batch_32.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

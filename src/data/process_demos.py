@@ -78,7 +78,8 @@ def initialize_zarr_store(out_dir, initial_data):
     """
     Initialize the Zarr store with datasets based on the initial data sample.
     """
-    z = zarr.open(str(out_dir / "data_batch_32.zarr"), mode="w")
+    chunksize = 32
+    z = zarr.open(str(out_dir / f"data_batch_{chunksize}.zarr"), mode="w")
     z.attrs["time_created"] = str(np.datetime64("now"))
 
     images_shape = initial_data["observations"][0]["color_image1"].shape
@@ -92,48 +93,53 @@ def initialize_zarr_store(out_dir, initial_data):
     )
 
     # Initialize datasets with shapes based on the initial data
-    print("Chunksize", (32,) + robot_state_shape)
+    print("Chunksize", (chunksize,) + robot_state_shape)
     z.create_dataset(
         "robot_state",
         shape=(0,) + robot_state_shape,
         dtype=np.float32,
-        chunks=(32,) + robot_state_shape,
+        chunks=(chunksize,) + robot_state_shape,
     )
     z.create_dataset(
         "color_image1",
         shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=(32,) + images_shape,
+        chunks=(chunksize,) + images_shape,
     )
     z.create_dataset(
         "color_image2",
         shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=(32,) + images_shape,
+        chunks=(chunksize,) + images_shape,
     )
     z.create_dataset(
         "action",
         shape=(0,) + actions_shape,
         dtype=np.float32,
-        chunks=(32,) + actions_shape,
+        chunks=(chunksize,) + actions_shape,
     )
+    # Setting chunking to True in the below is a mistake
+    # Since we're appending to the dataset, the best Zarr
+    # can do is to have chunksize 1, meaning we get no.
+    # episodes times episode length chunks (too many).
     z.create_dataset(
         "reward",
         shape=(0,),
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,),
     )
     z.create_dataset(
         "skill",
         shape=(0,),
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,),
     )
+    # It doesn't really matter what this does wrt. chunking, since
+    # the number of elements is small and each element is small.
     z.create_dataset(
         "episode_ends",
         shape=(0,),
         dtype=np.uint32,
-        chunks=True,
     )
     # z.create_dataset(
     #     "furniture",
