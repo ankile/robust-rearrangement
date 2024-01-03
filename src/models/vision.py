@@ -7,6 +7,7 @@ from r3m import load_r3m
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
+from src.models.vit import vit_base_patch16
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda"):
@@ -22,6 +23,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         )
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
+    if encoder_name == "mae":
+        return MAEEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
@@ -193,4 +196,43 @@ class DinoEncoder(torch.nn.Module):
         x = x / 255.0
         x = self.normalize(x)
         x = self.model(x)
+        return x
+
+
+class MAEEncoder(torch.nn.Module):
+    def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
+        super().__init__()
+        self.device = device
+
+        wts = "/data/pulkitag/models/ankile/furniture-diffusion/mae/mae_pretrain_vit_base.pth"
+
+        # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
+        vit = vit_base_patch16()
+        state_dict = torch.load(wts, map_location=device)
+        vit.load_state_dict(state_dict["model"], strict=False)
+
+        self.model = vit
+
+        self.encoding_dim = 768
+
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            self.model.eval()
+
+        self.normalize = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+
+        self.model = self.model.to(device)
+
+    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    def forward(self, x):
+        # Move channels to the front
+        x = x.permute(0, 3, 1, 2)
+        # Normalize images
+        x = x / 255.0
+        x = self.normalize(x)
+        x = self.model.forward_features(x)
         return x

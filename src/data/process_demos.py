@@ -78,7 +78,7 @@ def initialize_zarr_store(out_dir, initial_data):
     """
     Initialize the Zarr store with datasets based on the initial data sample.
     """
-    z = zarr.open(str(out_dir / "data.zarr"), mode="w")
+    z = zarr.open(str(out_dir / "data_batch_32.zarr"), mode="w")
     z.attrs["time_created"] = str(np.datetime64("now"))
 
     images_shape = initial_data["observations"][0]["color_image1"].shape
@@ -92,29 +92,30 @@ def initialize_zarr_store(out_dir, initial_data):
     )
 
     # Initialize datasets with shapes based on the initial data
+    print("Chunksize", (32,) + robot_state_shape)
     z.create_dataset(
         "robot_state",
         shape=(0,) + robot_state_shape,
         dtype=np.float32,
-        chunks=(1,) + robot_state_shape,
+        chunks=(32,) + robot_state_shape,
     )
     z.create_dataset(
         "color_image1",
         shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=(1,) + images_shape,
+        chunks=(32,) + images_shape,
     )
     z.create_dataset(
         "color_image2",
         shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=(1,) + images_shape,
+        chunks=(32,) + images_shape,
     )
     z.create_dataset(
         "action",
         shape=(0,) + actions_shape,
         dtype=np.float32,
-        chunks=(1,) + actions_shape,
+        chunks=(32,) + actions_shape,
     )
     z.create_dataset(
         "reward",

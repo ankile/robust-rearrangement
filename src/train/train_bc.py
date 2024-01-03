@@ -139,11 +139,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="hyperparameter-search",
+        project="diffusion-policy-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run 'standard' size and higher learning rate.",
+        notes="Is the rollout somehow broken again?",
     )
 
     # save stats to wandb and update the config object
@@ -283,7 +283,7 @@ def main(config: ConfigDict):
                     save_path,
                 )
 
-            # Do no load the environment until we successfuly made it this far
+            # Do not load the environment until we successfuly made it this far
             if env is None:
                 env = get_env(
                     config.gpu_id,
@@ -329,13 +329,13 @@ if __name__ == "__main__":
 
     # Diffusion options
     config.beta_schedule = "squaredcos_cap_v2"
-    config.down_dims = [128, 256, 512]
+    config.down_dims = [256, 512, 1024]
     config.inference_steps = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 5e-5
+    config.actor_lr = 5e-8
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -346,23 +346,23 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = (
-    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    # )
+    config.load_checkpoint_path = (
+        "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
+    )
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "feature"
+    config.observation_type = "image"
     config.randomness = "low"
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
-    config.test_split = 0.1
+    config.steps_per_epoch = 256 if args.dryrun is False else 10
+    config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.05 if args.dryrun is False else float("inf")
+    config.rollout.every = 1 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
-    config.rollout.count = num_envs
+    config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -370,8 +370,8 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
-    config.vision_encoder.freeze = True
+    config.vision_encoder.model = "r3m_18"
+    config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -396,9 +396,9 @@ if __name__ == "__main__":
     config.datasim_path = (
         config.data_base_dir
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        # / "processed/sim/image_small/one_leg/data.zarr"
+        / "processed/sim/image_small/one_leg/data.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")
