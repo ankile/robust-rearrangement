@@ -139,11 +139,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="diffusion-policy-test",
+        project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Is the rollout somehow broken again?",
+        notes="Train end-to-end without pretraining",
     )
 
     # save stats to wandb and update the config object
@@ -181,7 +181,7 @@ def main(config: ConfigDict):
         test_loss = list()
 
         # batch loop
-        tepoch = tqdm(trainloader, desc="Batch", leave=False, total=n_batches)
+        tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
 
@@ -207,14 +207,15 @@ def main(config: ConfigDict):
             # logging
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
+            lr = lr_scheduler.get_last_lr()[0]
             wandb.log(
                 dict(
-                    lr=lr_scheduler.get_last_lr()[0],
+                    lr=lr,
                     batch_loss=loss_cpu,
                 )
             )
 
-            tepoch.set_postfix(loss=loss_cpu)
+            tepoch.set_postfix(loss=loss_cpu, lr=lr)
 
         tepoch.close()
 
@@ -227,7 +228,7 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
-        test_tepoch = tqdm(testloader, desc="Test Batch", leave=False)
+        test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
@@ -277,7 +278,7 @@ def main(config: ConfigDict):
         ):
             # Checkpoint the model
             if config.checkpoint_model:
-                save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
+                save_path = str(model_save_dir / f"actor_chkpt_latest.pt")
                 torch.save(
                     actor.state_dict(),
                     save_path,
@@ -329,13 +330,14 @@ if __name__ == "__main__":
 
     # Diffusion options
     config.beta_schedule = "squaredcos_cap_v2"
+    # config.down_dims = [128, 256, 512]
     config.down_dims = [256, 512, 1024]
     config.inference_steps = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 5e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -355,12 +357,12 @@ if __name__ == "__main__":
     config.obs_horizon = 2
     config.observation_type = "image"
     config.randomness = "low"
-    config.steps_per_epoch = 256 if args.dryrun is False else 10
+    config.steps_per_epoch = 500 if args.dryrun is False else 10
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = 5 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 1 if args.dryrun is False else float("inf")
+    config.rollout.every = 10 if args.dryrun is False else 1
+    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
     config.rollout.count = num_envs * 1
 
@@ -387,19 +389,20 @@ if __name__ == "__main__":
     config.noise_augment = False
 
     config.model_save_dir = "models"
-    config.checkpoint_model = False
+    config.checkpoint_model = True
 
     assert (
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        config.data_base_dir
+        # config.data_base_dir
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
         # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
         # / "processed/sim/image_small/one_leg/data.zarr"
-        / "processed/sim/image_small/one_leg/data_batch_32.zarr"
+        # / "processed/sim/image_small/one_leg/data_batch_32.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")

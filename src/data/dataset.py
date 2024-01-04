@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import zarr
 from src.data.normalizer import StateActionNormalizer, get_data_stats
-from src.data.augmentation import ImageAugmentation, random_translate
+from src.data.augmentation import ImageAugmentation
 from src.data.utils import ZarrSubsetView
 import torchvision.transforms.functional as F
 
@@ -105,7 +105,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # Add image augmentation
-        self.augment_image = augment_image
+        self.image_augmentation = (
+            ImageAugmentation(max_translate=20) if augment_image else None
+        )
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -144,14 +146,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 torch.from_numpy(nsample[key]), key, forward=True
             ).numpy()
 
-        if self.augment_image:
-            max_translation = 10
-            nsample["color_image1"] = random_translate(
-                nsample["color_image1"], max_translation
-            )
-            nsample["color_image2"] = random_translate(
-                nsample["color_image2"], max_translation
-            )
+        if self.image_augmentation:
+            nsample["color_image1"] = self.image_augmentation(nsample["color_image1"])
+            nsample["color_image2"] = self.image_augmentation(nsample["color_image2"])
 
         return nsample
 

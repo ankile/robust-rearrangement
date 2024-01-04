@@ -54,7 +54,7 @@ class ResnetEncoder(ModuleAttrMixin):
         super().__init__(*args, **kwargs)
         assert model_name in ["resnet18", "resnet34", "resnet50"]
 
-        self.model = get_resnet(model_name=model_name)
+        self.model = get_resnet(model_name=model_name, weights="IMAGENET1K_V1")
         self.encoding_dim = self.model.encoding_dim
 
         if use_groupnorm:
