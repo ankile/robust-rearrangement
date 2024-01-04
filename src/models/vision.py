@@ -7,15 +7,12 @@ from r3m import load_r3m
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
+from src.models.vit import vit_base_patch16
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda"):
-    if encoder_name == "dinov2-base":
-        return DinoV2Encoder(size="base", freeze=freeze, device=device)
-    if encoder_name == "dinov2-large":
-        return DinoV2Encoder(size="large", freeze=freeze, device=device)
-    if encoder_name == "dinov2-small":
-        return DinoV2Encoder(size="small", freeze=freeze, device=device)
+    if encoder_name.startswith("dinov2"):
+        return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
         return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name == "vip":
@@ -26,6 +23,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         )
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
+    if encoder_name == "mae":
+        return MAEEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
@@ -55,7 +54,7 @@ class ResnetEncoder(ModuleAttrMixin):
         super().__init__(*args, **kwargs)
         assert model_name in ["resnet18", "resnet34", "resnet50"]
 
-        self.model = get_resnet(model_name=model_name)
+        self.model = get_resnet(model_name=model_name, weights="IMAGENET1K_V1")
         self.encoding_dim = self.model.encoding_dim
 
         if use_groupnorm:
@@ -91,12 +90,12 @@ class ResnetEncoder(ModuleAttrMixin):
 
 
 class DinoV2Encoder(torch.nn.Module):
-    def __init__(self, size="base", freeze=True, device="cuda"):
+    def __init__(self, model_name="dinov2-base", freeze=True, device="cuda"):
         super().__init__()
-        assert size in ["small", "base", "large", "giant"]
+        assert size in ["dinov2-small", "dinov2-base", "dinov2-large", "dinov2-giant"]
         self.device = device
 
-        model_name = f"facebook/dinov2-{size}"
+        model_name = f"facebook/{model_name}"
         self.trans = transformers.AutoImageProcessor.from_pretrained(model_name)
         self.model = transformers.AutoModel.from_pretrained(model_name).to(self.device)
         self.encoding_dim = self.model.config.hidden_size
@@ -119,7 +118,7 @@ class VIPEncoder(torch.nn.Module):
     def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
         self.device = device
-        self.model = load_vip(device=device).module
+        self.model = load_vip().module.to(device)
         self.encoding_dim = self.model.convnet.fc.out_features
 
         if freeze:
@@ -197,4 +196,43 @@ class DinoEncoder(torch.nn.Module):
         x = x / 255.0
         x = self.normalize(x)
         x = self.model(x)
+        return x
+
+
+class MAEEncoder(torch.nn.Module):
+    def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
+        super().__init__()
+        self.device = device
+
+        wts = "/data/pulkitag/models/ankile/furniture-diffusion/mae/mae_pretrain_vit_base.pth"
+
+        # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
+        vit = vit_base_patch16()
+        state_dict = torch.load(wts, map_location=device)
+        vit.load_state_dict(state_dict["model"], strict=False)
+
+        self.model = vit
+
+        self.encoding_dim = 768
+
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+            self.model.eval()
+
+        self.normalize = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+
+        self.model = self.model.to(device)
+
+    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    def forward(self, x):
+        # Move channels to the front
+        x = x.permute(0, 3, 1, 2)
+        # Normalize images
+        x = x / 255.0
+        x = self.normalize(x)
+        x = self.model.forward_features(x)
         return x

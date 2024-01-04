@@ -23,6 +23,7 @@ class PostInitCaller(type(torch.nn.Module)):
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
+    normalizer: StateActionNormalizer
 
     def __post_init__(self, *args, **kwargs):
         self.print_model_params()
@@ -75,21 +76,22 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         return nobs
 
     def _training_obs(self, batch):
+        # The robot state is already normalized in the dataset
         nrobot_state = batch["robot_state"]
         B = nrobot_state.shape[0]
 
         if self.observation_type == "image":
-            # Convert images from obs_horizon x (n_envs, 224, 224, 3) -> (n_envs, obs_horizon, 224, 224, 3)
+            # Convert images from (batch_size, obs_horizon, 224, 224, 3) -> (batch_size * obs_horizon, 224, 224, 3)
             # so that it's compatible with the encoder
             image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
             image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
 
-            # Encode images and reshape back to (B, obs_horizon, -1)
-            image1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-            image2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+            # Encode images and reshape back to (B, obs_horizon, encoding_dim)
+            features1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+            features2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, image1, image2], dim=-1)
+            nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
             nobs = nobs.flatten(start_dim=1)
 
         elif self.observation_type == "feature":

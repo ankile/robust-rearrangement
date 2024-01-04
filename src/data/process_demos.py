@@ -3,6 +3,7 @@ import pickle
 from glob import glob
 import argparse
 import os
+from urllib import robotparser
 import numpy as np
 import zarr
 from tqdm import tqdm
@@ -77,58 +78,68 @@ def initialize_zarr_store(out_dir, initial_data):
     """
     Initialize the Zarr store with datasets based on the initial data sample.
     """
-    z = zarr.open(str(out_dir / "data.zarr"), mode="w")
+    chunksize = 32
+    z = zarr.open(str(out_dir / f"data_batch_{chunksize}.zarr"), mode="w")
     z.attrs["time_created"] = str(np.datetime64("now"))
 
+    images_shape = initial_data["observations"][0]["color_image1"].shape
+    actions_shape = initial_data["actions"][0].shape
+    robot_state_shape = (
+        len(
+            filter_and_concat_robot_state(
+                initial_data["observations"][0]["robot_state"]
+            )
+        ),
+    )
+
     # Initialize datasets with shapes based on the initial data
+    print("Chunksize", (chunksize,) + robot_state_shape)
     z.create_dataset(
         "robot_state",
-        shape=(
-            0,
-            len(
-                filter_and_concat_robot_state(
-                    initial_data["observations"][0]["robot_state"]
-                )
-            ),
-        ),
+        shape=(0,) + robot_state_shape,
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,) + robot_state_shape,
     )
     z.create_dataset(
         "color_image1",
-        shape=(0,) + initial_data["observations"][0]["color_image1"].shape,
+        shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=True,
+        chunks=(chunksize,) + images_shape,
     )
     z.create_dataset(
         "color_image2",
-        shape=(0,) + initial_data["observations"][0]["color_image2"].shape,
+        shape=(0,) + images_shape,
         dtype=np.uint8,
-        chunks=True,
+        chunks=(chunksize,) + images_shape,
     )
     z.create_dataset(
         "action",
-        shape=(0, len(initial_data["actions"][0])),
+        shape=(0,) + actions_shape,
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,) + actions_shape,
     )
+    # Setting chunking to True in the below is a mistake
+    # Since we're appending to the dataset, the best Zarr
+    # can do is to have chunksize 1, meaning we get no.
+    # episodes times episode length chunks (too many).
     z.create_dataset(
         "reward",
         shape=(0,),
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,),
     )
     z.create_dataset(
         "skill",
         shape=(0,),
         dtype=np.float32,
-        chunks=True,
+        chunks=(chunksize,),
     )
+    # It doesn't really matter what this does wrt. chunking, since
+    # the number of elements is small and each element is small.
     z.create_dataset(
         "episode_ends",
         shape=(0,),
         dtype=np.uint32,
-        chunks=True,
     )
     # z.create_dataset(
     #     "furniture",

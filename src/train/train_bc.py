@@ -10,7 +10,7 @@ from src.data.dataset import (
     FurnitureFeatureDataset,
 )
 from src.data.normalizer import StateActionNormalizer
-from src.eval import do_rollout_evaluation
+from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
@@ -31,15 +31,13 @@ def main(config: ConfigDict):
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    normalizer = StateActionNormalizer()
-
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_path=config.datasim_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
         )
@@ -49,7 +47,7 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
@@ -72,7 +70,7 @@ def main(config: ConfigDict):
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             config=config,
         )
     elif config.actor == "diffusion":
@@ -80,7 +78,7 @@ def main(config: ConfigDict):
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=normalizer,
+            normalizer=StateActionNormalizer(),
             config=config,
         )
     else:
@@ -141,15 +139,12 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="mlp-baseline-test",
+        project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Run a smaller diffusion policy to compare with the MLP baseline.",
+        notes="Train end-to-end without pretraining",
     )
-
-    # Watch the model
-    # wandb.watch(actor, log="all")
 
     # save stats to wandb and update the config object
     wandb.log(
@@ -158,7 +153,7 @@ def main(config: ConfigDict):
             "num_samples_test": len(test_dataset),
             "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
             "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": normalizer.stats_dict,
+            "stats": StateActionNormalizer().stats_dict,
         }
     )
     wandb.config.update(config.to_dict())
@@ -186,7 +181,7 @@ def main(config: ConfigDict):
         test_loss = list()
 
         # batch loop
-        tepoch = tqdm(trainloader, desc="Batch", leave=False, total=n_batches)
+        tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
 
@@ -212,14 +207,15 @@ def main(config: ConfigDict):
             # logging
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
+            lr = lr_scheduler.get_last_lr()[0]
             wandb.log(
                 dict(
-                    lr=lr_scheduler.get_last_lr()[0],
+                    lr=lr,
                     batch_loss=loss_cpu,
                 )
             )
 
-            tepoch.set_postfix(loss=loss_cpu)
+            tepoch.set_postfix(loss=loss_cpu, lr=lr)
 
         tepoch.close()
 
@@ -232,7 +228,7 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
-        test_tepoch = tqdm(testloader, desc="Test Batch", leave=False)
+        test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
@@ -281,13 +277,14 @@ def main(config: ConfigDict):
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
             # Checkpoint the model
-            save_path = str(model_save_dir / f"actor_{epoch_idx}.pt")
-            torch.save(
-                actor.state_dict(),
-                save_path,
-            )
+            if config.checkpoint_model:
+                save_path = str(model_save_dir / f"actor_chkpt_latest.pt")
+                torch.save(
+                    actor.state_dict(),
+                    save_path,
+                )
 
-            # Do no load the environment until we successfuly made it this far
+            # Do not load the environment until we successfuly made it this far
             if env is None:
                 env = get_env(
                     config.gpu_id,
@@ -323,21 +320,24 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
-    config.actor = "mlp"
-    config.actor_hidden_dims = [4096, 4096, 2048]
-    config.actor_dropout = 0.1
-
     config.action_horizon = 8
     config.pred_horizon = 16
 
-    # config.beta_schedule = "squaredcos_cap_v2"
-    # config.down_dims = [256, 512]
-    # config.inference_steps = 16
-    # config.prediction_type = "epsilon"
-    # config.num_diffusion_iters = 100
+    config.actor = "diffusion"
+    # MLP options
+    # config.actor_hidden_dims = [4096, 4096, 2048]
+    # config.actor_dropout = 0.2
+
+    # Diffusion options
+    config.beta_schedule = "squaredcos_cap_v2"
+    # config.down_dims = [128, 256, 512]
+    config.down_dims = [256, 512, 1024]
+    config.inference_steps = 16
+    config.prediction_type = "epsilon"
+    config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
-    config.actor_lr = 1e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -355,16 +355,16 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 500
     config.obs_horizon = 2
-    config.observation_type = "feature"
+    config.observation_type = "image"
     config.randomness = "low"
-    config.steps_per_epoch = 200 if args.dryrun is False else 10
-    config.test_split = 0.1
+    config.steps_per_epoch = 500 if args.dryrun is False else 10
+    config.test_split = 0.05
 
     config.rollout = ConfigDict()
     config.rollout.every = 10 if args.dryrun is False else 1
     config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
     config.rollout.max_steps = 600 if args.dryrun is False else 100
-    config.rollout.count = num_envs
+    config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -372,8 +372,8 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
-    config.vision_encoder.freeze = True
+    config.vision_encoder.model = "resnet18"
+    config.vision_encoder.freeze = False
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -384,23 +384,25 @@ if __name__ == "__main__":
 
     # Regularization
     config.weight_decay = 1e-6
-    # config.feature_dropout = 0.1
-    # config.augment_image = True
+    config.feature_dropout = False
+    config.augment_image = True
     config.noise_augment = False
 
     config.model_save_dir = "models"
+    config.checkpoint_model = True
 
     assert (
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        config.data_base_dir
+        # config.data_base_dir
         # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
         # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        # data_base_dir
         # / "processed/sim/image_small/one_leg/data.zarr"
+        # / "processed/sim/image_small/one_leg/data_batch_32.zarr"
+        "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
     )
 
     print(f"Using data from {config.datasim_path}")
