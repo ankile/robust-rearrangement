@@ -59,11 +59,22 @@ class DiffusionPolicy(Actor):
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)
 
-        self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+        pretrained = (
+            hasattr(config.vision_encoder, "pretrained")
+            and config.vision_encoder.pretrained
+        )
+        self.encoder1 = get_encoder(
+            encoder_name, freeze=freeze_encoder, device=device, pretrained=pretrained
+        )
         self.encoder2 = (
             self.encoder1
             if freeze_encoder
-            else get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            else get_encoder(
+                encoder_name,
+                freeze=freeze_encoder,
+                device=device,
+                pretrained=pretrained,
+            )
         )
 
         self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim

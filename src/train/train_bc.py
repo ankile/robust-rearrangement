@@ -353,11 +353,11 @@ if __name__ == "__main__":
     # )
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 500
+    config.num_epochs = 200
     config.obs_horizon = 2
     config.observation_type = "image"
     config.randomness = "low"
-    config.steps_per_epoch = 500 if args.dryrun is False else 10
+    config.steps_per_epoch = 400 if args.dryrun is False else 10
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
@@ -368,12 +368,12 @@ if __name__ == "__main__":
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
-    # config.lr_scheduler.warmup_pct = 0.025
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "resnet18"
-    config.vision_encoder.freeze = False
+    config.vision_encoder.model = "vip"
+    config.vision_encoder.freeze = True
+    config.vision_encoder.pretrained = True
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -385,7 +385,7 @@ if __name__ == "__main__":
     # Regularization
     config.weight_decay = 1e-6
     config.feature_dropout = False
-    config.augment_image = True
+    config.augment_image = False
     config.noise_augment = False
 
     config.model_save_dir = "models"

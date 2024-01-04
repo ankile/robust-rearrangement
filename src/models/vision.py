@@ -10,7 +10,7 @@ from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
 
 
-def get_encoder(encoder_name, freeze=True, device="cuda"):
+def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
     if encoder_name.startswith("dinov2"):
         return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
@@ -19,7 +19,11 @@ def get_encoder(encoder_name, freeze=True, device="cuda"):
         return VIPEncoder(freeze=freeze, device=device)
     if encoder_name.startswith("resnet"):
         return ResnetEncoder(
-            model_name=encoder_name, freeze=freeze, device=device, use_groupnorm=True
+            model_name=encoder_name,
+            freeze=freeze,
+            device=device,
+            use_groupnorm=True,
+            pretrained=pretrained,
         )
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
@@ -48,13 +52,16 @@ class ResnetEncoder(ModuleAttrMixin):
         freeze=True,
         device="cuda",
         use_groupnorm=True,
+        pretrained=True,
         *args,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         assert model_name in ["resnet18", "resnet34", "resnet50"]
 
-        self.model = get_resnet(model_name=model_name, weights="IMAGENET1K_V1")
+        weights = "IMAGENET1K_V1" if pretrained else None
+
+        self.model = get_resnet(model_name=model_name, weights=weights)
         self.encoding_dim = self.model.encoding_dim
 
         if use_groupnorm:
