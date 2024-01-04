@@ -1,9 +1,18 @@
 from datetime import datetime
+import imageio
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import torch
 from tqdm import tqdm
+
+
+def create_mp4(np_images, filename, fps=10):
+    # duration = 1000 / fps
+    with imageio.get_writer(filename, fps=fps) as writer:
+        for img in tqdm(np_images):
+            writer.append_data(img)
+    print(f"File saved as {filename}")
 
 
 def render_mp4(ims1, ims2, filename=None):
