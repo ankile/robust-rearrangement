@@ -15,7 +15,8 @@ from ipdb import set_trace as bp
 
 
 def process_buffer(buffer, encoder):
-    tensor = torch.stack(buffer).to(device)
+    # Move buffer to same device as encoder
+    tensor = torch.stack(buffer).to(encoder.device)
     return encoder(tensor).cpu().numpy()
 
 
@@ -71,7 +72,13 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
 def encode_demo(encoder, batch_size, obs):
     robot_states, features1, features2 = [], [], []
 
-    robot_state_buffer = [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+    robot_state_buffer = []
+    for o in obs:
+        if isinstance(o["robot_state"], dict):
+            robot_state_buffer.append(filter_and_concat_robot_state(o["robot_state"]))
+        else:
+            robot_state_buffer.append(o["robot_state"])
+
     img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
     img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
 
