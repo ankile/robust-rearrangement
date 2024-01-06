@@ -20,8 +20,8 @@ if __name__ == "__main__":
     args.add_argument("--gpu", type=int, default=0)
     args.add_argument("--n-envs", type=int, default=1)
     args.add_argument("--n-rollouts", type=int, default=1)
-
-    args.add_argument("--run-id", type=str, default="")
+    args.add_argument("--randomness", type=str, default="low")
+    args.add_argument("--run-id", type=str, required=True)
 
     # Parse the arguments
     args = args.parse_args()
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         obs_type="image",
         furniture="one_leg",
         num_envs=args.n_envs,
-        randomness="low",
+        randomness=args.randomness,
         resize_img=True,
         verbose=False,
     )
