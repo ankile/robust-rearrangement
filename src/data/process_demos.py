@@ -3,7 +3,6 @@ import pickle
 from glob import glob
 import argparse
 import os
-from urllib import robotparser
 import numpy as np
 import zarr
 from tqdm import tqdm
@@ -16,7 +15,8 @@ from ipdb import set_trace as bp
 
 
 def process_buffer(buffer, encoder):
-    tensor = torch.stack(buffer).to(device)
+    # Move buffer to same device as encoder
+    tensor = torch.stack(buffer).to(encoder.device)
     return encoder(tensor).cpu().numpy()
 
 
@@ -43,17 +43,12 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
         furniture.append(data["furniture"])
 
         obs = data["observations"]
-        robot_state_buffer = [
-            filter_and_concat_robot_state(o["robot_state"]) for o in obs
-        ]
-        img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
-        img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
-
-        for i in range(0, len(img_buffer1), batch_size):
-            slice_end = min(i + batch_size, len(img_buffer1))
-            robot_states.extend(robot_state_buffer[i:slice_end])
-            features1.extend(process_buffer(img_buffer1[i:slice_end], encoder).tolist())
-            features2.extend(process_buffer(img_buffer2[i:slice_end], encoder).tolist())
+        demo_robot_states, demo_features1, demo_features2 = encode_demo(
+            encoder, batch_size, obs
+        )
+        robot_states.extend(demo_robot_states)
+        features1.extend(demo_features1)
+        features2.extend(demo_features2)
 
     obs_dict = {
         "robot_state": np.array(robot_states, dtype=np.float32),
@@ -72,6 +67,28 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
         time_created=np.datetime64("now"),
         **obs_dict,
     )
+
+
+def encode_demo(encoder, batch_size, obs):
+    robot_states, features1, features2 = [], [], []
+
+    robot_state_buffer = []
+    for o in obs:
+        if isinstance(o["robot_state"], dict):
+            robot_state_buffer.append(filter_and_concat_robot_state(o["robot_state"]))
+        else:
+            robot_state_buffer.append(o["robot_state"])
+
+    img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
+    img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
+
+    for i in range(0, len(img_buffer1), batch_size):
+        slice_end = min(i + batch_size, len(img_buffer1))
+        robot_states.extend(robot_state_buffer[i:slice_end])
+        features1.extend(process_buffer(img_buffer1[i:slice_end], encoder).tolist())
+        features2.extend(process_buffer(img_buffer2[i:slice_end], encoder).tolist())
+
+    return robot_states, features1, features2
 
 
 def initialize_zarr_store(out_dir, initial_data):
