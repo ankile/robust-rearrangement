@@ -229,6 +229,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
+        self.feature_dim = normalized_train_data["feature1"].shape[-1]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = train_data["action"].shape[-1]
@@ -264,7 +265,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         return nsample
 
 
-class FurnitureQFeatureDataset(FurnitureFeatureDataset):
+class OfflineRLFeatureDataset(FurnitureFeatureDataset):
     def __init__(self, action_horizon: int, *args, **kwargs):
         super().__init__(*args, action_horizon=action_horizon, **kwargs)
 
