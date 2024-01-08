@@ -3,6 +3,12 @@ import itertools
 
 
 class FixedStepsDataloader(torch.utils.data.DataLoader):
+    """
+    Dataloader that always yields a fixed number of batches.
+    If requested number of batches is smaller than available -> return a random subset
+    If requedsted number is larger than available -> cycle through (like a new epoch, random order every time)
+    """
+
     def __init__(self, *args, n_batches, **kwargs):
         super().__init__(*args, **kwargs)
         self.n_batches = n_batches
