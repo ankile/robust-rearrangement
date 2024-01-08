@@ -14,6 +14,7 @@ from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from ipdb import set_trace as bp
 
 
+@torch.no_grad()
 def process_buffer(buffer, encoder):
     # Move buffer to same device as encoder
     tensor = torch.stack(buffer).to(encoder.device)

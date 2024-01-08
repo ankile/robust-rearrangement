@@ -1,5 +1,6 @@
 import argparse
 from datetime import datetime
+import os
 from pathlib import Path
 import furniture_bench  # noqa
 import torch
@@ -63,19 +64,21 @@ if __name__ == "__main__":
 
     # Prepare the rollout save directory
     rollout_save_dir = (
-        Path(config.data_base_dir)
+        Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
         / "raw"
         / "sim_rollouts"
         / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     )
     rollout_save_dir.mkdir(parents=True, exist_ok=True)
 
+    print(f"Saving rollouts to {rollout_save_dir}")
+
     # Start a run to collect the results
     wandb.init(
         project="model-eval",
         entity="robot-rearrangement",
         job_type="eval",
-        config=config,
+        config=config.to_dict(),
     )
 
     # Perform the rollouts

@@ -16,7 +16,7 @@ file_path = rollout_dir / "index.csv"
 
 # Check if the file already exists
 if file_path.exists():
-    print("Index file already exists, exiting")
+    print("Index file already exists")
 else:
     print("Creating index file")
     # Create the index file
@@ -31,7 +31,9 @@ print(f"Already indexed {len(read_idxs)} rollouts, {len(remaining_paths)} remain
 
 
 # Process all the rollouts not already in the index file
-for path in tqdm(remaining_paths):
+it = tqdm(remaining_paths)
+n_success = 0
+for i, path in enumerate(it, start=1):
     with open(path, "rb") as f:
         rollout = pickle.load(f)
 
@@ -44,3 +46,6 @@ for path in tqdm(remaining_paths):
     # Append the path to the index file
     with open(file_path, "a") as f:
         f.write(f"{path},{furniture},{success}\n")
+
+    # Update the progress bar
+    it.set_description(f"Success: {n_success}/{i}")

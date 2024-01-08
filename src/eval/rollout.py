@@ -31,7 +31,6 @@ def rollout(
     # get first observation
     obs = env.reset()
     obs_horizon = actor.obs_horizon
-    action_horizon = actor.action_horizon
 
     # keep a queue of last 2 steps of observations
     obs_deque = collections.deque(
@@ -75,6 +74,7 @@ def rollout(
         # update progress bar
         step_idx += 1
         if pbar is not None:
+            pbar.set_postfix(step=step_idx)
             pbar.update()
 
         if step_idx >= rollout_max_steps:
@@ -163,7 +163,9 @@ def calculate_success_rate(
     all_rewards = list()
 
     for i in range(n_rollouts // env.num_envs):
-        pbar.set_description(f"Performing rollouts ({i+1}/{n_rollouts//env.num_envs})")
+        pbar.set_description(
+            f"Performing rollouts: round {i+1}/{n_rollouts//env.num_envs}, success: {n_success}/{i * env.num_envs}"
+        )
         # Perform a rollout with the current model
         robot_states, imgs1, imgs2, actions, rewards = rollout(
             env,
@@ -184,7 +186,7 @@ def calculate_success_rate(
         all_rewards.extend(rewards)
 
         # Update progress bar
-        pbar.set_postfix(success=n_success)
+        pbar.set_description
 
     total_return = 0
     table_rows = []
