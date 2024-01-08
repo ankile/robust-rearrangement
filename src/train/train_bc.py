@@ -304,6 +304,15 @@ def main(config: ConfigDict):
     wandb.finish()
 
 
+def get_data_path(obs_type, encoder):
+    if obs_type == "image":
+        return f"image_small/one_leg/data_batch_32.zarr"
+    elif obs_type == "feature":
+        return f"feature_separate_small/{encoder}/one_leg/data.zarr"
+
+    raise ValueError(f"Unknown obs_type: {obs_type}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
@@ -311,12 +320,17 @@ if __name__ == "__main__":
     parser.add_argument("--dryrun", "-d", action="store_true")
     parser.add_argument("--cpus", "-c", type=int, default=24)
     parser.add_argument("--wb-mode", "-w", type=str, default="online")
+    parser.add_argument(
+        "--obs-type", type=str, default="image", choices=["image", "feature"]
+    )
+    parser.add_argument("--encoder", "-e", type=str, default="vip")
+
     args = parser.parse_args()
 
-    maybe = lambda x, fb=1: x if args.dryrun is False else fb
+    dryrun = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = maybe(8, fb=2)
+    num_envs = dryrun(8, fb=2)
 
     config = ConfigDict()
 
@@ -340,7 +354,7 @@ if __name__ == "__main__":
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = None if args.dryrun is False else 10
+    config.data_subset = dryrun(None, 10)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
@@ -355,15 +369,15 @@ if __name__ == "__main__":
     config.num_envs = num_envs
     config.num_epochs = 200
     config.obs_horizon = 2
-    config.observation_type = "image"
+    config.observation_type = args.obs_type
     config.randomness = "low"
-    config.steps_per_epoch = 400 if args.dryrun is False else 10
+    config.steps_per_epoch = dryrun(400, fb=10)
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = 10 if args.dryrun is False else 1
-    config.rollout.loss_threshold = 0.1 if args.dryrun is False else float("inf")
-    config.rollout.max_steps = 600 if args.dryrun is False else 100
+    config.rollout.every = dryrun(10, fb=1)
+    config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
+    config.rollout.max_steps = dryrun(600, fb=100)
     config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
@@ -371,7 +385,7 @@ if __name__ == "__main__":
     config.lr_scheduler.warmup_steps = 500
 
     config.vision_encoder = ConfigDict()
-    config.vision_encoder.model = "vip"
+    config.vision_encoder.model = args.encoder
     config.vision_encoder.freeze = True
     config.vision_encoder.pretrained = True
     config.vision_encoder.normalize_features = False
@@ -396,13 +410,9 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     config.datasim_path = (
-        # config.data_base_dir
-        # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
-        # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        # / "processed/sim/image_small/one_leg/data.zarr"
-        # / "processed/sim/image_small/one_leg/data_batch_32.zarr"
-        "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(args.obs_type, args.encoder)
     )
 
     print(f"Using data from {config.datasim_path}")
