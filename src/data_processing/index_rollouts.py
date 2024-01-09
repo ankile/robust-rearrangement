@@ -17,6 +17,8 @@ paths = glob(str(rollout_dir / "**/*.pkl"), recursive=True)
 # Make a new index file in this directory specifying which rollouts were successful and for which task
 file_path = rollout_dir / "index.csv"
 
+print(f"Reading index: {file_path}")
+
 # Check if the file already exists
 if file_path.exists():
     print("Index file already exists")
