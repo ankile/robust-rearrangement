@@ -139,11 +139,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="image-training",
+        project="diffusion-policy-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Train end-to-end without pretraining",
+        notes="See that newly generated features from VIP encoder with eval=True still works",
     )
 
     # save stats to wandb and update the config object
@@ -350,7 +350,7 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
@@ -409,11 +409,12 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        config.data_base_dir
-        / "processed/sim"
-        / get_data_path(args.obs_type, args.encoder)
-    )
+    # config.datasim_path = (
+    #     config.data_base_dir
+    #     / "processed/sim"
+    #     / get_data_path(args.obs_type, args.encoder)
+    # )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

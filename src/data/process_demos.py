@@ -59,7 +59,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
 
     output_path.mkdir(parents=True, exist_ok=True)
     zarr.save(
-        str(output_path / "data.zarr"),
+        str(output_path / "data_new.zarr"),
         action=np.array(actions, dtype=np.float32),
         episode_ends=np.array(episode_ends, dtype=np.uint32),
         reward=np.array(rewards, dtype=np.float32),
@@ -241,7 +241,11 @@ if __name__ == "__main__":
     if args.obs_out == "feature":
         assert args.encoder is not None, "Must specify encoder when using feature obs"
 
-    data_base_path = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+    data_base_path = os.environ.get("FURNITURE_DATA_DIR", "data")
+    data_base_path_in = Path(os.environ.get("FURNITURE_DATA_DIR_RAW", data_base_path))
+    data_base_path_out = Path(
+        os.environ.get("FURNITURE_DATA_DIR_PROCESSED", data_base_path)
+    )
 
     obs_in_path = args.obs_in
     obs_out_path = args.obs_out
@@ -254,13 +258,14 @@ if __name__ == "__main__":
         obs_in_path = obs_in_path + "_small"
         obs_out_path = obs_out_path + "_small"
 
-    raw_data_path = data_base_path / "raw" / args.env / obs_in_path / args.furniture
-    output_path = data_base_path / "processed" / args.env / obs_out_path
+    raw_data_path = data_base_path_in / "raw" / args.env / obs_in_path / args.furniture
+    output_path = data_base_path_out / "processed" / args.env / obs_out_path
 
     encoder = None
     if args.encoder is not None:
         output_path = output_path / args.encoder
         encoder = get_encoder(args.encoder, freeze=True, device=device)
+        encoder.eval()
 
     output_path = output_path / args.furniture
 

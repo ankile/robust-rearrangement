@@ -5,12 +5,15 @@ import os
 from tqdm import tqdm
 import pandas as pd
 
-base_dir = Path(os.environ["FURNITURE_DATA_DIR"])
+base_dir = Path(os.environ["ROLLOUT_SAVE_DIR"])
 
 rollout_dir = base_dir / "raw" / "sim_rollouts"
 
+print(f"Getting rollouts from: {rollout_dir}")
+
 ## Index the raw rollout data
 paths = glob(str(rollout_dir / "**/*.pkl"), recursive=True)
+
 # Make a new index file in this directory specifying which rollouts were successful and for which task
 file_path = rollout_dir / "index.csv"
 
