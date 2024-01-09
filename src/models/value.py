@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from src.models.mlp import MLP
 
 
 class ValueNetwork(nn.Module):
@@ -37,3 +38,153 @@ class DoubleCritic(nn.Module):
 
     def forward(self, state, action):
         return self.critic1(state, action), self.critic2(state, action)
+
+
+class CriticModule(nn.Module):
+    """A model to encapsulate both Q and V functions"""
+
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        obs_horizon: int,
+        action_horizon: int,
+        expectile: float,
+        discount: float,
+        critic_hidden_dims: list,
+        critic_dropout: float,
+        device: torch.device,
+    ) -> None:
+        super().__init__()
+
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+
+        # Add hyperparameters specific to learning value functions implicitly
+        self.expectile = expectile
+        self.discount = discount
+
+        # Add networks for the Q function
+        self.q_network = DoubleCritic(
+            state_dim=obs_dim,
+            action_dim=action_dim * self.action_horizon,
+            hidden_dims=critic_hidden_dims,
+            dropout=critic_dropout,
+        ).to(device)
+
+        self.q_target_network = DoubleCritic(
+            state_dim=obs_dim,
+            action_dim=action_dim * self.action_horizon,
+            hidden_dims=critic_hidden_dims,
+            dropout=critic_dropout,
+        ).to(device)
+
+        # Turn off gradients for the target network
+        for param in self.q_target_network.parameters():
+            param.requires_grad = False
+
+        # Add networks for the value function
+        self.value_network = ValueNetwork(
+            input_dim=obs_dim,
+            hidden_dims=critic_hidden_dims,
+            dropout=critic_dropout,
+        ).to(device)
+
+    def _flat_action(self, action):
+        start = self.obs_horizon - 1
+        end = start + self.action_horizon
+        naction = action[:, start:end, :].flatten(start_dim=1)
+        return naction
+
+    def _training_obs(self, batch):
+        """
+        This function expects the observations to be already-embedded feature observations,
+        not raw images for now
+        """
+        # The robot state is already normalized in the dataset
+        nrobot_state = batch["robot_state"]
+
+        # All observations already normalized in the dataset
+        feature1 = batch["feature1"]
+        feature2 = batch["feature2"]
+
+        # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+        nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+        nobs = nobs.flatten(start_dim=1)
+
+        return nobs
+
+    def _value_loss(self, batch):
+        def loss(diff, expectile=0.8):
+            weight = torch.where(
+                diff > 0,
+                torch.full_like(diff, expectile),
+                torch.full_like(diff, 1 - expectile),
+            )
+            return weight * (diff**2)
+
+        # Compute the value loss
+        nobs = self._training_obs(batch["curr_obs"])
+        naction = self._flat_action(batch["action"])
+
+        # Compute the Q values
+        with torch.no_grad():
+            q1, q2 = self.q_target_network(nobs, naction)
+            q = torch.min(q1, q2)
+
+        v = self.value_network(nobs)
+
+        # Compute the value loss
+        value_loss = loss(q - v, expectile=self.expectile).mean()
+
+        return value_loss
+
+    def _q_loss(self, batch):
+        curr_obs = self._training_obs(batch["curr_obs"])
+        next_obs = self._training_obs(batch["next_obs"])
+        naction = self._flat_action(batch["action"])
+
+        with torch.no_grad():
+            next_v = self.value_network(next_obs).squeeze(-1)
+
+        target_q = batch["reward"] + self.discount * next_v
+
+        q1, q2 = self.q_network(curr_obs, naction)
+
+        q1_loss = nn.functional.mse_loss(q1.squeeze(-1), target_q)
+        q2_loss = nn.functional.mse_loss(q2.squeeze(-1), target_q)
+
+        return (q1_loss + q2_loss) / 2
+
+    def compute_loss(self, batch):
+        q_loss = self._q_loss(batch)
+        value_loss = self._value_loss(batch)
+
+        return q_loss, value_loss
+
+    @torch.no_grad()
+    def polyak_update_target(self, tau):
+        for param, target_param in zip(
+            self.q_network.parameters(), self.q_target_network.parameters()
+        ):
+            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+    def action_weights(self, nobs, nactions):
+        # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
+        qs = torch.min(
+            *self.q_network(
+                nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1),
+                nactions.flatten(start_dim=2),
+            )
+        ).squeeze(-1)
+        vs = self.value_network(nobs).squeeze(-1)
+        adv = qs - vs
+
+        # if self.critic_objective == 'expectile':
+        tau_weights = torch.where(
+            adv > 0,
+            torch.full_like(adv, self.expectile),
+            torch.full_like(adv, 1 - self.expectile),
+        )
+
+        return tau_weights

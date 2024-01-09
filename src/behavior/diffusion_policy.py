@@ -115,6 +115,24 @@ class DiffusionPolicy(Actor):
 
         return naction
 
+    def _sample_action_pred(self, nobs):
+        # Predict normalized action
+        naction = self._normalized_action(nobs)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        # Add the actions to the queue
+        # only take action_horizon number of actions
+        start = self.obs_horizon - 1
+        end = start + self.action_horizon
+        actions = deque()
+        for i in range(start, end):
+            actions.append(action_pred[:, i, :])
+
+        return actions
+
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations
@@ -122,19 +140,7 @@ class DiffusionPolicy(Actor):
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
-            # Predict normalized action
-            naction = self._normalized_action(nobs)
-
-            # unnormalize action
-            # (B, pred_horizon, action_dim)
-            action_pred = self.normalizer(naction, "action", forward=False)
-
-            # Add the actions to the queue
-            # only take action_horizon number of actions
-            start = self.obs_horizon - 1
-            end = start + self.action_horizon
-            for i in range(start, end):
-                self.actions.append(action_pred[:, i, :])
+            self.actions = self._sample_action_pred(nobs)
 
         # Return the first action in the queue
         return self.actions.popleft()
