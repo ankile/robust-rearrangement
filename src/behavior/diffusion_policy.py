@@ -1,7 +1,7 @@
 from collections import deque
 import torch
 import torch.nn as nn
-from src.data.normalizer import StateActionNormalizer
+from src.dataset.normalizer import StateActionNormalizer
 from src.models.vision import get_encoder
 from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler

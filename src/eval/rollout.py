@@ -261,13 +261,14 @@ def calculate_success_rate(
 def do_rollout_evaluation(
     config: ConfigDict,
     env: FurnitureSimEnv,
-    model_save_dir: str,
+    model_save_dir: Path,
+    rollout_base_dir: Path,
     actor: Actor,
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
     rollout_save_dir = (
-        Path(config.data_base_dir)
+        rollout_base_dir
         / "raw"
         / "sim_rollouts"
         / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")

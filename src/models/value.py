@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from src.models.mlp import MLP
+from src.behavior.base import PostInitCaller
 
 
 class ValueNetwork(nn.Module):
@@ -40,7 +41,7 @@ class DoubleCritic(nn.Module):
         return self.critic1(state, action), self.critic2(state, action)
 
 
-class CriticModule(nn.Module):
+class CriticModule(nn.Module, metaclass=PostInitCaller):
     """A model to encapsulate both Q and V functions"""
 
     def __init__(
@@ -66,14 +67,14 @@ class CriticModule(nn.Module):
 
         # Add networks for the Q function
         self.q_network = DoubleCritic(
-            state_dim=obs_dim,
+            state_dim=obs_dim * obs_horizon,
             action_dim=action_dim * self.action_horizon,
             hidden_dims=critic_hidden_dims,
             dropout=critic_dropout,
         ).to(device)
 
         self.q_target_network = DoubleCritic(
-            state_dim=obs_dim,
+            state_dim=obs_dim * obs_horizon,
             action_dim=action_dim * self.action_horizon,
             hidden_dims=critic_hidden_dims,
             dropout=critic_dropout,
@@ -85,10 +86,21 @@ class CriticModule(nn.Module):
 
         # Add networks for the value function
         self.value_network = ValueNetwork(
-            input_dim=obs_dim,
+            input_dim=obs_dim * obs_horizon,
             hidden_dims=critic_hidden_dims,
             dropout=critic_dropout,
         ).to(device)
+
+    def __post_init__(self, *args, **kwargs):
+        self.print_model_params()
+
+    def print_model_params(self: torch.nn.Module):
+        total_params = sum(p.numel() for p in self.parameters())
+        print(f"Total parameters: {total_params / 1_000_000:.2f}M")
+
+        for name, submodule in self.named_children():
+            params = sum(p.numel() for p in submodule.parameters())
+            print(f"{name}: {params / 1_000_000:.2f}M parameters")
 
     def _flat_action(self, action):
         start = self.obs_horizon - 1

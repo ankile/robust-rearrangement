@@ -1,18 +1,14 @@
 import os
 from pathlib import Path
-import furniture_bench
 import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import OfflineRLFeatureDataset
 from src.dataset.normalizer import StateActionNormalizer
-from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
 from src.models.value import CriticModule
-from src.behavior.mlp import MLPActor
 from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -30,12 +26,11 @@ def main(config: ConfigDict):
 
     if config.observation_type == "feature":
         dataset = OfflineRLFeatureDataset(
-            dataset_path=config.datasim_path,
+            dataset_path=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
             normalizer=StateActionNormalizer(),
-            normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
     else:
@@ -156,27 +151,35 @@ def main(config: ConfigDict):
             batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
 
             # Get loss
-            loss = critic.compute_loss(batch)
+            q_loss, v_loss = critic.compute_loss(batch)
+            total_loss = q_loss + v_loss
 
             # backward pass
-            loss.backward()
+            total_loss.backward()
 
             # optimizer step
             opt_noise.step()
             lr_scheduler.step()
 
             # logging
-            loss_cpu = loss.item()
+            loss_cpu = total_loss.item()
             epoch_loss.append(loss_cpu)
             lr = lr_scheduler.get_last_lr()[0]
             wandb.log(
                 dict(
                     lr=lr,
                     batch_loss=loss_cpu,
+                    batch_q_loss=q_loss.item(),
+                    batch_v_loss=v_loss.item(),
                 )
             )
 
-            tepoch.set_postfix(loss=loss_cpu, lr=lr)
+            tepoch.set_postfix(
+                loss=loss_cpu,
+                lr=lr,
+                q_loss=q_loss.item(),
+                v_loss=v_loss.item(),
+            )
 
         tepoch.close()
 
@@ -184,13 +187,12 @@ def main(config: ConfigDict):
         tglobal.set_postfix(
             loss=train_loss_mean,
             test_loss=test_loss_mean,
-            best_success_rate=best_success_rate,
         )
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
-        critic.val()
+        critic.eval()
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
@@ -199,12 +201,17 @@ def main(config: ConfigDict):
                 )
 
                 # Get test loss
-                test_loss_val = critic.compute_loss(test_batch)
+                q_loss, v_loss = critic.compute_loss(test_batch)
+                test_loss_val = q_loss + v_loss
 
                 # logging
                 test_loss_cpu = test_loss_val.item()
                 test_loss.append(test_loss_cpu)
-                test_tepoch.set_postfix(loss=test_loss_cpu)
+                test_tepoch.set_postfix(
+                    loss=test_loss_cpu,
+                    q_loss=q_loss.item(),
+                    v_loss=v_loss.item(),
+                )
 
         test_tepoch.close()
 
@@ -267,7 +274,7 @@ if __name__ == "__main__":
     config.action_horizon = 8
     config.pred_horizon = 16
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = None if args.dryrun is False else 10
@@ -281,6 +288,7 @@ if __name__ == "__main__":
     config.obs_horizon = 2
     config.observation_type = "feature"
     config.test_split = 0.05
+    config.steps_per_epoch = 500
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -302,25 +310,17 @@ if __name__ == "__main__":
     config.expectile = 0.75
     config.q_target_update_step = 0.005
     config.discount = 0.997
-    config.critic_dropout = 0.5
-    config.critic_lr = 5e-7
-    config.critic_weight_decay = 5e-4
-    config.critic_hidden_dims = [512, 256]
+    config.critic_dropout = 0.2
+    config.critic_lr = 1e-4
+    config.critic_weight_decay = 1e-6
+    config.critic_hidden_dims = [2048, 1024, 1024, 1024, 512]
     config.n_action_samples = 10
 
     config.model_save_dir = "models"
     config.checkpoint_model = True
 
-    config.datasim_path = (
-        # config.data_base_dir
-        # / "processed/sim/feature_separate_small/r3m_18/one_leg/data.zarr"
-        # / "processed/sim/feature_separate_small/vip/one_leg/data.zarr"
-        # / "processed/sim/feature_small/dino/one_leg/data.zarr"
-        # / "processed/sim/image_small/one_leg/data.zarr"
-        # / "processed/sim/image_small/one_leg/data_batch_32.zarr"
-        "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
-    )
+    config.data_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
 
-    print(f"Using data from {config.datasim_path}")
+    print(f"Using data from {config.data_path}")
 
     main(config)

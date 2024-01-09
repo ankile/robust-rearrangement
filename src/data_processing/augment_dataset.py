@@ -8,10 +8,10 @@ import zarr
 import numpy as np
 
 from src.models.vision import get_encoder
-from src.data.process_demos import encode_demo
+from src.data_processing.process_demos import encode_demo
 from src.visualization.render_mp4 import create_mp4
 
-base_dir = Path(os.environ["FURNITURE_DATA_DIR"])
+base_dir = Path(os.environ["ROLLOUT_SAVE_DIR"])
 rollout_dir = base_dir / "raw" / "sim_rollouts"
 file_path = rollout_dir / "index.csv"
 
@@ -19,8 +19,7 @@ print(f"Reading index file from {file_path}")
 print(f"Loading rollouts from {rollout_dir}")
 
 # Augment an existing Zarr array with new data from the index
-
-base_dir = Path("/data/scratch/ankile/furniture-data/data")
+base_dir = Path(os.environ["FURNITURE_DATA_DIR_PROCESSED"])
 zarr_path = (
     base_dir
     / "processed"

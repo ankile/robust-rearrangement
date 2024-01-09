@@ -1,12 +1,6 @@
 from collections import deque
 import torch
-import torch.nn as nn
-from src.data.normalizer import StateActionNormalizer
-from src.models.vision import get_encoder
-from src.models.unet import ConditionalUnet1D
-from diffusers.schedulers.scheduling_ddim import DDIMScheduler
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from src.models.value import DoubleCritic, ValueNetwork
+from src.dataset.normalizer import StateActionNormalizer
 
 from ipdb import set_trace as bp  # noqa
 
@@ -98,14 +92,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             # All observations already normalized in the dataset
             feature1 = batch["feature1"]
             feature2 = batch["feature2"]
-
-            if self.noise_augment:
-                feature1 += torch.normal(
-                    mean=0.0, std=self.noise_augment, size=feature1.size()
-                ).to(feature1.device)
-                feature2 += torch.normal(
-                    mean=0.0, std=self.noise_augment, size=feature2.size()
-                ).to(feature2.device)
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)

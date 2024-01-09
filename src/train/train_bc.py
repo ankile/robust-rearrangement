@@ -5,18 +5,18 @@ import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
-from src.data.dataset import (
+from src.dataset.dataset import (
     FurnitureImageDataset,
     FurnitureFeatureDataset,
 )
-from src.data.normalizer import StateActionNormalizer
+from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
 from src.behavior.diffusion_policy import DiffusionPolicy
 from src.behavior.mlp import MLPActor
-from src.data.dataloader import FixedStepsDataloader
+from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
@@ -48,7 +48,6 @@ def main(config: ConfigDict):
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
             normalizer=StateActionNormalizer(),
-            normalize_features=config.vision_encoder.normalize_features,
             data_subset=config.data_subset,
         )
     else:
@@ -297,7 +296,13 @@ def main(config: ConfigDict):
                     resize_img=True,
                 )
             best_success_rate = do_rollout_evaluation(
-                config, env, model_save_dir, actor, best_success_rate, epoch_idx
+                config,
+                env,
+                model_save_dir,
+                config.rollout_base_dir,
+                actor,
+                best_success_rate,
+                epoch_idx,
             )
 
     tglobal.close()
@@ -351,6 +356,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
+    config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
@@ -409,12 +415,12 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(args.obs_type, args.encoder)
-    # )
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
+    config.datasim_path = (
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(args.obs_type, args.encoder)
+    )
+    # config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
 
     print(f"Using data from {config.datasim_path}")
 

@@ -165,7 +165,6 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         obs_horizon: int,
         action_horizon: int,
         normalizer: StateActionNormalizer,
-        normalize_features: bool = False,
         data_subset: int = None,
     ):
         # Read from zarr dataset
@@ -199,24 +198,6 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         normalized_train_data["feature2"] = self.dataset["feature2"][
             : self.episode_ends[-1]
         ]
-
-        if normalize_features:
-            for feature in ["feature1", "feature2"]:
-                data = normalized_train_data[feature]
-                stats = get_data_stats(data)
-                normalizer.stats[feature] = nn.ParameterDict(
-                    {
-                        "min": nn.Parameter(
-                            torch.from_numpy(stats["min"]), requires_grad=False
-                        ),
-                        "max": nn.Parameter(
-                            torch.from_numpy(stats["max"]), requires_grad=False
-                        ),
-                    }
-                )
-                normalized_train_data[feature] = normalizer(
-                    torch.from_numpy(data), feature, forward=True
-                ).numpy()
 
         # compute statistics and normalized data to [-1,1]
         for key, data in train_data.items():
@@ -270,7 +251,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
         super().__init__(*args, action_horizon=action_horizon, **kwargs)
 
         # Also add in rewards to the dataset
-        self.normalized_train_data["reward"] = self.dataset["rewards"][
+        self.normalized_train_data["reward"] = self.dataset["reward"][
             : self.episode_ends[-1]
         ]
 
@@ -295,8 +276,12 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
             sample_end_idx=sample_end_idx,
         )
 
+        output = dict(
+            action=nsample["action"],
+        )
+
         # Add the current observation to the input
-        nsample["curr_obs"] = dict(
+        output["curr_obs"] = dict(
             feature1=nsample["feature1"][: self.obs_horizon, :],
             feature2=nsample["feature2"][: self.obs_horizon, :],
             robot_state=nsample["robot_state"][: self.obs_horizon, :],
@@ -315,7 +300,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
         # and end at `start + obs_horizon`
         start_idx = self.action_horizon
         end_idx = start_idx + self.obs_horizon
-        nsample["next_obs"] = dict(
+        output["next_obs"] = dict(
             feature1=nsample["feature1"][start_idx:end_idx, :],
             feature2=nsample["feature2"][start_idx:end_idx, :],
             robot_state=nsample["robot_state"][start_idx:end_idx, :],
@@ -324,11 +309,6 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
         # Add the reward to the input
         # What rewards should be counted? The rewards that happen after the first action is executed, up to the last action
         # We sum these into a single reward for the entire sequence
-        nsample["reward"] = nsample["reward"][start_idx:end_idx].sum()
+        output["reward"] = nsample["reward"][start_idx:end_idx].sum()
 
-        # Delete the features and robot state from the root of the input
-        nsample.pop("feature1")
-        nsample.pop("feature2")
-        nsample.pop("robot_state")
-
-        return nsample
+        return output
