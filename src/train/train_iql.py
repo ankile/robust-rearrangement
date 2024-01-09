@@ -16,7 +16,7 @@ from src.data.dataset import FurnitureQFeatureDataset
 from src.data.normalizer import StateActionNormalizer
 from src.eval import do_rollout_evaluation
 from src.gym import get_env
-from src.behavior.actor import ImplicitQActor
+from src.behavior.idql import ImplicitQActor
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
@@ -196,7 +196,7 @@ def run_training_loop(
     config,
     env,
     device,
-    actor,
+    actor: ImplicitQActor,
     optimizer,
     trainloader,
     testloader,

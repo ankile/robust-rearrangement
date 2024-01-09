@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import zarr
-from src.data.normalizer import StateActionNormalizer, get_data_stats
-from src.data.augmentation import ImageAugmentation
-from src.data.utils import ZarrSubsetView
+from src.dataset.normalizer import StateActionNormalizer, get_data_stats
+from src.dataset.augmentation import ImageAugmentation
+from src.dataset.zarr_mod import ZarrSubsetView
 import torchvision.transforms.functional as F
 
 from ipdb import set_trace as bp
@@ -229,6 +229,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
+        self.feature_dim = normalized_train_data["feature1"].shape[-1]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = train_data["action"].shape[-1]
@@ -264,12 +265,11 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         return nsample
 
 
-class FurnitureQFeatureDataset(FurnitureFeatureDataset):
+class OfflineRLFeatureDataset(FurnitureFeatureDataset):
     def __init__(self, action_horizon: int, *args, **kwargs):
         super().__init__(*args, action_horizon=action_horizon, **kwargs)
 
         # Also add in rewards to the dataset
-        self.reward_dim = 1
         self.normalized_train_data["reward"] = self.dataset["rewards"][
             : self.episode_ends[-1]
         ]
