@@ -199,7 +199,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             : self.episode_ends[-1]
         ]
 
-        # compute statistics and normalized data to [-1,1]
+        # Normalize data to [-1,1]
         for key, data in train_data.items():
             normalized_train_data[key] = normalizer(
                 torch.from_numpy(data), key, forward=True

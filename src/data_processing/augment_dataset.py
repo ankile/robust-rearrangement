@@ -33,6 +33,8 @@ zarr_path = (
 print(f"Loading zarr file from {zarr_path}")
 store = zarr.open(str(zarr_path), mode="a")
 
+print(f"Currently {store['episode_ends'].shape[0]} trajectories in dataset")
+
 if "rollout_paths" not in store:
     print("Creating rollout_paths dataset")
     store.create_dataset("rollout_paths", shape=(0,), dtype=str)
@@ -49,6 +51,8 @@ else:
 # Read in the index file as a dataframe
 index = pd.read_csv(file_path)
 index = index[index["success"] == True]
+
+print(f"Total of {len(index)} successsful rollouts in index file")
 
 # Get the paths to all the successful rollouts
 paths = index["path"].values
@@ -74,6 +78,7 @@ for path in tqdm(paths):
     end_idx = np.argmax(data["rewards"]) + 1
 
     obs = data["observations"][:end_idx]
+
     demo_robot_states, demo_features1, demo_features2 = encode_demo(
         encoder, batch_size, obs
     )

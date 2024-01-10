@@ -22,7 +22,7 @@ def process_buffer(buffer, encoder):
 
 
 def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
-    file_paths = glob(f"{input_path}/**/*.pkl", recursive=True)
+    file_paths = sorted(list(glob(f"{input_path}/**/*.pkl", recursive=True)))[:16]
 
     actions, rewards, skills, episode_ends, furniture = [], [], [], [], []
     robot_states, features1, features2 = [], [], []
@@ -59,7 +59,7 @@ def process_demos_to_feature(input_path, output_path, encoder, batch_size=256):
 
     output_path.mkdir(parents=True, exist_ok=True)
     zarr.save(
-        str(output_path / "data_new.zarr"),
+        str(output_path / "data.zarr"),
         action=np.array(actions, dtype=np.float32),
         episode_ends=np.array(episode_ends, dtype=np.uint32),
         reward=np.array(rewards, dtype=np.float32),
@@ -177,7 +177,12 @@ def process_pickle_file(z, pickle_path):
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
 
-    obs = data["observations"]
+    obs = data["observations"][:-1]
+
+    assert len(obs) == len(
+        data["actions"]
+    ), f"Mismatch in {pickle_path}, lengths differ by {len(obs) - len(data['actions'])}"
+
     z["robot_state"].append(
         [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
     )
@@ -195,7 +200,7 @@ def create_zarr_dataset(in_dir, out_dir):
     """
     Create a Zarr dataset from multiple pickle files in a directory.
     """
-    file_paths = glob(f"{in_dir}/**/*.pkl", recursive=True)
+    file_paths = sorted(list(glob(f"{in_dir}/**/*.pkl", recursive=True)))
     print(f"Number of trajectories: {len(file_paths)}")
 
     out_dir = Path(out_dir)
