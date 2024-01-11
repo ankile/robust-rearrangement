@@ -247,15 +247,13 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
 
 class OfflineRLFeatureDataset(FurnitureFeatureDataset):
-    def __init__(self, action_horizon: int, *args, **kwargs):
-        super().__init__(*args, action_horizon=action_horizon, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Also add in rewards to the dataset
         self.normalized_train_data["reward"] = self.dataset["reward"][
             : self.episode_ends[-1]
         ]
-
-        self.action_horizon = action_horizon
 
     def __getitem__(self, idx):
         # Get the start/end indices for this datapoint
@@ -293,7 +291,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
         # | |a|a|a|a|a|a|a|a|               actions executed:   8
         # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
         # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # | | |r|r|r|r|r|r|r|r|             rewards:   2
+        # | | |r|r|r|r|r|r|r|r|             rewards:            8
         # This is the observation that happens after the self.action_horizon actions have executed
         # Will start at `obs_horizon - 1 + action_horizon - (obs_horizon - 1)`
         # (which simplifies to `action_horizon`)

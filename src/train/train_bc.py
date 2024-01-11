@@ -129,7 +129,6 @@ def main(config: ConfigDict):
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
-    best_success_rate = float("-inf")
 
     early_stopper = EarlyStopper(
         patience=config.early_stopper.patience,
@@ -138,11 +137,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="diffusion-policy-test",
+        project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="See that newly generated features from VIP encoder with eval=True still works",
+        notes="Try a fix to the dataset.",
     )
 
     # save stats to wandb and update the config object
@@ -174,7 +173,10 @@ def main(config: ConfigDict):
     actor.encoder2.model.eval()
 
     # Train loop
-    test_loss_mean = 0.0
+    best_test_loss = float("inf")
+    test_loss_mean = float("inf")
+    best_success_rate = float("-inf")
+
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
@@ -253,6 +255,16 @@ def main(config: ConfigDict):
         )
 
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
+
+        # Save the model if the test loss is the best so far
+        if test_loss_mean < best_test_loss:
+            best_test_loss = test_loss_mean
+            save_path = str(model_save_dir / f"actor_chkpt_best.pt")
+            torch.save(
+                actor.state_dict(),
+                save_path,
+            )
+            wandb.save(save_path)
 
         # Early stopping
         if early_stopper.update(test_loss_mean):
@@ -368,9 +380,7 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = (
-    #     "/data/pulkitag/models/ankile/furniture-diffusion/glorious-bee-best.pt"
-    # )
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/stellar-river-37/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
@@ -381,8 +391,8 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(10, fb=1)
-    config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
+    config.rollout.every = dryrun(5, fb=1)
+    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
     config.rollout.max_steps = dryrun(600, fb=100)
     config.rollout.count = num_envs * 1
 
@@ -392,8 +402,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.freeze = False
+    config.vision_encoder.pretrained = False
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -405,7 +415,7 @@ if __name__ == "__main__":
     # Regularization
     config.weight_decay = 1e-6
     config.feature_dropout = False
-    config.augment_image = False
+    config.augment_image = True
     config.noise_augment = False
 
     config.model_save_dir = "models"
@@ -415,12 +425,12 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = (
-        config.data_base_dir
-        / "processed/sim"
-        / get_data_path(args.obs_type, args.encoder)
-    )
-    # config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
+    # config.datasim_path = (
+    #     config.data_base_dir
+    #     / "processed/sim"
+    #     / get_data_path(args.obs_type, args.encoder)
+    # )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
