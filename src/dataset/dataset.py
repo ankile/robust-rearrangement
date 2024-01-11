@@ -250,8 +250,11 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Also add in rewards to the dataset
+        # Also add in rewards and terminal states to the dataset
         self.normalized_train_data["reward"] = self.dataset["reward"][
+            : self.episode_ends[-1]
+        ]
+        self.normalized_train_data["terminal"] = self.dataset["terminal"][
             : self.episode_ends[-1]
         ]
 
@@ -276,6 +279,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
 
         output = dict(
             action=nsample["action"],
+            terminal=int(nsample["terminal"].sum() > 0),
         )
 
         # Add the current observation to the input

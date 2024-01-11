@@ -3,6 +3,8 @@ import torch.nn as nn
 from src.models.mlp import MLP
 from src.behavior.base import PostInitCaller
 
+from ipdb import set_trace as bp  # noqa
+
 
 class ValueNetwork(nn.Module):
     """A network that predicts the value of a state."""
@@ -155,11 +157,12 @@ class CriticModule(nn.Module, metaclass=PostInitCaller):
         curr_obs = self._training_obs(batch["curr_obs"])
         next_obs = self._training_obs(batch["next_obs"])
         naction = self._flat_action(batch["action"])
+        terminal = batch["terminal"]
 
         with torch.no_grad():
             next_v = self.value_network(next_obs).squeeze(-1)
 
-        target_q = batch["reward"] + self.discount * next_v
+        target_q = batch["reward"] + self.discount * next_v * (1 - terminal)
 
         q1, q2 = self.q_network(curr_obs, naction)
 
@@ -194,7 +197,9 @@ class CriticModule(nn.Module, metaclass=PostInitCaller):
         A batch is equal to the number of environments used in rollouts
         Each element in a batch of actions is a set of actions for a single environment
         """
-        n_action_samples = nactions.shape[1]
+        n_action_samples = nactions.shape[0]
+
+        # bp()
 
         # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
         qs = torch.min(

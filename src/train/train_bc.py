@@ -175,7 +175,7 @@ def main(config: ConfigDict):
     # Train loop
     best_test_loss = float("inf")
     test_loss_mean = float("inf")
-    best_success_rate = float("-inf")
+    best_success_rate = 0
 
     for epoch_idx in tglobal:
         epoch_loss = list()
