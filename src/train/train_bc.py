@@ -16,6 +16,7 @@ from tqdm import tqdm
 from ipdb import set_trace as bp
 from src.behavior.diffusion_policy import DiffusionPolicy
 from src.behavior.mlp import MLPActor
+from src.behavior.rnn import RNNActor
 from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -40,6 +41,7 @@ def main(config: ConfigDict):
             normalizer=StateActionNormalizer(),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
+            first_action_idx=config.first_action_index
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
@@ -49,6 +51,7 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             normalizer=StateActionNormalizer(),
             data_subset=config.data_subset,
+            first_action_idx=config.first_action_index
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -66,6 +69,14 @@ def main(config: ConfigDict):
     # Create the policy network
     if config.actor == "mlp":
         actor = MLPActor(
+            device=device,
+            encoder_name=config.vision_encoder.model,
+            freeze_encoder=config.vision_encoder.freeze,
+            normalizer=StateActionNormalizer(),
+            config=config,
+        )
+    elif config.actor == "rnn":
+        actor = RNNActor(
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
@@ -161,17 +172,17 @@ def main(config: ConfigDict):
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
-    # # Set all batchnorm layers to eval mode
-    for m in actor.encoder1.model.modules():
-        if isinstance(m, torch.nn.BatchNorm2d):
-            m.momentum = 0
+    # # # Set all batchnorm layers to eval mode
+    # for m in actor.encoder1.model.modules():
+    #     if isinstance(m, torch.nn.BatchNorm2d):
+    #         m.momentum = 0
 
-    for m in actor.encoder2.model.modules():
-        if isinstance(m, torch.nn.BatchNorm2d):
-            m.momentum = 0
+    # for m in actor.encoder2.model.modules():
+    #     if isinstance(m, torch.nn.BatchNorm2d):
+    #         m.momentum = 0
 
-    actor.encoder1.model.eval()
-    actor.encoder2.model.eval()
+    # actor.encoder1.model.eval()
+    # actor.encoder2.model.eval()
 
     # Train loop
     test_loss_mean = 0.0
@@ -180,6 +191,7 @@ def main(config: ConfigDict):
         test_loss = list()
 
         # batch loop
+        actor.train_mode()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -227,6 +239,7 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
+        actor.eval_mode()
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -295,6 +308,7 @@ def main(config: ConfigDict):
                     # Make sure the image is 224x224 out of the simulator for consistency
                     resize_img=True,
                 )
+
             best_success_rate = do_rollout_evaluation(
                 config,
                 env,
@@ -313,7 +327,8 @@ def get_data_path(obs_type, encoder):
     if obs_type == "image":
         return f"image_small/one_leg/data_batch_32.zarr"
     elif obs_type == "feature":
-        return f"feature_separate_small/{encoder}/one_leg/data.zarr"
+        # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
+        return f"feature_small/{encoder}/one_leg/data_new.zarr"
 
     raise ValueError(f"Unknown obs_type: {obs_type}")
 
@@ -339,10 +354,20 @@ if __name__ == "__main__":
 
     config = ConfigDict()
 
+    # defaults
     config.action_horizon = 8
     config.pred_horizon = 16
+    config.first_action_index = 0
+    config.obs_horizon = 2
 
     config.actor = "diffusion"
+
+    # RNN options
+    # config.actor = "rnn"
+    # config.action_horizon = 1
+    # config.first_action_index = -1  # aligns with the final observation in the sequence
+    # config.obs_horizon = 10
+
     # MLP options
     # config.actor_hidden_dims = [4096, 4096, 2048]
     # config.actor_dropout = 0.2
@@ -355,7 +380,7 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED"), "data")
     config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
@@ -374,7 +399,6 @@ if __name__ == "__main__":
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
-    config.obs_horizon = 2
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
