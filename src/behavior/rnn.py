@@ -4,10 +4,15 @@ from typing import Union
 from collections import deque
 from ipdb import set_trace as bp  # noqa
 
+from robomimic.algo import algo_factory
+from robomimic.algo.algo import PolicyAlgo
+import robomimic.utils.obs_utils as ObsUtils
+
 from src.behavior.base import Actor
 from src.models.mlp import MLP
 from src.models.vision import get_encoder
 from src.dataset.normalizer import StateActionNormalizer
+from src.baseline.robomimic_config_util import get_rm_config
 
 
 class RNNActor(Actor):
@@ -52,50 +57,10 @@ class RNNActor(Actor):
         # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/policy/robomimic_lowdim_policy.py#L25
         # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/config/task/tool_hang_image.yaml 
 
-        from robomimic.algo import algo_factory
-        from robomimic.algo.algo import PolicyAlgo
-        import robomimic.utils.obs_utils as ObsUtils
-
-        # shape_meta = {
-        #     'action': {
-        #         'shape': self.action_dim
-        #     },
-        #     'obs': {
-        #         'feature': {
-        #             'shape': [self.timestep_obs_dim],  # RNN expects inputs in form (B, T, D)
-        #             'type': 'low_dim'
-        #         }
-        #     }
-        # }
-        # action_dim = shape_meta['action']['shape']
-        # obs_shape_meta = shape_meta['obs']  
-        # obs_config = {
-        #     'low_dim': [],
-        #     'rgb': [],
-        #     'depth': [],
-        #     'scan': []
-        # }
-        # obs_key_shapes = dict()
-        # for key, attr in obs_shape_meta.items():
-        #     shape = attr['shape']
-        #     obs_key_shapes[key] = list(shape)
-
-        #     type = attr.get('type', 'low_dim')
-        #     if type == 'rgb':
-        #         obs_config['rgb'].append(key)
-        #     elif type == 'low_dim':
-        #         obs_config['low_dim'].append(key)
-        #     else:
-        #         raise RuntimeError(f"Unsupported obs type: {type}")
-        # with config.unlocked():
-        #     # set config with shape_meta
-        #     config.observation.modalities.obs = obs_config
-
         obs_key = 'obs'
         obs_key_shapes = {obs_key: [self.timestep_obs_dim]}  # RNN expects inputs in form (B, T, D)
         action_dim = self.action_dim
 
-        from src.baseline.robomimic_config_util import get_rm_config
         config = get_rm_config()
 
         with config.unlocked():
@@ -108,7 +73,7 @@ class RNNActor(Actor):
         self.model: PolicyAlgo = algo_factory(
             algo_name=config.algo_name,
             config=config,
-            obs_key_shapes=obs_key_shapes, #{obs_key: [self.obs_dim]},
+            obs_key_shapes=obs_key_shapes,
             ac_dim=action_dim,
             device=device
         )
