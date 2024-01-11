@@ -49,6 +49,12 @@ unzip awscliv2.zip
 # export AWS_COMMAND='/home/larsankile/aws-cli/v2/current/bin/aws'
 # alias aws='/home/larsankile/aws-cli/v2/current/bin/aws'
 
+# Install robomimic (for BC-RNN)
+cd ..
+git clone https://github.com/ARISE-Initiative/robomimic.git
+cd robomimic
+pip install -e .
+
 # Install the last required dependencies
 cd furniture-diffusion
 pip install -r requirements.txt
