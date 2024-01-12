@@ -137,11 +137,13 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
+        id="zt2vda6t",
+        resume="must",
         project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Try a fix to the dataset.",
+        # notes="Try a fix to the dataset.",
     )
 
     # save stats to wandb and update the config object
@@ -369,7 +371,7 @@ if __name__ == "__main__":
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
     config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
-    config.actor_lr = 1e-4
+    config.actor_lr = 1e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(None, 10)
@@ -380,7 +382,7 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/stellar-river-37/actor_chkpt_latest.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200

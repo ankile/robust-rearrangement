@@ -6,7 +6,6 @@ from src.models.vision import get_encoder
 from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from src.models.value import DoubleCritic, ValueNetwork
 from src.behavior.base import Actor
 
 from ipdb import set_trace as bp  # noqa

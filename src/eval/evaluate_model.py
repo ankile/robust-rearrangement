@@ -8,7 +8,7 @@ import wandb
 from ml_collections import ConfigDict
 from src.eval.rollout import calculate_success_rate
 from src.behavior.diffusion_policy import DiffusionPolicy
-from src.data.normalizer import StateActionNormalizer
+from src.dataset.normalizer import StateActionNormalizer
 from src.gym import get_env
 
 from ipdb import set_trace as bp  # noqa
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     # Parse the arguments
     args = args.parse_args()
     # Get the model file and config
-    run = api.run(f"robot-rearrangement/chef-training/{args.run_id}")
+    run = api.run(f"robot-rearrangement/{args.run_id}")
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(exist_ok=True).name
 
