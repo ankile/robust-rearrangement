@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import furniture_bench
 import numpy as np
 import torch
 import wandb
@@ -11,12 +10,10 @@ from src.dataset.dataset import (
 )
 from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
 from src.behavior.diffusion_policy import DiffusionPolicy
 from src.behavior.mlp import MLPActor
-from src.behavior.rnn import RNNActor
 from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -27,7 +24,6 @@ from ml_collections import ConfigDict
 
 
 def main(config: ConfigDict):
-    env = None
     device = torch.device(
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
@@ -41,7 +37,6 @@ def main(config: ConfigDict):
             normalizer=StateActionNormalizer(),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
-            first_action_idx=config.first_action_index
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
@@ -51,7 +46,6 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             normalizer=StateActionNormalizer(),
             data_subset=config.data_subset,
-            first_action_idx=config.first_action_index
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -69,14 +63,6 @@ def main(config: ConfigDict):
     # Create the policy network
     if config.actor == "mlp":
         actor = MLPActor(
-            device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
-            config=config,
-        )
-    elif config.actor == "rnn":
-        actor = RNNActor(
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
@@ -140,6 +126,7 @@ def main(config: ConfigDict):
     )
 
     tglobal = tqdm(range(config.num_epochs), desc="Epoch")
+    best_success_rate = float("-inf")
 
     early_stopper = EarlyStopper(
         patience=config.early_stopper.patience,
@@ -148,13 +135,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        id="zt2vda6t",
-        resume="must",
         project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        # notes="Try a fix to the dataset.",
+        notes="Try a fix to the dataset.",
     )
 
     # save stats to wandb and update the config object
@@ -173,29 +158,25 @@ def main(config: ConfigDict):
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
-    # # # Set all batchnorm layers to eval mode
-    # for m in actor.encoder1.model.modules():
-    #     if isinstance(m, torch.nn.BatchNorm2d):
-    #         m.momentum = 0
+    # # Set all batchnorm layers to eval mode
+    for m in actor.encoder1.model.modules():
+        if isinstance(m, torch.nn.BatchNorm2d):
+            m.momentum = 0
 
-    # for m in actor.encoder2.model.modules():
-    #     if isinstance(m, torch.nn.BatchNorm2d):
-    #         m.momentum = 0
+    for m in actor.encoder2.model.modules():
+        if isinstance(m, torch.nn.BatchNorm2d):
+            m.momentum = 0
 
-    # actor.encoder1.model.eval()
-    # actor.encoder2.model.eval()
+    actor.encoder1.model.eval()
+    actor.encoder2.model.eval()
 
     # Train loop
-    best_test_loss = float("inf")
-    test_loss_mean = float("inf")
-    best_success_rate = 0
-
+    test_loss_mean = 0.0
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
 
         # batch loop
-        actor.train_mode()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -243,7 +224,6 @@ def main(config: ConfigDict):
         wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
-        actor.eval_mode()
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -270,16 +250,6 @@ def main(config: ConfigDict):
         )
 
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
-
-        # Save the model if the test loss is the best so far
-        if test_loss_mean < best_test_loss:
-            best_test_loss = test_loss_mean
-            save_path = str(model_save_dir / f"actor_chkpt_best.pt")
-            torch.save(
-                actor.state_dict(),
-                save_path,
-            )
-            wandb.save(save_path)
 
         # Early stopping
         if early_stopper.update(test_loss_mean):
@@ -309,29 +279,7 @@ def main(config: ConfigDict):
                     actor.state_dict(),
                     save_path,
                 )
-
-            # Do not load the environment until we successfuly made it this far
-            if env is None:
-                env = get_env(
-                    config.gpu_id,
-                    obs_type=config.observation_type,
-                    furniture=config.furniture,
-                    num_envs=config.num_envs,
-                    randomness=config.randomness,
-                    # resize_img=not config.augment_image,
-                    # Make sure the image is 224x224 out of the simulator for consistency
-                    resize_img=True,
-                )
-
-            best_success_rate = do_rollout_evaluation(
-                config,
-                env,
-                model_save_dir,
-                config.rollout_base_dir,
-                actor,
-                best_success_rate,
-                epoch_idx,
-            )
+                wandb.save(save_path)
 
     tglobal.close()
     wandb.finish()
@@ -341,8 +289,7 @@ def get_data_path(obs_type, encoder):
     if obs_type == "image":
         return f"image_small/one_leg/data_batch_32.zarr"
     elif obs_type == "feature":
-        # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature_small/{encoder}/one_leg/data_new.zarr"
+        return f"feature_separate_small/{encoder}/one_leg/data.zarr"
 
     raise ValueError(f"Unknown obs_type: {obs_type}")
 
@@ -364,24 +311,13 @@ if __name__ == "__main__":
     dryrun = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = dryrun(8, fb=2)
 
     config = ConfigDict()
 
-    # defaults
     config.action_horizon = 8
     config.pred_horizon = 16
-    config.first_action_index = 0
-    config.obs_horizon = 2
 
     config.actor = "diffusion"
-
-    # RNN options
-    # config.actor = "rnn"
-    # config.action_horizon = 1
-    # config.first_action_index = -1  # aligns with the final observation in the sequence
-    # config.obs_horizon = 10
-
     # MLP options
     # config.actor_hidden_dims = [4096, 4096, 2048]
     # config.actor_dropout = 0.2
@@ -394,9 +330,9 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED"), "data")
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
     config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
-    config.actor_lr = 1e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(None, 10)
@@ -407,20 +343,14 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/stellar-river-37/actor_chkpt_latest.pt"
     config.mixed_precision = False
-    config.num_envs = num_envs
     config.num_epochs = 200
+    config.obs_horizon = 2
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
     config.test_split = 0.05
-
-    config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1)
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
-    config.rollout.max_steps = dryrun(600, fb=100)
-    config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -446,10 +376,6 @@ if __name__ == "__main__":
 
     config.model_save_dir = "models"
     config.checkpoint_model = True
-
-    assert (
-        config.rollout.count % config.num_envs == 0
-    ), "n_rollouts must be divisible by num_envs"
 
     # config.datasim_path = (
     #     config.data_base_dir

@@ -161,6 +161,8 @@ def main(config: ConfigDict):
             opt_noise.step()
             lr_scheduler.step()
 
+            critic.polyak_update_target(config.q_target_update_step)
+
             # logging
             loss_cpu = total_loss.item()
             epoch_loss.append(loss_cpu)
@@ -192,6 +194,11 @@ def main(config: ConfigDict):
 
         # Evaluation loop
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
+
+        # Make list for storing the mean v and q values to track over time to ensure they don't diverge
+        v_values = []
+        q_values = []
+
         critic.eval()
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -203,6 +210,16 @@ def main(config: ConfigDict):
                 # Get test loss
                 q_loss, v_loss = critic.compute_loss(test_batch)
                 test_loss_val = q_loss + v_loss
+
+                # Get the mean q and v values
+                nobs = critic._training_obs(test_batch["curr_obs"])
+                naction = critic._flat_action(test_batch["action"])
+                q = critic.q_value(nobs, naction)
+                v = critic.value(nobs)
+
+                # Append the mean q and v values to the list
+                q_values.append(q.mean().item())
+                v_values.append(v.mean().item())
 
                 # logging
                 test_loss_cpu = test_loss_val.item()
@@ -220,9 +237,16 @@ def main(config: ConfigDict):
             loss=train_loss_mean,
             test_loss=test_loss_mean,
             best_success_rate=best_test_loss,
+            # Log the mean q and v values
+            mean_q_value=np.mean(q_values),
+            mean_v_value=np.mean(v_values),
         )
 
-        wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
+        wandb.log({
+            "test_epoch_loss": test_loss_mean, "epoch": epoch_idx,
+            "mean_q_value": np.mean(q_values),
+            "mean_v_value": np.mean(v_values),
+        })
 
         # Early stopping
         if early_stopper.update(test_loss_mean):
@@ -247,6 +271,7 @@ def main(config: ConfigDict):
                 critic.state_dict(),
                 save_path,
             )
+            wandb.save(save_path)
 
         # Update the best test loss seen
         best_test_loss = min(best_test_loss, test_loss_mean)
@@ -310,16 +335,35 @@ if __name__ == "__main__":
     config.expectile = 0.75
     config.q_target_update_step = 0.005
     config.discount = 0.997
-    config.critic_dropout = 0.2
+    config.critic_dropout = 0.3
     config.critic_lr = 1e-4
     config.critic_weight_decay = 1e-6
-    config.critic_hidden_dims = [2048, 1024, 1024, 1024, 512]
-    config.n_action_samples = 10
+    config.critic_hidden_dims = [2048, 1024, 1024, 512]
 
     config.model_save_dir = "models"
     config.checkpoint_model = True
 
-    config.data_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
+    # config.data_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature_small/vip/one_leg/data_new.zarr"
+
+    # For experimentation, use a dataset with only the last n time steps for each episode and terminal states added
+    config.data_path = (
+        "/data/scratch/ankile/furniture-diffusion/notebooks/data_short.zarr"
+    )
+    
+    # For experimentation, use a dataset with artificially dense rewards and terminal states
+    # config.data_path = (
+    #     "/data/scratch/ankile/furniture-diffusion/notebooks/data_dense.zarr"
+    # )
+
+    # For experimentation, use a dataset with skill boundaries as rewards as well as terminal states
+    # config.data_path = (
+    #     "/data/scratch/ankile/furniture-diffusion/notebooks/data_skill.zarr"
+    # )    
+
+    # For experimentation, use a dataset with terminal states added
+    # config.data_path = (
+    #     "/data/scratch/ankile/furniture-diffusion/notebooks/data_terminal.zarr"
+    # )
 
     print(f"Using data from {config.data_path}")
 

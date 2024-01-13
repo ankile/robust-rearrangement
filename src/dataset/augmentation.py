@@ -3,22 +3,39 @@ import random
 import torchvision.transforms.functional as F
 from ipdb import set_trace as bp
 import numpy as np
+from PIL import Image
 
 
 class ImageAugmentation:
+    # Defaults
+    max_translate = 20
+
+    brightness = 0.3
+    contrast = 0.3
+    saturation = 0.3
+    hue = 0.3
+
+    degrees = 5
+
     def __init__(
         self,
-        max_translate=None,
+        random_translate=False,
+        color_jitter=False,
+        random_rotate=False,
     ):
-        self.max_translate = max_translate
-
         self.augmentations = []
 
-        if max_translate is not None:
+        if random_translate:
             self.augmentations.append(self.random_translate)
 
+        if color_jitter:
+            self.augmentations.append(self.random_color_jitter)
+
+        if random_rotate:
+            self.augmentations.append(self.random_rotation)
+
     def random_translate(self, img):
-        H, W, _ = img.shape[1:]
+        H, W, _ = img.shape
         translated_images = np.zeros_like(img)
 
         translation_height = np.random.randint(-self.max_translate, self.max_translate)
@@ -37,8 +54,8 @@ class ImageAugmentation:
         end_width_orig = W - max(translation_width, 0)
 
         # Index into the zero-padded array and place the original image
-        translated_images[:, start_height:end_height, start_width:end_width, :] = img[
-            :, start_height_orig:end_height_orig, start_width_orig:end_width_orig, :
+        translated_images[start_height:end_height, start_width:end_width, :] = img[
+            start_height_orig:end_height_orig, start_width_orig:end_width_orig, :
         ]
 
         return translated_images
@@ -52,17 +69,24 @@ class ImageAugmentation:
         img_cropped = img[..., top : top + size, left : left + size]
         return img_cropped
 
-    def random_color_jitter(
-        self, img, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
-    ):
-        img = F.adjust_brightness(img, random.uniform(1 - brightness, 1 + brightness))
-        img = F.adjust_contrast(img, random.uniform(1 - contrast, 1 + contrast))
-        img = F.adjust_saturation(img, random.uniform(1 - saturation, 1 + saturation))
-        img = F.adjust_hue(img, random.uniform(-hue, hue))
+    def random_color_jitter(self, img):
+        if isinstance(img, np.ndarray):
+            img = Image.fromarray(img)
+
+        img = F.adjust_brightness(
+            img, random.uniform(1 - self.brightness, 1 + self.brightness)
+        )
+        img = F.adjust_contrast(
+            img, random.uniform(1 - self.contrast, 1 + self.contrast)
+        )
+        img = F.adjust_saturation(
+            img, random.uniform(1 - self.saturation, 1 + self.saturation)
+        )
+        img = F.adjust_hue(img, random.uniform(-self.hue, self.hue))
         return img
 
-    def random_rotation(self, img, degrees=10):
-        angle = random.uniform(-degrees, degrees)
+    def random_rotation(self, img):
+        angle = random.uniform(-self.degrees, self.degrees)
         return F.rotate(img, angle)
 
     def random_grayscale(self, img, p=0.1):

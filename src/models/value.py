@@ -3,6 +3,8 @@ import torch.nn as nn
 from src.models.mlp import MLP
 from src.behavior.base import PostInitCaller
 
+from ipdb import set_trace as bp  # noqa
+
 
 class ValueNetwork(nn.Module):
     """A network that predicts the value of a state."""
@@ -155,11 +157,12 @@ class CriticModule(nn.Module, metaclass=PostInitCaller):
         curr_obs = self._training_obs(batch["curr_obs"])
         next_obs = self._training_obs(batch["next_obs"])
         naction = self._flat_action(batch["action"])
+        terminal = batch["terminal"]
 
         with torch.no_grad():
             next_v = self.value_network(next_obs).squeeze(-1)
 
-        target_q = batch["reward"] + self.discount * next_v
+        target_q = batch["reward"] + self.discount * next_v * (1 - terminal)
 
         q1, q2 = self.q_network(curr_obs, naction)
 
@@ -181,11 +184,27 @@ class CriticModule(nn.Module, metaclass=PostInitCaller):
         ):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
+    def q_value(self, nobs, naction):
+        return torch.min(*self.q_network(nobs, naction)).squeeze(-1)
+
+    def value(self, nobs):
+        return self.value_network(nobs).squeeze(-1)
+
     def action_weights(self, nobs, nactions):
+        """
+        Compute the action weights for the action selection
+        It takes in a batch of observations and a batch of actions
+        A batch is equal to the number of environments used in rollouts
+        Each element in a batch of actions is a set of actions for a single environment
+        """
+        n_action_samples = nactions.shape[0]
+
+        # bp()
+
         # 3. Compute w^\tau_2(s, a_i) = Q(s, a_i) - V(s)
         qs = torch.min(
             *self.q_network(
-                nobs.unsqueeze(0).expand(self.n_action_samples, -1, -1),
+                nobs.unsqueeze(0).expand(n_action_samples, -1, -1),
                 nactions.flatten(start_dim=2),
             )
         ).squeeze(-1)

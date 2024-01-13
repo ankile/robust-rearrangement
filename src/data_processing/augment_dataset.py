@@ -62,7 +62,6 @@ zarr_paths = store["rollout_paths"][:]
 paths = [p for p in paths if p not in zarr_paths]
 
 print(f"Adding {len(paths)} new rollouts to zarr file")
-
 # Get an encoder
 print("Loading encoder")
 encoder = get_encoder("vip", freeze=True, device="cuda:0")

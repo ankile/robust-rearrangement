@@ -1,8 +1,7 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import zarr
-from src.dataset.normalizer import StateActionNormalizer, get_data_stats
+from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
 from src.dataset.zarr_mod import ZarrSubsetView
 import torchvision.transforms.functional as F
@@ -68,6 +67,8 @@ def sample_sequence(
 
 
 class FurnitureImageDataset(torch.utils.data.Dataset):
+    image_augmentation = None
+
     def __init__(
         self,
         dataset_path: str,
@@ -106,9 +107,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # Add image augmentation
-        self.image_augmentation = (
-            ImageAugmentation(max_translate=20) if augment_image else None
-        )
+        if augment_image:
+            self.image_augmentation = ImageAugmentation(
+                random_translate=True,
+                color_jitter=True,
+            )
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -158,8 +161,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             ).numpy()
 
         if self.image_augmentation:
-            nsample["color_image1"] = self.image_augmentation(nsample["color_image1"])
-            nsample["color_image2"] = self.image_augmentation(nsample["color_image2"])
+            # Image augmentation function accepts one image at a time, need to loop over the batch
+            nsample["color_image1"] = np.stack(
+                [self.image_augmentation(sample) for sample in nsample["color_image1"]]
+            )
+            nsample["color_image2"] = np.stack(
+                [self.image_augmentation(sample) for sample in nsample["color_image2"]]
+            )
 
         return nsample
 
@@ -283,15 +291,16 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
 
 class OfflineRLFeatureDataset(FurnitureFeatureDataset):
-    def __init__(self, action_horizon: int, *args, **kwargs):
-        super().__init__(*args, action_horizon=action_horizon, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        # Also add in rewards to the dataset
+        # Also add in rewards and terminal states to the dataset
         self.normalized_train_data["reward"] = self.dataset["reward"][
             : self.episode_ends[-1]
         ]
-
-        self.action_horizon = action_horizon
+        self.normalized_train_data["terminal"] = self.dataset["terminal"][
+            : self.episode_ends[-1]
+        ]
 
     def __getitem__(self, idx):
         # Get the start/end indices for this datapoint
@@ -314,6 +323,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
 
         output = dict(
             action=nsample["action"],
+            terminal=int(nsample["terminal"].sum() > 0),
         )
 
         # Add the current observation to the input
@@ -329,7 +339,7 @@ class OfflineRLFeatureDataset(FurnitureFeatureDataset):
         # | |a|a|a|a|a|a|a|a|               actions executed:   8
         # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
         # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # | | |r|r|r|r|r|r|r|r|             rewards:   2
+        # | | |r|r|r|r|r|r|r|r|             rewards:            8
         # This is the observation that happens after the self.action_horizon actions have executed
         # Will start at `obs_horizon - 1 + action_horizon - (obs_horizon - 1)`
         # (which simplifies to `action_horizon`)

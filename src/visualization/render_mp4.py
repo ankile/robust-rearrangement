@@ -1,10 +1,13 @@
 from datetime import datetime
 import imageio
+import pickle
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import torch
 from tqdm import tqdm
+
+import numpy as np
 
 
 def create_mp4(np_images, filename, fps=10):
@@ -13,6 +16,18 @@ def create_mp4(np_images, filename, fps=10):
         for img in tqdm(np_images):
             writer.append_data(img)
     print(f"File saved as {filename}")
+
+
+def mp4_from_pickle(pickle_path, filename=None):
+    with open(pickle_path, "rb") as f:
+        data = pickle.load(f)
+
+    ims1 = np.array([o["color_image1"] for o in data["observations"]])
+    ims2 = np.array([o["color_image2"] for o in data["observations"]])
+    ims = np.concatenate([ims1, ims2], axis=2)
+
+
+    create_mp4(ims, filename)
 
 
 def render_mp4(ims1, ims2, filename=None):
