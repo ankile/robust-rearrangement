@@ -407,7 +407,7 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
@@ -451,12 +451,12 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(args.obs_type, args.encoder)
-    # )
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
+    config.datasim_path = (
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(args.obs_type, args.encoder)
+    )
+    # config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
