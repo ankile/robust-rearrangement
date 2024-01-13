@@ -30,7 +30,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             params = sum(p.numel() for p in submodule.parameters())
             print(f"{name}: {params / 1_000_000:.2f}M parameters")
 
-    def _normalized_obs(self, obs: deque):
+    def _normalized_obs(self, obs: deque, flatten: bool=True):
         """
         Normalize the observations
 
@@ -64,12 +64,14 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         # Reshape concatenate the features
         nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
-        # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
-        nobs = nobs.flatten(start_dim=1)
+
+        if flatten:
+            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
 
         return nobs
 
-    def _training_obs(self, batch):
+    def _training_obs(self, batch, flatten: bool=True):
         # The robot state is already normalized in the dataset
         nrobot_state = batch["robot_state"]
         B = nrobot_state.shape[0]
@@ -86,7 +88,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, features1, features2], dim=-1)
-            nobs = nobs.flatten(start_dim=1)
+            nobs = nobs.flatten(start_dim=1) if flatten else nobs
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
@@ -95,11 +97,23 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            nobs = nobs.flatten(start_dim=1)
+            nobs = nobs.flatten(start_dim=1) if flatten else nobs
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
         return nobs
+    
+    def train_mode(self):
+        """
+        Set models to train mode 
+        """
+        self.train()
+
+    def eval_mode(self):
+        """
+        Set models to eval mode 
+        """
+        self.eval()
 
     def action(self, obs: deque) -> torch.Tensor:
         """

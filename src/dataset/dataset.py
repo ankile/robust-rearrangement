@@ -78,6 +78,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         normalizer: StateActionNormalizer,
         augment_image: bool = False,
         data_subset: int = None,
+        first_action_idx: int = 0
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -116,6 +117,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
 
+        # Take into account possibility of predicting an action that doesn't align with the first observation
+        self.first_action_idx = first_action_idx
+        if first_action_idx < 0:
+            self.first_action_idx = self.obs_horizon + first_action_idx
+        
+        self.final_action_idx = self.first_action_idx + self.action_horizon
+
     def __len__(self):
         return len(self.indices)
 
@@ -142,6 +150,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
+        # Discard unused actions
+        nsample["action"] = nsample["action"][self.first_action_idx:self.final_action_idx, :]
 
         # Normalize the robot state and actions
         for key in ["robot_state", "action"]:
@@ -174,6 +185,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         action_horizon: int,
         normalizer: StateActionNormalizer,
         data_subset: int = None,
+        first_action_idx: int = 0
     ):
         # Read from zarr dataset
         self.dataset = zarr.open(dataset_path, "r")
@@ -224,6 +236,13 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         self.action_dim = train_data["action"].shape[-1]
         self.robot_state_dim = train_data["robot_state"].shape[-1]
 
+        # Take into account possibility of predicting an action that doesn't align with the first observation
+        self.first_action_idx = first_action_idx
+        if first_action_idx < 0:
+            self.first_action_idx = self.obs_horizon + first_action_idx
+        
+        self.final_action_idx = self.first_action_idx + self.action_horizon
+    
     def __len__(self):
         return len(self.indices)
 
@@ -250,6 +269,23 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         nsample["feature1"] = nsample["feature1"][: self.obs_horizon, :]
         nsample["feature2"] = nsample["feature2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
+        # Discard unused actions
+        nsample["action"] = nsample["action"][self.first_action_idx:self.final_action_idx, :]
+
+        # for diffusion policy version (self.first_action_offset = 0)
+        # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
+        # |o|o|                             observations:       2
+        # | |a|a|a|a|a|a|a|a|               actions executed:   8
+        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
+        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
+        # | | |r|r|r|r|r|r|r|r|             rewards:   2
+
+        # for RNN version (self.first_action_offset = -1) -- meaning the first action aligns with the last observation
+        # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
+        # |o|o|o|o|o|o|o|o|o|o|             observations:       2
+        # |                 |p|             actions predicted:  1
+        # |                 |a|             actions executed:   1
 
         return nsample
 
