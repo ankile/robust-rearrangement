@@ -327,7 +327,7 @@ if __name__ == "__main__":
         output_path = output_path / "data.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
-            "/data/scratch/ankile/furniture-data/data/processed/sim/image/lamp/data_batch_32.zarr",
+            "/data/scratch/ankile/furniture-data/data/processed/sim/image/round_table/data_batch_32.zarr",
             output_path,
             encoder,
             batch_size=args.batch_size,

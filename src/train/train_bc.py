@@ -154,7 +154,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="First runs of the lamp task with the diffusion model.",
+        notes="Second run of the lamp task with more demos.",
     )
 
     # save stats to wandb and update the config object
@@ -184,6 +184,7 @@ def main(config: ConfigDict):
 
         # batch loop
         actor.train_mode()
+        dataset.augment_image = config.augment_image
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -232,6 +233,7 @@ def main(config: ConfigDict):
 
         # Evaluation loop
         actor.eval_mode()
+        dataset.augment_image = False
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -327,7 +329,7 @@ def main(config: ConfigDict):
 
 def get_data_path(obs_type, encoder, task):
     if obs_type == "image":
-        return f"image_small/one_leg/data_batch_32.zarr"
+        return f"image/one_leg/data_batch_32.zarr"
     elif obs_type == "feature":
         # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
         return f"feature/{encoder}/{task}/data.zarr"

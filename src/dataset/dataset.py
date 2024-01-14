@@ -78,7 +78,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         normalizer: StateActionNormalizer,
         augment_image: bool = False,
         data_subset: int = None,
-        first_action_idx: int = 0
+        first_action_idx: int = 0,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -107,11 +107,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # Add image augmentation
-        if augment_image:
-            self.image_augmentation = ImageAugmentation(
-                random_translate=True,
-                color_jitter=True,
-            )
+        self.augment_image = augment_image
+        self.image_augmentation = ImageAugmentation(
+            random_translate=True,
+            color_jitter=True,
+        )
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -121,7 +121,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.first_action_idx = first_action_idx
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
-        
+
         self.final_action_idx = self.first_action_idx + self.action_horizon
 
     def __len__(self):
@@ -152,7 +152,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         # Discard unused actions
-        nsample["action"] = nsample["action"][self.first_action_idx:self.final_action_idx, :]
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
 
         # Normalize the robot state and actions
         for key in ["robot_state", "action"]:
@@ -160,7 +162,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 torch.from_numpy(nsample[key]), key, forward=True
             ).numpy()
 
-        if self.image_augmentation:
+        if self.augment_image:
             # Image augmentation function accepts one image at a time, need to loop over the batch
             nsample["color_image1"] = np.stack(
                 [self.image_augmentation(sample) for sample in nsample["color_image1"]]
@@ -185,7 +187,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         action_horizon: int,
         normalizer: StateActionNormalizer,
         data_subset: int = None,
-        first_action_idx: int = 0
+        first_action_idx: int = 0,
     ):
         # Read from zarr dataset
         self.dataset = zarr.open(dataset_path, "r")
@@ -240,9 +242,9 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         self.first_action_idx = first_action_idx
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
-        
+
         self.final_action_idx = self.first_action_idx + self.action_horizon
-    
+
     def __len__(self):
         return len(self.indices)
 
@@ -271,7 +273,9 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         # Discard unused actions
-        nsample["action"] = nsample["action"][self.first_action_idx:self.final_action_idx, :]
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
 
         # for diffusion policy version (self.first_action_offset = 0)
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
