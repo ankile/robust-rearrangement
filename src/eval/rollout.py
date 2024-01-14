@@ -13,6 +13,7 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import pickle
 
 from src.behavior.base import Actor
+from src.visualization.render_mp4 import create_in_memory_mp4
 
 
 import wandb
