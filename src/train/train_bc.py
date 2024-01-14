@@ -154,7 +154,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Doing a run with spatial softmax",
+        notes="Doing a run with spatial softmax and less augmentation",
     )
 
     # save stats to wandb and update the config object
@@ -420,6 +420,7 @@ if __name__ == "__main__":
     config.vision_encoder.model = args.encoder
     config.vision_encoder.freeze = False
     config.vision_encoder.pretrained = False
+    config.vision_encoder.encoding_dim = 256
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -432,6 +433,11 @@ if __name__ == "__main__":
     config.weight_decay = 1e-6
     config.feature_dropout = False
     config.augment_image = True
+
+    config.augmentation = ConfigDict()
+    config.augmentation.translate = 10
+    config.augmentation.color_jitter = False
+
     config.noise_augment = False
 
     config.model_save_dir = "models"

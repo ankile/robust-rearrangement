@@ -29,7 +29,7 @@ def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
             pretrained=pretrained,
         )
     if encoder_name == "spatial_softmax":
-        return SpatialSoftmaxEncoder(freeze=freeze, device=device)
+        return SpatialSoftmaxEncoder(freeze=False, device=device)
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":
@@ -76,7 +76,7 @@ class SpatialSoftmaxEncoder(VisionEncoder):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        self.encoding_dim = 128
+        self.encoding_dim = 256
 
         self.model = VisualCore(
             input_shape=[3, 224, 224],
