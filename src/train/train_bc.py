@@ -184,6 +184,7 @@ def main(config: ConfigDict):
 
         # batch loop
         actor.train_mode()
+        dataset.augment_image = config.augment_image
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -232,6 +233,7 @@ def main(config: ConfigDict):
 
         # Evaluation loop
         actor.eval_mode()
+        dataset.augment_image = False
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():

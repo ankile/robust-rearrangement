@@ -8,6 +8,7 @@ from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
+from src.behavior.base import Actor
 
 from robomimic.models.obs_core import VisualCore
 
@@ -50,6 +51,8 @@ def get_resnet(model_name, weights=None, **kwargs):
 
 
 class VisionEncoder(ModuleAttrMixin):
+    model: Actor
+
     def freeze(self):
         for param in self.model.parameters():
             param.requires_grad = False
