@@ -41,7 +41,7 @@ def main(config: ConfigDict):
             normalizer=StateActionNormalizer(),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
-            first_action_idx=config.first_action_index
+            first_action_idx=config.first_action_index,
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
@@ -51,7 +51,7 @@ def main(config: ConfigDict):
             action_horizon=config.action_horizon,
             normalizer=StateActionNormalizer(),
             data_subset=config.data_subset,
-            first_action_idx=config.first_action_index
+            first_action_idx=config.first_action_index,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -148,13 +148,13 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        id="zt2vda6t",
-        resume="must",
+        # id="zt2vda6t",
+        # resume="must",
         project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        # notes="Try a fix to the dataset.",
+        notes="Doing a run with spatial softmax",
     )
 
     # save stats to wandb and update the config object
@@ -172,18 +172,6 @@ def main(config: ConfigDict):
     # Create model save dir
     model_save_dir = Path(config.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
-
-    # # # Set all batchnorm layers to eval mode
-    # for m in actor.encoder1.model.modules():
-    #     if isinstance(m, torch.nn.BatchNorm2d):
-    #         m.momentum = 0
-
-    # for m in actor.encoder2.model.modules():
-    #     if isinstance(m, torch.nn.BatchNorm2d):
-    #         m.momentum = 0
-
-    # actor.encoder1.model.eval()
-    # actor.encoder2.model.eval()
 
     # Train loop
     best_test_loss = float("inf")
@@ -396,7 +384,7 @@ if __name__ == "__main__":
 
     config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED"), "data")
     config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
-    config.actor_lr = 1e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(None, 10)
@@ -407,10 +395,10 @@ if __name__ == "__main__":
     config.furniture = "one_leg"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 300
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
@@ -456,7 +444,7 @@ if __name__ == "__main__":
     #     / "processed/sim"
     #     / get_data_path(args.obs_type, args.encoder)
     # )
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image_small/one_leg/data_batch_32.zarr"
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image/one_leg/data_batch_32.zarr"
 
     print(f"Using data from {config.datasim_path}")
 
