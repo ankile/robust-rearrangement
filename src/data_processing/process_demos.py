@@ -3,6 +3,8 @@ import pickle
 from glob import glob
 import argparse
 import os
+from turtle import color
+from furniture_bench.robot import robot_state
 import numpy as np
 import zarr
 from tqdm import tqdm, trange
@@ -235,14 +237,28 @@ def process_pickle_file(z, pickle_path):
         data["actions"]
     ), f"Mismatch in {pickle_path}, lengths differ by {len(obs) - len(data['actions'])}"
 
-    z["robot_state"].append(
-        [filter_and_concat_robot_state(o["robot_state"]) for o in obs]
+    # Convert all lists to numpy arrays
+    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
+    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
+    robot_state = np.array(
+        [filter_and_concat_robot_state(o["robot_state"]) for o in obs], dtype=np.float32
     )
-    z["color_image1"].append([o["color_image1"] for o in obs])
-    z["color_image2"].append([o["color_image2"] for o in obs])
-    z["action"].append(data["actions"])
-    z["reward"].append(data["rewards"])
-    z["skill"].append(data["skills"])
+    action = np.array(data["actions"], dtype=np.float32)
+    reward = np.array(data["rewards"], dtype=np.float32)
+    skill = np.array(data["skills"], dtype=np.float32)
+    
+    # Find the indexes where no action is taken
+    moving = np.linalg.norm(action[:, :6], axis=1) > 0.02
+
+    # Filter out the non-moving observations and add to the Zarr store
+    z["robot_state"].append(robot_state[moving])
+    z["color_image1"].append(color_image1[moving])
+    z["color_image2"].append(color_image2[moving])
+    z["action"].append(action[moving])
+    z["reward"].append(reward[moving])
+    z["skill"].append(skill[moving])
+    
+    # Add the episode ends, furniture, and pickle file name to the Zarr store
     curr_index = z["episode_ends"][-1] if len(z["episode_ends"]) > 0 else 0
     z["episode_ends"].append([curr_index + len(data["actions"])])
     z["furniture"].append([data["furniture"]])
@@ -334,6 +350,6 @@ if __name__ == "__main__":
         )
     elif args.obs_out == "image":
         chunksize = 32
-        output_path = output_path / f"data_batch_{chunksize}.zarr"
+        output_path = output_path / f"data_batch_{chunksize}_noop.zarr"
         print(f"Output path: {output_path}")
         create_zarr_dataset(raw_data_path, output_path, chunksize=chunksize)
