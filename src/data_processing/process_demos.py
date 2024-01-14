@@ -260,7 +260,7 @@ def process_pickle_file(z, pickle_path):
     
     # Add the episode ends, furniture, and pickle file name to the Zarr store
     curr_index = z["episode_ends"][-1] if len(z["episode_ends"]) > 0 else 0
-    z["episode_ends"].append([curr_index + len(data["actions"])])
+    z["episode_ends"].append([curr_index + len(action[moving])])
     z["furniture"].append([data["furniture"]])
 
     # Keep only everything after `raw` in the path (the relevant part)
@@ -340,10 +340,10 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
 
     if args.obs_out == "feature":
-        output_path = output_path / "data.zarr"
+        output_path = output_path / "data_noop.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
-            "/data/scratch/ankile/furniture-data/data/processed/sim/image/round_table/data_batch_32.zarr",
+            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32_noop.zarr",
             output_path,
             encoder,
             batch_size=args.batch_size,

@@ -332,7 +332,7 @@ def get_data_path(obs_type, encoder, task):
         return f"image/one_leg/data_batch_32.zarr"
     elif obs_type == "feature":
         # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature/{encoder}/{task}/data.zarr"
+        return f"feature/{encoder}/{task}/data_noop.zarr"
 
     raise ValueError(f"Unknown obs_type: {obs_type}")
 
@@ -441,6 +441,7 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
+    config.remove_noop = True
     config.datasim_path = (
         config.data_base_dir
         / "processed/sim"
