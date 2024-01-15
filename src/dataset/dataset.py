@@ -123,7 +123,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
 
-        self.final_action_idx = self.first_action_idx + self.action_horizon
+        self.final_action_idx = self.first_action_idx + self.pred_horizon
 
     def __len__(self):
         return len(self.indices)
@@ -244,7 +244,8 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
 
-        self.final_action_idx = self.first_action_idx + self.action_horizon
+        # self.final_action_idx = self.first_action_idx + self.action_horizon
+        self.final_action_idx = self.first_action_idx + self.pred_horizon
 
     def __len__(self):
         return len(self.indices)
@@ -283,8 +284,6 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         # |o|o|                             observations:       2
         # | |a|a|a|a|a|a|a|a|               actions executed:   8
         # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # | | |r|r|r|r|r|r|r|r|             rewards:   2
 
         # for RNN version (self.first_action_offset = -1) -- meaning the first action aligns with the last observation
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx

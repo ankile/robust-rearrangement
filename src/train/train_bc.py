@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import furniture_bench
+from furniture_bench.sim_config import sim_config
 import numpy as np
 import torch
 import wandb
@@ -24,6 +25,10 @@ from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 
 from ml_collections import ConfigDict
+
+from gym import logger
+
+logger.set_level(logger.ERROR)
 
 
 def main(config: ConfigDict):
@@ -327,12 +332,12 @@ def main(config: ConfigDict):
     wandb.finish()
 
 
-def get_data_path(obs_type, encoder):
+def get_data_path(obs_type, encoder, task, suffix=None):
     if obs_type == "image":
-        return f"image_small/one_leg/data_batch_32.zarr"
+        return f"image/{task}/data_batch_32{'_'+suffix if suffix else ''}.zarr"
     elif obs_type == "feature":
         # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature_small/{encoder}/one_leg/data_new.zarr"
+        return f"feature/{encoder}/{task}/data{'_'+suffix if suffix else ''}.zarr"
 
     raise ValueError(f"Unknown obs_type: {obs_type}")
 
@@ -348,6 +353,7 @@ if __name__ == "__main__":
         "--obs-type", type=str, default="image", choices=["image", "feature"]
     )
     parser.add_argument("--encoder", "-e", type=str, default="vip")
+    parser.add_argument("--furniture", "-f", type=str, default="one_leg")
 
     args = parser.parse_args()
 
@@ -384,7 +390,7 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED"), "data")
+    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
     config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
@@ -394,7 +400,7 @@ if __name__ == "__main__":
     config.clip_sample = True
     config.demo_source = "sim"
     config.dryrun = args.dryrun
-    config.furniture = "one_leg"
+    config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
     # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
@@ -407,9 +413,11 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1)
+    config.rollout.every = dryrun(1, fb=1)
     config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
-    config.rollout.max_steps = dryrun(600, fb=100)
+    config.rollout.max_steps = dryrun(
+        sim_config["scripted_timeout"][config.furniture], fb=100
+    )
     config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
@@ -447,12 +455,16 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(args.obs_type, args.encoder)
-    # )
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/image/one_leg/data_batch_32.zarr"
+    config.datasim_path = (
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(
+            config.observation_type,
+            config.vision_encoder.model,
+            config.furniture,
+            suffix="updated_env",
+        )
+    )
 
     print(f"Using data from {config.datasim_path}")
 

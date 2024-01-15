@@ -1,12 +1,8 @@
-from re import A
 import furniture_bench  # noqa: F401
 from ml_collections import ConfigDict
-from sklearn import base
 import torch
 
 import collections
-import imageio
-from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +13,7 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import pickle
 
 from src.behavior.base import Actor
+from src.visualization.render_mp4 import create_in_memory_mp4
 
 
 import wandb
@@ -92,30 +89,12 @@ def rollout(
     )
 
 
-def create_in_memory_mp4(np_images, fps=10):
-    output = BytesIO()
-
-    writer_options = {"fps": fps}
-    writer_options["format"] = "mp4"
-    writer_options["codec"] = "libx264"
-    writer_options["pixelformat"] = "yuv420p"
-
-    with imageio.get_writer(output, **writer_options) as writer:
-        for img in np_images:
-            writer.append_data(img)
-
-    output.seek(0)
-    return output
-
-
 def save_raw_rollout(
     robot_states, imgs1, imgs2, actions, rewards, success, furniture, output_path
 ):
     observations = list()
 
-    for robot_state, image1, image2, action, reward in zip(
-        robot_states, imgs1, imgs2, actions, rewards
-    ):
+    for robot_state, image1, image2 in zip(robot_states, imgs1, imgs2):
         observations.append(
             {
                 "robot_state": robot_state,

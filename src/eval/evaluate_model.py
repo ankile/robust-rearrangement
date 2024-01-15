@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
     # Prepare the rollout save directory
     rollout_save_dir = (
-        Path(os.environ.get("FURNITURE_DATA_DIR", "data"))
+        Path(os.environ.get("ROLLOUT_SAVE_DIR", "data"))
         / "raw"
         / "sim_rollouts"
         / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
