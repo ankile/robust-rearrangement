@@ -24,6 +24,28 @@ def process_buffer(buffer, encoder):
     return encoder(tensor).cpu().numpy()
 
 
+def encode_demo(encoder, batch_size, obs):
+    robot_states, features1, features2 = [], [], []
+
+    robot_state_buffer = []
+    for o in obs:
+        if isinstance(o["robot_state"], dict):
+            robot_state_buffer.append(filter_and_concat_robot_state(o["robot_state"]))
+        else:
+            robot_state_buffer.append(o["robot_state"])
+
+    img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
+    img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
+
+    for i in range(0, len(img_buffer1), batch_size):
+        slice_end = min(i + batch_size, len(img_buffer1))
+        robot_states.extend(robot_state_buffer[i:slice_end])
+        features1.extend(process_buffer(img_buffer1[i:slice_end], encoder).tolist())
+        features2.extend(process_buffer(img_buffer2[i:slice_end], encoder).tolist())
+
+    return robot_states, features1, features2
+
+
 def process_pickle_to_feature(input_path, output_path, encoder, batch_size=256):
     file_paths = sorted(list(glob(f"{input_path}/**/*.pkl", recursive=True)))[:16]
 
@@ -73,28 +95,6 @@ def process_pickle_to_feature(input_path, output_path, encoder, batch_size=256):
     )
 
 
-def encode_demo(encoder, batch_size, obs):
-    robot_states, features1, features2 = [], [], []
-
-    robot_state_buffer = []
-    for o in obs:
-        if isinstance(o["robot_state"], dict):
-            robot_state_buffer.append(filter_and_concat_robot_state(o["robot_state"]))
-        else:
-            robot_state_buffer.append(o["robot_state"])
-
-    img_buffer1 = [torch.from_numpy(o["color_image1"]) for o in obs]
-    img_buffer2 = [torch.from_numpy(o["color_image2"]) for o in obs]
-
-    for i in range(0, len(img_buffer1), batch_size):
-        slice_end = min(i + batch_size, len(img_buffer1))
-        robot_states.extend(robot_state_buffer[i:slice_end])
-        features1.extend(process_buffer(img_buffer1[i:slice_end], encoder).tolist())
-        features2.extend(process_buffer(img_buffer2[i:slice_end], encoder).tolist())
-
-    return robot_states, features1, features2
-
-
 # === Image Zarr to feature Zarr ===
 @torch.no_grad()
 def encode_numpy_batch(buffer, encoder):
@@ -105,12 +105,15 @@ def encode_numpy_batch(buffer, encoder):
 
 def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_size=256):
     zarr_group = zarr.open(zarr_input_path, mode="r")
+    episode_ends = zarr_group["episode_ends"]
+    print(f"Number of episodes: {len(episode_ends)}")
+
+
     color_image1 = zarr_group["color_image1"]
     color_image2 = zarr_group["color_image2"]
 
     # Assuming other data like actions, rewards, etc. are also stored in the zarr file
     action = zarr_group["action"]
-    episode_ends = zarr_group["episode_ends"]
     furniture = zarr_group["furniture"]
     reward = zarr_group["reward"]
     robot_state = zarr_group["robot_state"]
@@ -246,7 +249,7 @@ def process_pickle_file(z, pickle_path):
     action = np.array(data["actions"], dtype=np.float32)
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
-    
+
     # Find the indexes where no action is taken
     moving = np.linalg.norm(action[:, :6], axis=1) > 0.02
 
@@ -257,7 +260,7 @@ def process_pickle_file(z, pickle_path):
     z["action"].append(action[moving])
     z["reward"].append(reward[moving])
     z["skill"].append(skill[moving])
-    
+
     # Add the episode ends, furniture, and pickle file name to the Zarr store
     curr_index = z["episode_ends"][-1] if len(z["episode_ends"]) > 0 else 0
     z["episode_ends"].append([curr_index + len(action[moving])])

@@ -155,7 +155,7 @@ def main(config: ConfigDict):
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Second run of the lamp task with more demos.",
+        notes="Also check that we are successful with the newly collected data as well.",
     )
 
     # save stats to wandb and update the config object
@@ -400,21 +400,21 @@ if __name__ == "__main__":
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
     # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/crimson-universe-1/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
     config.observation_type = args.obs_type
     config.randomness = "low"
-    config.steps_per_epoch = dryrun(400, fb=10)
+    config.steps_per_epoch = dryrun(200, fb=10)
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1)
-    config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
-    # config.rollout.max_steps = dryrun(
-    #     sim_config["scripted_timeout"][config.furniture], fb=100
-    # )
-    config.rollout.max_steps = dryrun(600, fb=100)
+    config.rollout.every = dryrun(1, fb=1)
+    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    config.rollout.max_steps = dryrun(
+        sim_config["scripted_timeout"][config.furniture], fb=100
+    )
     config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
@@ -446,7 +446,8 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.remove_noop = True
+    # config.remove_noop = True
+    # config.datasim_path = "/data/pulkitag/data/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
     config.datasim_path = (
         config.data_base_dir
         / "processed/sim"
@@ -454,7 +455,7 @@ if __name__ == "__main__":
             config.observation_type,
             config.vision_encoder.model,
             config.furniture,
-            suffix="new",
+            suffix=None,
         )
     )
 
