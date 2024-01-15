@@ -340,16 +340,16 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
 
     if args.obs_out == "feature":
-        output_path = output_path / "data_noop.zarr"
+        output_path = output_path / "data_updated_env.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
-            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32_noop.zarr",
+            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32_new.zarr",
             output_path,
             encoder,
             batch_size=args.batch_size,
         )
     elif args.obs_out == "image":
         chunksize = 32
-        output_path = output_path / f"data_batch_{chunksize}_noop.zarr"
+        output_path = output_path / f"data_batch_{chunksize}_new.zarr"
         print(f"Output path: {output_path}")
         create_zarr_dataset(raw_data_path, output_path, chunksize=chunksize)
