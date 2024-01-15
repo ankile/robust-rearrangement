@@ -332,7 +332,7 @@ def get_data_path(obs_type, encoder, task):
         return f"image/one_leg/data_batch_32.zarr"
     elif obs_type == "feature":
         # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature/{encoder}/{task}/data_noop.zarr"
+        return f"feature/{encoder}/{task}/data.zarr"
 
     raise ValueError(f"Unknown obs_type: {obs_type}")
 
@@ -394,7 +394,7 @@ if __name__ == "__main__":
     config.clip_sample = True
     config.demo_source = "sim"
     config.dryrun = args.dryrun
-    config.furniture = "lamp"
+    config.furniture = "round_table"
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
     # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
@@ -409,7 +409,7 @@ if __name__ == "__main__":
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1)
     config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
-    config.rollout.max_steps = dryrun(1_000, fb=100)
+    config.rollout.max_steps = dryrun(1_300, fb=100)
     config.rollout.count = num_envs * 1
 
     config.lr_scheduler = ConfigDict()
