@@ -1,5 +1,6 @@
 from datetime import datetime
 import imageio
+from io import BytesIO
 import pickle
 
 import matplotlib.animation as animation
@@ -26,8 +27,23 @@ def mp4_from_pickle(pickle_path, filename=None):
     ims2 = np.array([o["color_image2"] for o in data["observations"]])
     ims = np.concatenate([ims1, ims2], axis=2)
 
-
     create_mp4(ims, filename)
+
+
+def create_in_memory_mp4(np_images, fps=10):
+    output = BytesIO()
+
+    writer_options = {"fps": fps}
+    writer_options["format"] = "mp4"
+    writer_options["codec"] = "libx264"
+    writer_options["pixelformat"] = "yuv420p"
+
+    with imageio.get_writer(output, **writer_options) as writer:
+        for img in np_images:
+            writer.append_data(img)
+
+    output.seek(0)
+    return output
 
 
 def render_mp4(ims1, ims2, filename=None):

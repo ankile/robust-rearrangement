@@ -99,7 +99,12 @@ class ResnetEncoder(ModuleAttrMixin):
 class DinoV2Encoder(torch.nn.Module):
     def __init__(self, model_name="dinov2-base", freeze=True, device="cuda"):
         super().__init__()
-        assert size in ["dinov2-small", "dinov2-base", "dinov2-large", "dinov2-giant"]
+        assert model_name in [
+            "dinov2-small",
+            "dinov2-base",
+            "dinov2-large",
+            "dinov2-giant",
+        ]
         self.device = device
 
         model_name = f"facebook/{model_name}"
