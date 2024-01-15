@@ -26,6 +26,10 @@ from src.common.earlystop import EarlyStopper
 
 from ml_collections import ConfigDict
 
+from gym import logger
+
+logger.set_level(logger.ERROR)
+
 
 def main(config: ConfigDict):
     env = None
@@ -399,14 +403,13 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/crimson-universe-1/actor_chkpt_latest.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-violet-18/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
     config.observation_type = args.obs_type
     config.randomness = "low"
-    config.steps_per_epoch = dryrun(200, fb=10)
+    config.steps_per_epoch = dryrun(400, fb=10)
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
@@ -455,7 +458,7 @@ if __name__ == "__main__":
             config.observation_type,
             config.vision_encoder.model,
             config.furniture,
-            suffix=None,
+            suffix="updated_env",
         )
     )
 
