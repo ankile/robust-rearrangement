@@ -92,7 +92,7 @@ class DiffusionPolicy(Actor):
     # === Inference ===
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
-        # Important! `nobs` needs to be normalized before passing to this function
+        # Important! `nobs` needs to be normalized and flattened before passing to this function
         # Initialize action from Guassian noise
         naction = torch.randn(
             (B, self.pred_horizon, self.action_dim),
@@ -176,3 +176,75 @@ class DiffusionPolicy(Actor):
         loss = nn.functional.mse_loss(noise_pred, noise)
 
         return loss
+
+
+class MultiTaskDiffusionPolicy(DiffusionPolicy):
+    current_task = None
+
+    def __init__(
+        self,
+        device: Union[str, torch.device],
+        encoder_name: str,
+        freeze_encoder: bool,
+        normalizer: StateActionNormalizer,
+        config,
+    ) -> None:
+        super().__init__(
+            device=device,
+            encoder_name=encoder_name,
+            freeze_encoder=freeze_encoder,
+            normalizer=normalizer,
+            config=config,
+        )
+
+        self.task_dim = config.task_dim
+        self.task_encoder = nn.Embedding(
+            num_embeddings=config.num_tasks,
+            embedding_dim=self.task_dim,
+            padding_idx=None,
+            max_norm=None,
+            norm_type=2.0,
+            scale_grad_by_freq=False,
+            sparse=False,
+            _weight=None,
+        ).to(device)
+
+        self.obs_dim = self.obs_dim + self.task_dim
+
+        self.model = ConditionalUnet1D(
+            input_dim=config.action_dim,
+            global_cond_dim=self.obs_dim,
+            down_dims=config.down_dims,
+        ).to(device)
+
+    def _training_obs(self, batch):
+        # Get the standard observation data
+        nobs = super()._training_obs(batch, flatten=True)
+
+        # Get the task embedding
+        task_idx = batch["task"]
+        task_embedding = self.task_encoder(task_idx)
+
+        # Concatenate the task embedding to the observation
+        obs_cond = torch.cat((nobs, task_embedding), dim=-1)
+
+        return obs_cond
+
+    def set_task(self, task):
+        self.current_task = task
+
+    def _normalized_obs(self, obs: deque):
+        assert self.current_task is not None, "Must set current task before calling"
+
+        # Get the standard observation data
+        nobs = super()._normalized_obs(obs, flatten=True)
+
+        # Get the task embedding
+        task_embedding = self.task_encoder(
+            torch.tensor(self.current_task).to(self.device)
+        )
+
+        # Concatenate the task embedding to the observation
+        obs_cond = torch.cat((nobs, task_embedding), dim=-1)
+
+        return obs_cond

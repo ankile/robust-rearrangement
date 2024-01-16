@@ -15,6 +15,7 @@ import pickle
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
+from src.common.tasks import furniture2idx
 
 
 import wandb
@@ -128,7 +129,9 @@ def calculate_success_rate(
     gamma: float = 0.99,
     rollout_save_dir: str = None,
 ):
-    tbl = wandb.Table(columns=["rollout", "success", "epoch", "reward", "return", "steps"])
+    tbl = wandb.Table(
+        columns=["rollout", "success", "epoch", "reward", "return", "steps"]
+    )
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
@@ -191,11 +194,9 @@ def calculate_success_rate(
 
         # Number of steps until success, i.e., the index of the final reward received
         n_steps = np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
-        
+
         # Calculate the return for this rollout
-        episode_return = (
-            np.sum(rewards * gamma ** np.arange(len(rewards)))
-        )
+        episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
         total_return += episode_return
 
         table_rows.append(
@@ -260,6 +261,8 @@ def do_rollout_evaluation(
         / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     )
     rollout_save_dir.mkdir(parents=True, exist_ok=True)
+
+    actor.set_task(furniture2idx[config.furniture])
 
     success_rate = calculate_success_rate(
         env,

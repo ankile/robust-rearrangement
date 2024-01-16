@@ -32,9 +32,9 @@ def combine_datasets(data_paths, output_path):
 
 if __name__ == "__main__":
     data_paths = [
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/one_leg/data_new.zarr",
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/one_leg/data.zarr",
         "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/lamp/data.zarr",
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/round_table/data_noop_002.zarr",
+        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/round_table/data.zarr",
     ]
-    output_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined_test.zarr"
+    output_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined.zarr"
     combine_datasets(data_paths, output_path)

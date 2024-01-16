@@ -14,10 +14,11 @@ from src.dataset.dataset import (
 )
 from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
+from src.common.tasks import furniture2idx
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
-from src.behavior.diffusion_policy import DiffusionPolicy
+from src.behavior.diffusion_policy import DiffusionPolicy, MultiTaskDiffusionPolicy
 from src.behavior.mlp import MLPActor
 from src.behavior.rnn import RNNActor
 from src.dataset.dataloader import FixedStepsDataloader
@@ -92,13 +93,22 @@ def main(config: ConfigDict):
             config=config,
         )
     elif config.actor == "diffusion":
-        actor = DiffusionPolicy(
-            device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
-            config=config,
-        )
+        if "multi_task" in config and config.multi_task:
+            actor = MultiTaskDiffusionPolicy(
+                device=device,
+                encoder_name=config.vision_encoder.model,
+                freeze_encoder=config.vision_encoder.freeze,
+                normalizer=StateActionNormalizer(),
+                config=config,
+            )
+        else:
+            actor = DiffusionPolicy(
+                device=device,
+                encoder_name=config.vision_encoder.model,
+                freeze_encoder=config.vision_encoder.freeze,
+                normalizer=StateActionNormalizer(),
+                config=config,
+            )
     else:
         raise ValueError(f"Unknown actor type: {config.actor}")
 
