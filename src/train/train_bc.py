@@ -28,7 +28,7 @@ from ml_collections import ConfigDict
 
 from gym import logger
 
-logger.set_level(logger.ERROR)
+logger.set_level(logger.DISABLED)
 
 
 def main(config: ConfigDict):
@@ -153,13 +153,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        # id="zt2vda6t",
-        # resume="must",
         project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Doing a run with spatial softmax and less augmentation",
+        notes="Doing a run with spatial softmax and less augmentation after fixing horizon bug.",
     )
 
     # save stats to wandb and update the config object
@@ -462,7 +460,6 @@ if __name__ == "__main__":
             config.observation_type,
             config.vision_encoder.model,
             config.furniture,
-            suffix="updated_env",
         )
     )
 
