@@ -3,6 +3,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import furniture_bench  # noqa
+from furniture_bench.sim_config import sim_config
 import torch
 import wandb
 from ml_collections import ConfigDict
@@ -23,6 +24,13 @@ if __name__ == "__main__":
     args.add_argument("--n-rollouts", type=int, default=1)
     args.add_argument("--randomness", type=str, default="low")
     args.add_argument("--run-id", type=str, required=True)
+    args.add_argument(
+        "--furniture",
+        "-f",
+        type=str,
+        choices=["one_leg", "lamp", "round_table"],
+        required=True,
+    )
 
     # Parse the arguments
     args = args.parse_args()
@@ -55,7 +63,7 @@ if __name__ == "__main__":
     env = get_env(
         gpu_id=args.gpu,
         obs_type="image",
-        furniture="one_leg",
+        furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
         resize_img=True,
@@ -87,7 +95,7 @@ if __name__ == "__main__":
         actor=actor,
         env=env,
         n_rollouts=args.n_rollouts,
-        rollout_max_steps=600,
+        rollout_max_steps=sim_config["scripted_timeout"][args.furniture],
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
