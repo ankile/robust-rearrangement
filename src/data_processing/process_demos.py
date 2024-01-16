@@ -4,7 +4,6 @@ from glob import glob
 import argparse
 import os
 from turtle import color
-from furniture_bench.robot import robot_state
 import numpy as np
 import zarr
 from tqdm import tqdm, trange
@@ -12,6 +11,7 @@ from src.models.vision import get_encoder
 import torch
 import torchvision.transforms.functional as F
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
+from datetime import datetime
 
 from ipdb import set_trace as bp
 
@@ -92,7 +92,7 @@ def process_pickle_to_feature(input_path, output_path, encoder, batch_size=256):
         reward=np.array(rewards, dtype=np.float32),
         skills=np.array(skills, dtype=np.float32),
         furniture=furniture,
-        time_created=np.datetime64("now"),
+        time_created=datetime.now().astimezone().isoformat(),
         **obs_dict,
     )
 
@@ -142,7 +142,9 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
     output_group.array("reward", reward)
     output_group.array("robot_state", robot_state)
     output_group.array("skill", skills)
-    output_group.attrs["time_created"] = str(np.datetime64("now"))
+
+    # Add time created with timezone info
+    output_group.attrs["time_created"] = datetime.now().astimezone().isoformat()
     output_group.attrs["noop_threshold"] = zarr_group.attrs["noop_threshold"]
     output_group.attrs["encoder"] = encoder.__class__.__name__
 
@@ -254,7 +256,7 @@ def process_pickle_file(z, pickle_path, noop_threshold):
     skill = np.array(data["skills"], dtype=np.float32)
 
     # Find the indexes where no action is taken
-    moving = np.linalg.norm(action[:, :6], axis=1) > noop_threshold
+    moving = np.linalg.norm(action[:, :6], axis=1) >= noop_threshold
 
     # Filter out the non-moving observations and add to the Zarr store
     z["robot_state"].append(robot_state[moving])
@@ -297,7 +299,8 @@ def create_zarr_dataset(in_dir, out_path, chunksize=32, noop_threshold=0):
         process_pickle_file(z, path, noop_threshold=noop_threshold)
 
     # Update any final metadata if necessary
-    z.attrs["time_finished"] = str(np.datetime64("now"))
+    # Set the time finished to now with timezone info
+    z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
     z.attrs["noop_threshold"] = noop_threshold
 
 
@@ -307,7 +310,7 @@ if __name__ == "__main__":
     parser.add_argument("--obs-in", "-i", type=str)
     parser.add_argument("--obs-out", "-o", type=str)
     parser.add_argument("--encoder", "-c", default=None, type=str)
-    parser.add_argument("--furniture", "-f", type=str)
+    parser.add_argument("--furniture", "-f", type=str, default=None)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
     parser.add_argument("--randomness", "-r", type=str, default=None)
@@ -328,7 +331,7 @@ if __name__ == "__main__":
 
     obs_out_path = args.obs_out
 
-    raw_data_path = data_base_path_in / "raw" / args.env / args.furniture
+    raw_data_path = data_base_path_in / "raw" / args.env
     output_path = data_base_path_out / "processed" / args.env / obs_out_path
 
     encoder = None
@@ -337,9 +340,14 @@ if __name__ == "__main__":
         encoder = get_encoder(args.encoder, freeze=True, device=device)
         encoder.eval()
 
-    output_path = output_path / args.furniture
+    if args.furniture is not None:
+        raw_data_path = raw_data_path / args.furniture
+        output_path = output_path / args.furniture
 
     if args.randomness is not None:
+        assert (
+            args.furniture is not None
+        ), "Must specify furniture when using randomness"
         assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
         raw_data_path = raw_data_path / args.randomness
         output_path = output_path / args.randomness
@@ -350,14 +358,14 @@ if __name__ == "__main__":
         output_path = output_path / "data.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
-            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32_new.zarr",
+            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32.zarr",
             output_path,
             encoder,
             batch_size=args.batch_size,
         )
     elif args.obs_out == "image":
         chunksize = 32
-        noop_threshold = 0.02
+        noop_threshold = 0.0
         output_path = output_path / f"data_batch_{chunksize}.zarr"
         print(f"Output path: {output_path}")
         create_zarr_dataset(

@@ -128,7 +128,7 @@ def calculate_success_rate(
     gamma: float = 0.99,
     rollout_save_dir: str = None,
 ):
-    tbl = wandb.Table(columns=["rollout", "success", "epoch", "return", "steps"])
+    tbl = wandb.Table(columns=["rollout", "success", "epoch", "reward", "return", "steps"])
     pbar = trange(
         n_rollouts,
         desc="Performing rollouts",
@@ -143,6 +143,7 @@ def calculate_success_rate(
     all_imgs2 = list()
     all_actions = list()
     all_rewards = list()
+    all_success = list()
 
     for i in range(n_rollouts // env.num_envs):
         pbar.set_description(
@@ -166,6 +167,7 @@ def calculate_success_rate(
         all_imgs2.extend(imgs2)
         all_actions.extend(actions)
         all_rewards.extend(rewards)
+        all_success.extend(success)
 
         # Update progress bar
         pbar.set_description
@@ -179,7 +181,7 @@ def calculate_success_rate(
         video2 = all_imgs2[rollout_idx].numpy()
         actions = all_actions[rollout_idx].numpy()
         rewards = all_rewards[rollout_idx].numpy()
-        success = (rewards.sum() > 0).item()
+        success = all_success[rollout_idx].item()
         furniture = env.furniture_name
 
         # Stack the two videos side by side into a single video
@@ -187,11 +189,12 @@ def calculate_success_rate(
         video = np.concatenate([video1, video2], axis=2)
         video = create_in_memory_mp4(video, fps=10)
 
-        n_steps = np.argmax(rewards) + 1 if success else len(rewards)
-
+        # Number of steps until success, i.e., the index of the final reward received
+        n_steps = np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
+        
         # Calculate the return for this rollout
         episode_return = (
-            np.sum(rewards * gamma ** np.arange(len(rewards))) if success else 0
+            np.sum(rewards * gamma ** np.arange(len(rewards)))
         )
         total_return += episode_return
 
@@ -200,6 +203,7 @@ def calculate_success_rate(
                 wandb.Video(video, fps=10, format="mp4"),
                 success,
                 epoch_idx,
+                np.sum(rewards),
                 episode_return,
                 n_steps,
             ]
@@ -221,7 +225,7 @@ def calculate_success_rate(
             )
 
     # Sort the table rows by return (highest at the top)
-    table_rows = sorted(table_rows, key=lambda x: x[3], reverse=True)
+    table_rows = sorted(table_rows, key=lambda x: x[4], reverse=True)
 
     for row in table_rows:
         tbl.add_data(*row)

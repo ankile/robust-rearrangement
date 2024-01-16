@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 import furniture_bench
 from furniture_bench.sim_config import sim_config
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+
 import numpy as np
 import torch
 import wandb
@@ -144,8 +146,6 @@ def main(config: ConfigDict):
         num_training_steps=len(trainloader) * config.num_epochs,
     )
 
-    tglobal = tqdm(range(config.num_epochs), desc="Epoch")
-
     early_stopper = EarlyStopper(
         patience=config.early_stopper.patience,
         smooth_factor=config.early_stopper.smooth_factor,
@@ -153,13 +153,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        # id="zt2vda6t",
-        # resume="must",
         project="multi-task-test",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Also check that we are successful with the newly collected data as well.",
+        notes="Train naively on data for 3 tasks without any conditioning on the task.",
     )
 
     # save stats to wandb and update the config object
@@ -183,6 +181,10 @@ def main(config: ConfigDict):
     test_loss_mean = float("inf")
     best_success_rate = 0
 
+    tglobal = tqdm(
+        range(config.num_epochs),
+        desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
+    )
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
@@ -307,7 +309,7 @@ def main(config: ConfigDict):
 
             # Do not load the environment until we successfuly made it this far
             if env is None:
-                env = get_env(
+                env: FurnitureSimEnv = get_env(
                     config.gpu_id,
                     obs_type=config.observation_type,
                     furniture=config.furniture,
@@ -403,7 +405,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-violet-18/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-violet-18/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
@@ -413,8 +415,8 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(1, fb=1)
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    config.rollout.every = dryrun(5, fb=1)
+    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
@@ -434,7 +436,7 @@ if __name__ == "__main__":
     config.early_stopper.smooth_factor = 0.9
     config.early_stopper.patience = float("inf")
 
-    config.discount = 0.997
+    config.discount = 0.999
 
     # Regularization
     config.weight_decay = 1e-6
@@ -450,7 +452,7 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    # config.datasim_path = "/data/pulkitag/data/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
+    # config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined_test.zarr"
     config.datasim_path = (
         config.data_base_dir
         / "processed/sim"
@@ -458,7 +460,7 @@ if __name__ == "__main__":
             config.observation_type,
             config.vision_encoder.model,
             config.furniture,
-            suffix="updated_env",
+            # suffix="updated_env",
         )
     )
 

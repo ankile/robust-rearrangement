@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision
 import transformers
+import warnings
 from vip import load_vip
 from r3m import load_r3m
 from ipdb import set_trace as bp
@@ -132,8 +133,10 @@ class VIPEncoder(torch.nn.Module):
         super().__init__()
         self.device = device
 
-        with suppress_all_output(True):
-            self.model = load_vip().module.to(device)
+        # Temporarily suppres warnings when loading VIP
+        warnings.filterwarnings("ignore")
+        self.model = load_vip().module.to(device)
+        warnings.resetwarnings()
 
         self.encoding_dim = self.model.convnet.fc.out_features
 

@@ -83,11 +83,11 @@ if __name__ == "__main__":
 
     # Start a run to collect the results
     wandb.init(
-        project="model-eval",
+        project="model-eval-test",
         entity="robot-rearrangement",
         job_type="eval",
         config=config.to_dict(),
-        notes="Running old model in newly updated version of the environment",
+        # mode="disabled",
     )
 
     # Perform the rollouts
