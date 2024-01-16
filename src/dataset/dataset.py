@@ -1,10 +1,12 @@
 import numpy as np
 import torch
 import zarr
+
 from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
 from src.dataset.zarr_mod import ZarrSubsetView
-import torchvision.transforms.functional as F
+from src.common.tasks import furniture_to_idx
+
 
 from ipdb import set_trace as bp
 
@@ -35,7 +37,7 @@ def create_sample_indices(
             sample_start_idx = 0 + start_offset
             sample_end_idx = sequence_length - end_offset
             indices.append(
-                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx]
+                [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx, i]
             )
     indices = np.array(indices)
     return indices
@@ -134,6 +136,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             buffer_end_idx,
             sample_start_idx,
             sample_end_idx,
+            demo_idx,
         ) = self.indices[idx]
 
         # get normalized data using these indices
@@ -188,6 +191,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         normalizer: StateActionNormalizer,
         data_subset: int = None,
         first_action_idx: int = 0,
+        include_task: bool = False,
     ):
         # Read from zarr dataset
         self.dataset = zarr.open(dataset_path, "r")
@@ -211,28 +215,26 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1,
         )
 
-        normalized_train_data = dict()
-
         # float32, (N, embed_dim)
-        normalized_train_data["feature1"] = self.dataset["feature1"][
-            : self.episode_ends[-1]
-        ]
-        normalized_train_data["feature2"] = self.dataset["feature2"][
-            : self.episode_ends[-1]
-        ]
+        train_data["feature1"] = self.dataset["feature1"][: self.episode_ends[-1]]
+        train_data["feature2"] = self.dataset["feature2"][: self.episode_ends[-1]]
+
+        self.task_idxs = np.array(
+            [furniture_to_idx[f] for f in self.dataset["furniture"][:data_subset]]
+        )
 
         # Normalize data to [-1,1]
-        for key, data in train_data.items():
-            normalized_train_data[key] = normalizer(
-                torch.from_numpy(data), key, forward=True
+        for key in normalizer.keys():
+            train_data[key] = normalizer(
+                torch.from_numpy(train_data[key]), key, forward=True
             ).numpy()
 
         self.indices = indices
-        self.normalized_train_data = normalized_train_data
+        self.train_data = train_data
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
-        self.feature_dim = normalized_train_data["feature1"].shape[-1]
+        self.feature_dim = train_data["feature1"].shape[-1]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = train_data["action"].shape[-1]
@@ -243,7 +245,6 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
 
-        # self.final_action_idx = self.first_action_idx + self.action_horizon
         self.final_action_idx = self.first_action_idx + self.pred_horizon
 
     def __len__(self):
@@ -256,11 +257,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             buffer_end_idx,
             sample_start_idx,
             sample_end_idx,
+            demo_idx,
         ) = self.indices[idx]
 
         # get normalized data using these indices
         nsample = sample_sequence(
-            train_data=self.normalized_train_data,
+            train_data=self.train_data,
             sequence_length=self.pred_horizon,
             buffer_start_idx=buffer_start_idx,
             buffer_end_idx=buffer_end_idx,
@@ -277,6 +279,11 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         nsample["action"] = nsample["action"][
             self.first_action_idx : self.final_action_idx, :
         ]
+
+        # Add the task index to the sample
+        nsample["task_idx"] = self.task_idxs[demo_idx]
+
+        print(nsample["task_idx"])
 
         # for diffusion policy version (self.first_action_offset = 0)
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx

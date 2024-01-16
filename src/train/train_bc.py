@@ -59,6 +59,7 @@ def main(config: ConfigDict):
             normalizer=StateActionNormalizer(),
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
+            include_task=config.multi_task,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -437,6 +438,9 @@ if __name__ == "__main__":
     config.early_stopper.patience = float("inf")
 
     config.discount = 0.999
+
+    # Multi-task options
+    config.multi_task = True
 
     # Regularization
     config.weight_decay = 1e-6

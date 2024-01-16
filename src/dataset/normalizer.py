@@ -121,6 +121,9 @@ class StateActionNormalizer(nn.Module):
 
         return self._denormalize(x, key)
 
+    def keys(self):
+        return self.stats.keys()
+
     @property
     def stats_dict(self):
         # Return the stats as a dict of numpy arrays
