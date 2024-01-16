@@ -5,7 +5,7 @@ import zarr
 from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
 from src.dataset.zarr_mod import ZarrSubsetView
-from src.common.tasks import furniture_to_idx
+from src.common.tasks import furniture2idx
 
 
 from ipdb import set_trace as bp
@@ -220,7 +220,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         train_data["feature2"] = self.dataset["feature2"][: self.episode_ends[-1]]
 
         self.task_idxs = np.array(
-            [furniture_to_idx[f] for f in self.dataset["furniture"][:data_subset]]
+            [furniture2idx[f] for f in self.dataset["furniture"][:data_subset]]
         )
 
         # Normalize data to [-1,1]

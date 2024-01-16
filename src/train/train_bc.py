@@ -395,8 +395,8 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("FURNITURE_DATA_DIR_PROCESSED", "data"))
-    config.rollout_base_dir = Path(os.environ.get("ROLLOUT_SAVE_DIR", "rollouts"))
+    config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
+    config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
@@ -408,7 +408,6 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-violet-18/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 200
@@ -458,7 +457,9 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined.zarr"
+    config.datasim_path = (
+        "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
+    )
     # config.datasim_path = (
     #     config.data_base_dir
     #     / "processed/sim"
