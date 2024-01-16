@@ -83,6 +83,8 @@ def process_pickle_to_feature(input_path, output_path, encoder, batch_size=256):
     }
 
     output_path.mkdir(parents=True, exist_ok=True)
+
+    # Save the data to a Zarr file and add metadata
     zarr.save(
         str(output_path / "data.zarr"),
         action=np.array(actions, dtype=np.float32),
@@ -107,7 +109,6 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
     zarr_group = zarr.open(zarr_input_path, mode="r")
     episode_ends = zarr_group["episode_ends"]
     print(f"Number of episodes: {len(episode_ends)}")
-
 
     color_image1 = zarr_group["color_image1"]
     color_image2 = zarr_group["color_image2"]
@@ -142,6 +143,8 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
     output_group.array("robot_state", robot_state)
     output_group.array("skill", skills)
     output_group.attrs["time_created"] = str(np.datetime64("now"))
+    output_group.attrs["noop_threshold"] = zarr_group.attrs["noop_threshold"]
+    output_group.attrs["encoder"] = encoder.__class__.__name__
 
 
 # === Image obs ===
@@ -227,7 +230,7 @@ def initialize_zarr_store(out_path, initial_data, chunksize=32):
     return z
 
 
-def process_pickle_file(z, pickle_path):
+def process_pickle_file(z, pickle_path, noop_threshold):
     """
     Process a single pickle file and append data to the Zarr store.
     """
@@ -251,7 +254,7 @@ def process_pickle_file(z, pickle_path):
     skill = np.array(data["skills"], dtype=np.float32)
 
     # Find the indexes where no action is taken
-    moving = np.linalg.norm(action[:, :6], axis=1) > 0.02
+    moving = np.linalg.norm(action[:, :6], axis=1) > noop_threshold
 
     # Filter out the non-moving observations and add to the Zarr store
     z["robot_state"].append(robot_state[moving])
@@ -271,7 +274,7 @@ def process_pickle_file(z, pickle_path):
     z["pickle_files"].append([pickle_file])
 
 
-def create_zarr_dataset(in_dir, out_path, chunksize=32):
+def create_zarr_dataset(in_dir, out_path, chunksize=32, noop_threshold=0):
     """
     Create a Zarr dataset from multiple pickle files in a directory.
     """
@@ -287,14 +290,15 @@ def create_zarr_dataset(in_dir, out_path, chunksize=32):
     z = initialize_zarr_store(out_path, initial_data, chunksize=chunksize)
 
     # Process the first file
-    process_pickle_file(z, file_paths[0])
+    process_pickle_file(z, file_paths[0], noop_threshold=noop_threshold)
 
     # Process the remaining files
     for path in tqdm(file_paths[1:], desc="Processing pickle files"):
-        process_pickle_file(z, path)
+        process_pickle_file(z, path, noop_threshold=noop_threshold)
 
     # Update any final metadata if necessary
     z.attrs["time_finished"] = str(np.datetime64("now"))
+    z.attrs["noop_threshold"] = noop_threshold
 
 
 if __name__ == "__main__":
@@ -343,16 +347,22 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
 
     if args.obs_out == "feature":
-        output_path = output_path / "data_updated_env.zarr"
+        output_path = output_path / "data.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
-            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32.zarr",
+            f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32_new.zarr",
             output_path,
             encoder,
             batch_size=args.batch_size,
         )
     elif args.obs_out == "image":
         chunksize = 32
+        noop_threshold = 0.02
         output_path = output_path / f"data_batch_{chunksize}.zarr"
         print(f"Output path: {output_path}")
-        create_zarr_dataset(raw_data_path, output_path, chunksize=chunksize)
+        create_zarr_dataset(
+            raw_data_path,
+            output_path,
+            chunksize=chunksize,
+            noop_threshold=noop_threshold,
+        )
