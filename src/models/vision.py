@@ -7,6 +7,7 @@ from r3m import load_r3m
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
+from src.common.context import suppress_all_output
 from src.models.vit import vit_base_patch16
 
 
@@ -130,7 +131,10 @@ class VIPEncoder(torch.nn.Module):
     def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
         self.device = device
-        self.model = load_vip().module.to(device)
+
+        with suppress_all_output(True):
+            self.model = load_vip().module.to(device)
+
         self.encoding_dim = self.model.convnet.fc.out_features
 
         if freeze:

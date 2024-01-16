@@ -14,6 +14,7 @@ import pickle
 
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
+from src.common.context import suppress_all_output
 
 
 import wandb
@@ -26,7 +27,9 @@ def rollout(
     pbar: tqdm = None,
 ):
     # get first observation
-    obs = env.reset()
+    with suppress_all_output(True):
+        obs = env.reset()
+
     obs_horizon = actor.obs_horizon
 
     # keep a queue of last 2 steps of observations
@@ -154,7 +157,7 @@ def calculate_success_rate(
         )
 
         # Calculate the success rate
-        success = rewards.sum(dim=1) > 0
+        success = rewards.sum(dim=1) == env.furniture.num_parts - 1
         n_success += success.sum().item()
 
         # Save the results from the rollout
