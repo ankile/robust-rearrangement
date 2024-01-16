@@ -280,9 +280,9 @@ def main(config: ConfigDict):
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
 
         # Save the model if the test loss is the best so far
-        if test_loss_mean < best_test_loss:
+        if config.checkpoint_model and test_loss_mean < best_test_loss:
             best_test_loss = test_loss_mean
-            save_path = str(model_save_dir / f"actor_chkpt_best.pt")
+            save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
             torch.save(
                 actor.state_dict(),
                 save_path,
@@ -310,14 +310,6 @@ def main(config: ConfigDict):
             and (epoch_idx + 1) % config.rollout.every == 0
             and np.mean(epoch_loss) < config.rollout.loss_threshold
         ):
-            # Checkpoint the model
-            if config.checkpoint_model:
-                save_path = str(model_save_dir / f"actor_chkpt_latest.pt")
-                torch.save(
-                    actor.state_dict(),
-                    save_path,
-                )
-
             # Do not load the environment until we successfuly made it this far
             if env is None:
                 env: FurnitureSimEnv = get_env(
@@ -466,17 +458,17 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    # config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined_test.zarr"
-    config.datasim_path = (
-        config.data_base_dir
-        / "processed/sim"
-        / get_data_path(
-            config.observation_type,
-            config.vision_encoder.model,
-            config.furniture,
-            # suffix="updated_env",
-        )
-    )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined.zarr"
+    # config.datasim_path = (
+    #     config.data_base_dir
+    #     / "processed/sim"
+    #     / get_data_path(
+    #         config.observation_type,
+    #         config.vision_encoder.model,
+    #         config.furniture,
+    #         # suffix="updated_env",
+    #     )
+    # )
 
     print(f"Using data from {config.datasim_path}")
 
