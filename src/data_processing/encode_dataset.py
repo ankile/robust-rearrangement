@@ -1,17 +1,12 @@
 from pathlib import Path
-import pickle
-from glob import glob
 import argparse
 import os
 import numpy as np
 import zarr
-from tqdm import tqdm, trange
+from tqdm import trange
 from src.models.vision import get_encoder
 import torch
-from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from datetime import datetime
-
-from ipdb import set_trace as bp
 
 
 # === Image Zarr to feature Zarr ===

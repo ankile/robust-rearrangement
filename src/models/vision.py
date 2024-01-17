@@ -2,14 +2,13 @@ import torch
 import torch.nn as nn
 import torchvision
 import transformers
-import warnings
 from vip import load_vip
 from r3m import load_r3m
+
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
-from src.behavior.base import Actor
 
 from robomimic.models.obs_core import VisualCore
 
@@ -52,7 +51,7 @@ def get_resnet(model_name, weights=None, **kwargs):
 
 
 class VisionEncoder(ModuleAttrMixin):
-    model: Actor
+    model: nn.Module
 
     def freeze(self):
         for param in self.model.parameters():
@@ -189,10 +188,7 @@ class VIPEncoder(torch.nn.Module):
         super().__init__()
         self.device = device
 
-        # Temporarily suppres warnings when loading VIP
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=UserWarning)
-            self.model = load_vip().module.to(device)
+        self.model = load_vip().module.to(device)
 
         self.encoding_dim = self.model.convnet.fc.out_features
 
