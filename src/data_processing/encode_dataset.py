@@ -63,63 +63,40 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", "-e", type=str)
-    parser.add_argument(
-        "--source",
-        "-s",
-        type=str,
-        choices=["scripted", "rollout", "teleop"],
-        default="scripted",
-        nargs="+",
-    )
-    parser.add_argument("--obs-in", "-i", type=str)
-    parser.add_argument("--obs-out", "-o", type=str)
     parser.add_argument("--encoder", "-c", default=None, type=str)
-    parser.add_argument("--furniture", "-f", type=str, default=None)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--randomness", "-r", type=str, default=None)
+    parser.add_argument("--zarr-path", "-z", type=str, required=True)
 
     args = parser.parse_args()
 
     global device
     device = torch.device(f"cuda:{args.gpu_id}")
 
-    if args.obs_out == "feature":
-        assert args.encoder is not None, "Must specify encoder when using feature obs"
+    assert args.encoder is not None, "Must specify encoder when using feature obs"
 
-    data_base_path_in = Path(os.environ["DATA_DIR_RAW"])
-    data_base_path_out = Path(os.environ["DATA_DIR_PROCESSED"])
+    input_path = Path(args.zarr_path)
 
-    obs_out_path = args.obs_out
+    path_parts = list(input_path.parts)
 
-    raw_data_path = data_base_path_in / "raw" / args.env / args.source
-    output_path = data_base_path_out / "processed" / args.env / obs_out_path
+    # Find index of "image" in the path
+    image_index = path_parts.index("image")
 
-    encoder = None
-    if args.encoder is not None:
-        output_path = output_path / args.encoder
-        encoder = get_encoder(args.encoder, freeze=True, device=device)
-        encoder.eval()
+    # Insert "feature" instead of "image" and the encoder name after "feature"
+    path_parts[image_index] = "feature"
+    path_parts.insert(image_index + 1, args.encoder)
 
-    if args.furniture is not None:
-        raw_data_path = raw_data_path / args.furniture
-        output_path = output_path / args.furniture
+    # Turn it back into a path
+    output_path = Path(os.path.join(*path_parts))
 
-    if args.randomness is not None:
-        assert (
-            args.furniture is not None
-        ), "Must specify furniture when using randomness"
-        assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
-        raw_data_path = raw_data_path / args.randomness
-        output_path = output_path / args.randomness
+    encoder = get_encoder(args.encoder, freeze=True, device=device)
+    encoder.eval()
 
-    print(f"Raw data path: {raw_data_path}")
-
-    output_path = output_path / "data.zarr"
+    print(f"Raw data path: {args.zarr_path}")
     print(f"Output path: {output_path}")
+
     process_zarr_to_feature(
-        f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32.zarr",
+        args.zarr_path,
         output_path,
         encoder,
         batch_size=args.batch_size,
