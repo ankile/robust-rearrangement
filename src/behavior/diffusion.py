@@ -32,8 +32,9 @@ class DiffusionPolicy(Actor):
 
         self.inference_steps = config.inference_steps
         self.observation_type = config.observation_type
-        self.noise_augment = config.noise_augment
+        self.feature_noise = config.feature_noise
         self.feature_dropout = config.feature_dropout
+        self.feature_layernorm = config.feature_layernorm
         self.freeze_encoder = freeze_encoder
         self.device = device
 
@@ -76,8 +77,8 @@ class DiffusionPolicy(Actor):
             )
         )
 
-        self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
-        self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
+        self.encoding_dim = self.encoder1.encoding_dim
+        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
         self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
         self.model = ConditionalUnet1D(
@@ -85,9 +86,6 @@ class DiffusionPolicy(Actor):
             global_cond_dim=self.obs_dim,
             down_dims=config.down_dims,
         ).to(device)
-
-        if self.feature_dropout:
-            self.dropout = nn.Dropout(p=config.feature_dropout)
 
     # === Inference ===
     def _normalized_action(self, nobs):
