@@ -9,7 +9,7 @@ import wandb
 from ml_collections import ConfigDict
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
-from src.dataset.normalizer import StateActionNormalizer
+from src.common.tasks import furniture2idx
 from src.gym import get_env
 
 from ipdb import set_trace as bp  # noqa
@@ -28,7 +28,7 @@ if __name__ == "__main__":
         "--furniture",
         "-f",
         type=str,
-        choices=["one_leg", "lamp", "round_table"],
+        choices=["one_leg", "lamp", "round_table", "desk"],
         required=True,
     )
     args.add_argument("--save-rollouts", action="store_true")
@@ -94,12 +94,18 @@ if __name__ == "__main__":
         mode="online" if args.wandb else "disabled",
     )
 
+    timeouts = {
+        **sim_config["scripted_timeout"],
+        "desk": 1_000,
+    }
+
     # Perform the rollouts
+    actor.set_task(furniture2idx[args.furniture])
     success_rate = calculate_success_rate(
         actor=actor,
         env=env,
         n_rollouts=args.n_rollouts,
-        rollout_max_steps=sim_config["scripted_timeout"][args.furniture],
+        rollout_max_steps=timeouts[args.furniture],
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
