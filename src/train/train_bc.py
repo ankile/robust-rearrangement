@@ -418,11 +418,11 @@ if __name__ == "__main__":
     # config.feature_dropout = False
     config.feature_dropout = 0.1
 
-    # config.feature_noise = False
-    config.feature_noise = 0.01
+    config.feature_noise = False
+    # config.feature_noise = 0.01
 
-    # config.feature_layernorm = False
-    config.feature_layernorm = True
+    config.feature_layernorm = False
+    # config.feature_layernorm = True
 
     config.augment_image = True
     config.augmentation = ConfigDict()
