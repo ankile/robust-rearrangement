@@ -8,12 +8,12 @@ from PIL import Image
 
 class ImageAugmentation:
     # Defaults
-    max_translate = 20
+    max_translate = 10
 
-    brightness = 0.3
-    contrast = 0.3
-    saturation = 0.3
-    hue = 0.3
+    brightness = 0.1
+    contrast = 0.1
+    saturation = 0.1
+    hue = 0.1
 
     degrees = 5
 

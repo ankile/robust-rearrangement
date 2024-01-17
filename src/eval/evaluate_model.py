@@ -8,7 +8,7 @@ import torch
 import wandb
 from ml_collections import ConfigDict
 from src.eval.rollout import calculate_success_rate
-from src.behavior.diffusion_policy import DiffusionPolicy
+from src.behavior import get_actor
 from src.dataset.normalizer import StateActionNormalizer
 from src.gym import get_env
 
@@ -50,13 +50,7 @@ if __name__ == "__main__":
     )
 
     # Make the actor
-    actor = DiffusionPolicy(
-        device=device,
-        encoder_name=config.vision_encoder.model,
-        freeze_encoder=config.vision_encoder.freeze,
-        normalizer=StateActionNormalizer(),
-        config=config,
-    )
+    actor = get_actor(config=config, device=device)
 
     # Load the model weights
     actor.load_state_dict(torch.load(model_path))

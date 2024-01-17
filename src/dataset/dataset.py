@@ -110,11 +110,14 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add image augmentation
         self.augment_image = augment_image
-        self.image_augmentation = ImageAugmentation(
+        self.image_augmentation1 = ImageAugmentation(
+            random_translate=False,
+            color_jitter=True,
+        )
+        self.image_augmentation2 = ImageAugmentation(
             random_translate=True,
             color_jitter=False,
         )
-        self.image_augmentation.max_translate = 10
 
         self.task_idxs = np.array(
             [furniture2idx[f] for f in self.train_data["furniture"][:data_subset]]
@@ -173,10 +176,10 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         if self.augment_image:
             # Image augmentation function accepts one image at a time, need to loop over the batch
             nsample["color_image1"] = np.stack(
-                [self.image_augmentation(sample) for sample in nsample["color_image1"]]
+                [self.image_augmentation1(sample) for sample in nsample["color_image1"]]
             )
             nsample["color_image2"] = np.stack(
-                [self.image_augmentation(sample) for sample in nsample["color_image2"]]
+                [self.image_augmentation2(sample) for sample in nsample["color_image2"]]
             )
 
         # Add the task index to the sample

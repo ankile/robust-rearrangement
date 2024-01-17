@@ -18,9 +18,7 @@ from src.common.tasks import furniture2idx
 from src.gym import get_env
 from tqdm import tqdm
 from ipdb import set_trace as bp
-from src.behavior.diffusion_policy import DiffusionPolicy, MultiTaskDiffusionPolicy
-from src.behavior.mlp import MLPActor
-from src.behavior.rnn import RNNActor
+from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_apply
 import argparse
@@ -76,41 +74,7 @@ def main(config: ConfigDict):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
-    if config.actor == "mlp":
-        actor = MLPActor(
-            device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
-            config=config,
-        )
-    elif config.actor == "rnn":
-        actor = RNNActor(
-            device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
-            config=config,
-        )
-    elif config.actor == "diffusion":
-        if "multi_task" in config and config.multi_task:
-            actor = MultiTaskDiffusionPolicy(
-                device=device,
-                encoder_name=config.vision_encoder.model,
-                freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(),
-                config=config,
-            )
-        else:
-            actor = DiffusionPolicy(
-                device=device,
-                encoder_name=config.vision_encoder.model,
-                freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(),
-                config=config,
-            )
-    else:
-        raise ValueError(f"Unknown actor type: {config.actor}")
+    actor = get_actor(config, device)
 
     # Update the config object with the observation dimension
     config.timestep_obs_dim = actor.timestep_obs_dim
@@ -407,7 +371,7 @@ if __name__ == "__main__":
     config.dryrun = args.dryrun
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
-    config.load_checkpoint_path = None
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/vivid-sun-1/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 300
@@ -465,18 +429,18 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    # config.datasim_path = (
-    #     "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
-    # )
     config.datasim_path = (
-        config.data_base_dir
-        / "processed/sim"
-        / get_data_path(
-            config.observation_type,
-            config.vision_encoder.model,
-            config.furniture,
-        )
+        "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
     )
+    # config.datasim_path = (
+    #     config.data_base_dir
+    #     / "processed/sim"
+    #     / get_data_path(
+    #         config.observation_type,
+    #         config.vision_encoder.model,
+    #         config.furniture,
+    #     )
+    # )
 
     print(f"Using data from {config.datasim_path}")
 
