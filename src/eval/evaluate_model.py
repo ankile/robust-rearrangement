@@ -28,7 +28,7 @@ if __name__ == "__main__":
         "--furniture",
         "-f",
         type=str,
-        choices=["one_leg", "lamp", "round_table", "desk"],
+        choices=["one_leg", "lamp", "round_table", "desk", "square_table", "cabinet"],
         required=True,
     )
     args.add_argument("--save-rollouts", action="store_true")
@@ -97,6 +97,7 @@ if __name__ == "__main__":
     timeouts = {
         **sim_config["scripted_timeout"],
         "desk": 1_000,
+        "square_table": 2_000,
     }
 
     # Perform the rollouts
