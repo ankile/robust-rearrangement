@@ -110,8 +110,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.augment_image = augment_image
         self.image_augmentation = ImageAugmentation(
             random_translate=True,
-            color_jitter=True,
+            color_jitter=False,
         )
+        self.image_augmentation.max_translate = 10
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]

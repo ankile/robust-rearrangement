@@ -28,7 +28,7 @@ from ml_collections import ConfigDict
 
 from gym import logger
 
-logger.set_level(logger.ERROR)
+logger.set_level(logger.DISABLED)
 
 
 def main(config: ConfigDict):
@@ -153,13 +153,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        # id="zt2vda6t",
-        # resume="must",
-        project="multi-task-test",
+        project="image-training",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Also check that we are successful with the newly collected data as well.",
+        notes="Doing a run with spatial softmax and less augmentation after fixing horizon bug.",
     )
 
     # save stats to wandb and update the config object
@@ -403,10 +401,10 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-violet-18/actor_chkpt_latest.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/curious-breeze-46/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 300
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
@@ -426,8 +424,9 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.freeze = False
+    config.vision_encoder.pretrained = False
+    config.vision_encoder.encoding_dim = 256
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -440,6 +439,11 @@ if __name__ == "__main__":
     config.weight_decay = 1e-6
     config.feature_dropout = False
     config.augment_image = True
+
+    config.augmentation = ConfigDict()
+    config.augmentation.translate = 10
+    config.augmentation.color_jitter = False
+
     config.noise_augment = False
 
     config.model_save_dir = "models"
@@ -449,8 +453,6 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.remove_noop = True
-    # config.datasim_path = "/data/pulkitag/data/ankile/furniture-data/data/processed/sim/feature_separate_small/vip/one_leg/data.zarr"
     config.datasim_path = (
         config.data_base_dir
         / "processed/sim"
@@ -458,7 +460,6 @@ if __name__ == "__main__":
             config.observation_type,
             config.vision_encoder.model,
             config.furniture,
-            suffix="updated_env",
         )
     )
 

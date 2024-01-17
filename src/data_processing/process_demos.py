@@ -108,7 +108,6 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
     episode_ends = zarr_group["episode_ends"]
     print(f"Number of episodes: {len(episode_ends)}")
 
-
     color_image1 = zarr_group["color_image1"]
     color_image2 = zarr_group["color_image2"]
 
@@ -343,7 +342,7 @@ if __name__ == "__main__":
     print(f"Raw data path: {raw_data_path}")
 
     if args.obs_out == "feature":
-        output_path = output_path / "data_updated_env.zarr"
+        output_path = output_path / "data.zarr"
         print(f"Output path: {output_path}")
         process_zarr_to_feature(
             f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32.zarr",

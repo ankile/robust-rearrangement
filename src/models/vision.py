@@ -8,6 +8,9 @@ from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
+from src.behavior.base import Actor
+
+from robomimic.models.obs_core import VisualCore
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
@@ -25,6 +28,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
             use_groupnorm=True,
             pretrained=pretrained,
         )
+    if encoder_name == "spatial_softmax":
+        return SpatialSoftmaxEncoder(freeze=False, device=device)
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":
@@ -45,7 +50,69 @@ def get_resnet(model_name, weights=None, **kwargs):
     return resnet
 
 
-class ResnetEncoder(ModuleAttrMixin):
+class VisionEncoder(ModuleAttrMixin):
+    model: Actor
+
+    def freeze(self):
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        self.model.eval()
+
+    normalize = torchvision.transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+    )
+
+
+class SpatialSoftmaxEncoder(VisionEncoder):
+    def __init__(
+        self,
+        model_name="ResNet18Conv",
+        freeze=True,
+        device="cuda",
+        use_groupnorm=True,
+        *args,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.encoding_dim = 256
+
+        self.model = VisualCore(
+            input_shape=[3, 224, 224],
+            backbone_class=model_name,
+            pool_class="SpatialSoftmax",
+            pool_kwargs={"num_kp": 32},
+            flatten=True,
+            feature_dimension=self.encoding_dim,
+        )
+
+        if use_groupnorm:
+            self.model = replace_submodules(
+                root_module=self.model,
+                predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                func=lambda x: nn.GroupNorm(
+                    num_groups=x.num_features // 16, num_channels=x.num_features
+                ),
+            )
+
+        self.model = self.model.to(device)
+
+        if freeze:
+            self.freeze()
+
+    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    def forward(self, x):
+        # Move channels to the front
+        x = x.permute(0, 3, 1, 2)
+        # Normalize images
+        x = x / 255.0
+        x = self.normalize(x)
+        x = self.model(x)
+        return x
+
+
+class ResnetEncoder(VisionEncoder):
     def __init__(
         self,
         model_name,
@@ -74,16 +141,6 @@ class ResnetEncoder(ModuleAttrMixin):
             )
 
         self.model = self.model.to(device)
-
-        if freeze:
-            for param in self.model.parameters():
-                param.requires_grad = False
-
-            self.model.eval()
-
-        self.normalize = torchvision.transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        )
 
     # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
     def forward(self, x):
