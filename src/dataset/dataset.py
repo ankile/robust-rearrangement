@@ -283,8 +283,6 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         # Add the task index to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
 
-        print(nsample["task_idx"])
-
         # for diffusion policy version (self.first_action_offset = 0)
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
         # |o|o|                             observations:       2

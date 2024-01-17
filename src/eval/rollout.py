@@ -12,6 +12,8 @@ from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import pickle
 
+from typing import Union
+
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
@@ -127,7 +129,8 @@ def calculate_success_rate(
     rollout_max_steps: int,
     epoch_idx: int,
     gamma: float = 0.99,
-    rollout_save_dir: str = None,
+    rollout_save_dir: Union[str, None] = None,
+    save_failures: bool = False,
 ):
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -210,7 +213,7 @@ def calculate_success_rate(
             ]
         )
 
-        if rollout_save_dir is not None:
+        if rollout_save_dir is not None and (save_failures or success):
             output_path = rollout_save_dir / f"rollout_{rollout_idx}.pkl"
 
             # Save the raw rollout data
@@ -248,19 +251,21 @@ def calculate_success_rate(
 def do_rollout_evaluation(
     config: ConfigDict,
     env: FurnitureSimEnv,
-    model_save_dir: Path,
-    rollout_base_dir: Path,
+    rollout_base_dir: Union[Path, None],
     actor: Actor,
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
-    rollout_save_dir = (
-        rollout_base_dir
-        / "raw"
-        / "sim_rollouts"
-        / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    )
-    rollout_save_dir.mkdir(parents=True, exist_ok=True)
+    rollout_save_dir = None
+
+    if rollout_base_dir is not None:
+        rollout_save_dir = (
+            rollout_base_dir
+            / "raw"
+            / "sim_rollouts"
+            / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        )
+        rollout_save_dir.mkdir(parents=True, exist_ok=True)
 
     actor.set_task(furniture2idx[config.furniture])
 

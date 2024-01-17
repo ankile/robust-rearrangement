@@ -164,11 +164,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="multi-task-test",
+        project="multi-task",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Train naively on data for 3 tasks without any conditioning on the task.",
+        notes="Train on three tasks with simple task conditioning.",
     )
 
     # save stats to wandb and update the config object
@@ -326,7 +326,6 @@ def main(config: ConfigDict):
             best_success_rate = do_rollout_evaluation(
                 config,
                 env,
-                model_save_dir,
                 config.rollout_base_dir,
                 actor,
                 best_success_rate,
@@ -396,7 +395,8 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
-    config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
+    # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
+    config.rollout_base_dir = None
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
@@ -442,6 +442,8 @@ if __name__ == "__main__":
 
     # Multi-task options
     config.multi_task = True
+    config.task_dim = 16
+    config.num_tasks = len(furniture2idx)
 
     # Regularization
     config.weight_decay = 1e-6

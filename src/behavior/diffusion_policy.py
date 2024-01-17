@@ -222,7 +222,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         nobs = super()._training_obs(batch, flatten=True)
 
         # Get the task embedding
-        task_idx = batch["task"]
+        task_idx = batch["task_idx"]
         task_embedding = self.task_encoder(task_idx)
 
         # Concatenate the task embedding to the observation
@@ -238,10 +238,11 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
 
         # Get the standard observation data
         nobs = super()._normalized_obs(obs, flatten=True)
+        B = nobs.shape[0]
 
-        # Get the task embedding
+        # Get the task embedding for the current task and repeat it for the batch size
         task_embedding = self.task_encoder(
-            torch.tensor(self.current_task).to(self.device)
+            torch.tensor(self.current_task).to(self.device).repeat(B)
         )
 
         # Concatenate the task embedding to the observation

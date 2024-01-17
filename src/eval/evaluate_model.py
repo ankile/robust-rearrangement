@@ -31,6 +31,7 @@ if __name__ == "__main__":
         choices=["one_leg", "lamp", "round_table"],
         required=True,
     )
+    args.add_argument("--save-failures", action="store_true")
 
     # Parse the arguments
     args = args.parse_args()
@@ -99,6 +100,7 @@ if __name__ == "__main__":
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
+        save_failures=args.save_failures,
     )
 
     # Log the success rate to wandb
