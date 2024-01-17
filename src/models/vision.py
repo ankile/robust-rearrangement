@@ -8,7 +8,6 @@ from r3m import load_r3m
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
-from src.common.context import suppress_all_output
 from src.models.vit import vit_base_patch16
 from src.behavior.base import Actor
 

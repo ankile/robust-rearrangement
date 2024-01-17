@@ -1,4 +1,6 @@
 from datetime import datetime
+from pathlib import Path
+from typing import Union
 import imageio
 from io import BytesIO
 import pickle
@@ -11,7 +13,26 @@ from tqdm import tqdm
 import numpy as np
 
 
-def create_mp4(np_images, filename, fps=10):
+from IPython.display import HTML
+
+
+def create_mp4_jupyter(np_images, filename, fps=10) -> HTML:
+    with imageio.get_writer(filename, fps=fps) as writer:
+        for img in np_images:
+            writer.append_data(img)
+    print(f"File saved as {filename}")
+    # Display the video in the Jupyter Notebook
+    video_tag = f'<video controls src="{filename}" width="640" height="480"></video>'
+
+    return HTML(video_tag)
+
+
+def mp4_from_pickle_jupyter(pickle_path: Union[str, Path], filename=None) -> HTML:
+    ims = extract_numpy_frames(pickle_path)
+    return create_mp4_jupyter(ims, filename)
+
+
+def create_mp4(np_images: np.ndarray, filename: Union[str, Path], fps=10) -> None:
     # duration = 1000 / fps
     with imageio.get_writer(filename, fps=fps) as writer:
         for img in tqdm(np_images):
@@ -20,14 +41,28 @@ def create_mp4(np_images, filename, fps=10):
 
 
 def mp4_from_pickle(pickle_path, filename=None):
-    with open(pickle_path, "rb") as f:
-        data = pickle.load(f)
+    ims = extract_numpy_frames(pickle_path)
+    create_mp4(ims, filename)
 
+
+def extract_numpy_frames(pickle_path: Union[str, Path]) -> np.ndarray:
+    data = pickle_data(pickle_path)
+    ims = data_to_video(data)
+
+    return ims
+
+
+def data_to_video(data: dict) -> np.ndarray:
     ims1 = np.array([o["color_image1"] for o in data["observations"]])
     ims2 = np.array([o["color_image2"] for o in data["observations"]])
     ims = np.concatenate([ims1, ims2], axis=2)
+    return ims
 
-    create_mp4(ims, filename)
+
+def pickle_data(pickle_path):
+    with open(pickle_path, "rb") as f:
+        data = pickle.load(f)
+    return data
 
 
 def create_in_memory_mp4(np_images, fps=10):

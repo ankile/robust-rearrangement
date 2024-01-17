@@ -5,6 +5,8 @@ furniture2idx = {
     "desk": 3,
     "square_table": 4,
     "cabinet": 5,
+    "stool": 6,
+    "chair": 7,
 }
 
 idx2furniture = {v: k for k, v in furniture2idx.items()}

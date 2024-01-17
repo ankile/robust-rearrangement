@@ -128,11 +128,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="multi-task",
+        project="simple-regularization",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Simple conditioning and spatial softmax encoder.",
+        # notes="",
     )
 
     # save stats to wandb and update the config object
@@ -322,6 +322,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--encoder", "-e", type=str, default="vip")
     parser.add_argument("--furniture", "-f", type=str, default="one_leg")
+    parser.add_argument("--no-rollout", action="store_true")
 
     args = parser.parse_args()
 
@@ -371,18 +372,19 @@ if __name__ == "__main__":
     config.dryrun = args.dryrun
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/vivid-sun-1/actor_chkpt_best_test_loss.pt"
+    config.load_checkpoint_path = None
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/vivid-sun-1/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 300
+    config.num_epochs = 100
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1)
-    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
+    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
+    config.rollout.loss_threshold = dryrun(0.015, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
@@ -394,14 +396,14 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = False
-    config.vision_encoder.pretrained = False
-    config.vision_encoder.encoding_dim = 256
-    config.vision_encoder.normalize_features = False
+    config.vision_encoder.freeze = True
+    config.vision_encoder.pretrained = True
+    # config.vision_encoder.encoding_dim = 256
+    # config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
     config.early_stopper.smooth_factor = 0.9
-    config.early_stopper.patience = float("inf")
+    config.early_stopper.patience = 10
 
     config.discount = 0.999
 
@@ -412,14 +414,20 @@ if __name__ == "__main__":
 
     # Regularization
     config.weight_decay = 1e-6
-    config.feature_dropout = False
-    config.augment_image = True
 
+    # config.feature_dropout = False
+    config.feature_dropout = 0.1
+
+    config.feature_noise = False
+    # config.feature_noise = 0.01
+
+    config.feature_layernorm = False
+    # config.feature_layernorm = True
+
+    config.augment_image = True
     config.augmentation = ConfigDict()
     config.augmentation.translate = 10
     config.augmentation.color_jitter = False
-
-    config.noise_augment = False
 
     config.model_save_dir = "models"
     config.checkpoint_model = True
@@ -429,18 +437,18 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
-    )
     # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(
-    #         config.observation_type,
-    #         config.vision_encoder.model,
-    #         config.furniture,
-    #     )
+    #     "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
     # )
+    config.datasim_path = (
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(
+            config.observation_type,
+            config.vision_encoder.model,
+            config.furniture,
+        )
+    )
 
     print(f"Using data from {config.datasim_path}")
 
