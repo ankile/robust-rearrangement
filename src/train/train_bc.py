@@ -128,7 +128,7 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="simple-regularization",
+        project="teleop-finetune",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
@@ -169,6 +169,7 @@ def main(config: ConfigDict):
         dataset.augment_image = config.augment_image
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
+            break
             opt_noise.zero_grad()
 
             # device transfer
@@ -272,7 +273,7 @@ def main(config: ConfigDict):
         if (
             config.rollout.every != -1
             and (epoch_idx + 1) % config.rollout.every == 0
-            and np.mean(epoch_loss) < config.rollout.loss_threshold
+            and np.mean(test_loss_mean) < config.rollout.loss_threshold
         ):
             # Do not load the environment until we successfuly made it this far
             if env is None:
@@ -373,7 +374,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/vivid-sun-1/actor_chkpt_best_test_loss.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-meadow-21/actor_chkpt_latest.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -383,8 +384,8 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.015, fb=float("inf"))
+    config.rollout.every = dryrun(1, fb=1) if not args.no_rollout else -1
+    config.rollout.loss_threshold = dryrun(2, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
@@ -415,8 +416,8 @@ if __name__ == "__main__":
     # Regularization
     config.weight_decay = 1e-6
 
-    # config.feature_dropout = False
-    config.feature_dropout = 0.1
+    config.feature_dropout = False
+    # config.feature_dropout = 0.1
 
     config.feature_noise = False
     # config.feature_noise = 0.01
@@ -437,18 +438,18 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    # config.datasim_path = (
-    #     "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
-    # )
     config.datasim_path = (
-        config.data_base_dir
-        / "processed/sim"
-        / get_data_path(
-            config.observation_type,
-            config.vision_encoder.model,
-            config.furniture,
-        )
+        "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/teleop.zarr"
     )
+    # config.datasim_path = (
+    #     config.data_base_dir
+    #     / "processed/sim"
+    #     / get_data_path(
+    #         config.observation_type,
+    #         config.vision_encoder.model,
+    #         config.furniture,
+    #     )
+    # )
 
     print(f"Using data from {config.datasim_path}")
 

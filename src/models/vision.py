@@ -4,6 +4,8 @@ import torchvision
 import transformers
 from vip import load_vip
 from r3m import load_r3m
+from voltron import instantiate_extractor, load as load_voltron
+
 
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
@@ -306,4 +308,30 @@ class MAEEncoder(torch.nn.Module):
         x = x / 255.0
         x = self.normalize(x)
         x = self.model.forward_features(x)
+        return x
+
+
+class VoltronEncoder(torch.nn.Module):
+    def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
+        super().__init__()
+        # Load a frozen Voltron (V-Cond) model & configure a vector extractor
+        vcond, preprocess = load_voltron(
+            "v-cond",
+            device=device,
+            freeze=freeze,
+            cache="/data/scratch/ankile/.voltron",
+        )
+        vector_extractor = instantiate_extractor(vcond)().to(device)
+
+        self.model = vcond
+        self.preprocess = preprocess
+        self.vector_extractor = vector_extractor
+
+        self.encoding_dim = 384
+
+    def forward(self, x):
+        x = x.permute(0, 3, 1, 2)
+        x = self.preprocess(x)
+        x = self.model(x)
+        x = self.vector_extractor(x)
         return x
