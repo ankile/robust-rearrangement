@@ -112,8 +112,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.augment_image = augment_image
         self.image_augmentation = ImageAugmentation(
             random_translate=True,
-            color_jitter=True,
+            color_jitter=False,
         )
+        self.image_augmentation.max_translate = 10
 
         self.task_idxs = np.array(
             [furniture2idx[f] for f in self.train_data["furniture"][:data_subset]]

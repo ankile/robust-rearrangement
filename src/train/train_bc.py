@@ -31,7 +31,7 @@ from ml_collections import ConfigDict
 
 from gym import logger
 
-logger.set_level(logger.ERROR)
+logger.set_level(logger.DISABLED)
 
 
 def main(config: ConfigDict):
@@ -164,11 +164,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="round-table",
+        project="multi-task",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        # notes="Train on three tasks with simple task conditioning.",
+        notes="Simple conditioning and spatial softmax encoder.",
     )
 
     # save stats to wandb and update the config object
@@ -410,7 +410,7 @@ if __name__ == "__main__":
     config.load_checkpoint_path = None
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 300
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
@@ -430,8 +430,9 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.freeze = False
+    config.vision_encoder.pretrained = False
+    config.vision_encoder.encoding_dim = 256
     config.vision_encoder.normalize_features = False
 
     config.early_stopper = ConfigDict()
@@ -449,6 +450,11 @@ if __name__ == "__main__":
     config.weight_decay = 1e-6
     config.feature_dropout = False
     config.augment_image = True
+
+    config.augmentation = ConfigDict()
+    config.augmentation.translate = 10
+    config.augmentation.color_jitter = False
+
     config.noise_augment = False
 
     config.model_save_dir = "models"

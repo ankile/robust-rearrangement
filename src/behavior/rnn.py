@@ -9,7 +9,6 @@ from robomimic.algo.algo import PolicyAlgo
 import robomimic.utils.obs_utils as ObsUtils
 
 from src.behavior.base import Actor
-from src.models.mlp import MLP
 from src.models.vision import get_encoder
 from src.dataset.normalizer import StateActionNormalizer
 from src.baseline.robomimic_config_util import get_rm_config
@@ -52,13 +51,15 @@ class RNNActor(Actor):
         self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
         self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
-        # heavily borrowed from
+        # Heavily borrowed from
         # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/policy/robomimic_image_policy.py
         # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/policy/robomimic_lowdim_policy.py#L25
-        # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/config/task/tool_hang_image.yaml 
+        # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/config/task/tool_hang_image.yaml
 
-        obs_key = 'obs'
-        obs_key_shapes = {obs_key: [self.timestep_obs_dim]}  # RNN expects inputs in form (B, T, D)
+        obs_key = "obs"
+        obs_key_shapes = {
+            obs_key: [self.timestep_obs_dim]
+        }  # RNN expects inputs in form (B, T, D)
         action_dim = self.action_dim
 
         config = get_rm_config()
@@ -75,18 +76,18 @@ class RNNActor(Actor):
             config=config,
             obs_key_shapes=obs_key_shapes,
             ac_dim=action_dim,
-            device=device
+            device=device,
         )
 
     def train_mode(self):
         """
-        Set models to train mode 
+        Set models to train mode
         """
         self.model.set_train()
 
     def eval_mode(self):
         """
-        Set models to eval mode 
+        Set models to eval mode
         """
         self.model.set_eval()
 
@@ -94,21 +95,21 @@ class RNNActor(Actor):
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations (only want the last one for RNN policy)
-        nobs = self._normalized_obs(obs, flatten=False)[:, -1] 
+        nobs = self._normalized_obs(obs, flatten=False)[:, -1]
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
             # Predict normalized action
 
             # https://github.com/ARISE-Initiative/robomimic/blob/master/robomimic/algo/bc.py#L537
-            obs_dict = {
-                "obs": nobs
-            }
+            obs_dict = {"obs": nobs}
             naction = self.model.get_action(obs_dict)
 
             # unnormalize action
             # (B, pred_horizon, action_dim)
-            action_pred = self.normalizer(naction, "action", forward=False).reshape(-1, self.action_horizon, self.action_dim)
+            action_pred = self.normalizer(naction, "action", forward=False).reshape(
+                -1, self.action_horizon, self.action_dim
+            )
 
             # Add the actions to the queue
             # only take action_horizon number of actions
@@ -129,9 +130,10 @@ class RNNActor(Actor):
         naction = batch["action"]
 
         obs_dict = {"obs": obs_cond}
-        naction_pred = self.model.nets["policy"](obs_dict=obs_dict)[:, 0].reshape(*naction.shape)
+        naction_pred = self.model.nets["policy"](obs_dict=obs_dict)[:, 0].reshape(
+            *naction.shape
+        )
 
         loss = nn.functional.mse_loss(naction_pred, naction)
 
         return loss
-
