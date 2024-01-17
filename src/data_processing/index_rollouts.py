@@ -5,9 +5,9 @@ import os
 from tqdm import tqdm
 import pandas as pd
 
-base_dir = Path(os.environ["ROLLOUT_SAVE_DIR"])
+base_dir = Path(os.environ["DATA_DIR_RAW"])
 
-rollout_dir = base_dir / "raw" / "sim_rollouts"
+rollout_dir = base_dir / "raw" / "sim" / "rollout"
 
 print(f"Getting rollouts from: {rollout_dir}")
 

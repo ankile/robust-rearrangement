@@ -323,15 +323,12 @@ if __name__ == "__main__":
     if args.obs_out == "feature":
         assert args.encoder is not None, "Must specify encoder when using feature obs"
 
-    data_base_path = os.environ.get("FURNITURE_DATA_DIR", "data")
-    data_base_path_in = Path(os.environ.get("FURNITURE_DATA_DIR_RAW", data_base_path))
-    data_base_path_out = Path(
-        os.environ.get("FURNITURE_DATA_DIR_PROCESSED", data_base_path)
-    )
+    data_base_path_in = Path(os.environ["DATA_DIR_RAW"])
+    data_base_path_out = Path(os.environ["DATA_DIR_PROCESSED"])
 
     obs_out_path = args.obs_out
 
-    raw_data_path = data_base_path_in / "raw" / args.env
+    raw_data_path = data_base_path_in / "raw" / args.env / "scripted"
     output_path = data_base_path_out / "processed" / args.env / obs_out_path
 
     encoder = None

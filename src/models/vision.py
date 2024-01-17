@@ -134,9 +134,9 @@ class VIPEncoder(torch.nn.Module):
         self.device = device
 
         # Temporarily suppres warnings when loading VIP
-        warnings.filterwarnings("ignore")
-        self.model = load_vip().module.to(device)
-        warnings.resetwarnings()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            self.model = load_vip().module.to(device)
 
         self.encoding_dim = self.model.convnet.fc.out_features
 

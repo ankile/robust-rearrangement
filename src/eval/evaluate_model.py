@@ -31,7 +31,9 @@ if __name__ == "__main__":
         choices=["one_leg", "lamp", "round_table"],
         required=True,
     )
+    args.add_argument("--save-rollouts", action="store_true")
     args.add_argument("--save-failures", action="store_true")
+    args.add_argument("--wandb", action="store_true")
 
     # Parse the arguments
     args = args.parse_args()
@@ -72,15 +74,22 @@ if __name__ == "__main__":
     )
 
     # Prepare the rollout save directory
-    rollout_save_dir = (
-        Path(os.environ.get("DATA_DIR_RAW", "data"))
-        / "raw"
-        / "sim_rollouts"
-        / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    )
-    rollout_save_dir.mkdir(parents=True, exist_ok=True)
+    if args.save_rollouts:
+        rollout_save_dir = (
+            Path(os.environ["DATA_DIR_RAW"])
+            / "raw"
+            / "sim"
+            / "rollout"
+            / args.furniture
+            / args.randomness
+            / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        )
+        rollout_save_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Saving rollouts to {rollout_save_dir}")
+        print(f"Saving rollouts to {rollout_save_dir}")
+    else:
+        rollout_save_dir = None
+        print("Not saving rollouts")
 
     # Start a run to collect the results
     wandb.init(
@@ -88,7 +97,7 @@ if __name__ == "__main__":
         entity="robot-rearrangement",
         job_type="eval",
         config=config.to_dict(),
-        # mode="disabled",
+        mode="online" if args.wandb else "disabled",
     )
 
     # Perform the rollouts
@@ -115,3 +124,7 @@ if __name__ == "__main__":
 
     # Close the run
     wandb.finish()
+
+    # Remove the folder if we didn't save any rollouts
+    if rollout_save_dir is not None and len(list(rollout_save_dir.iterdir())) == 0:
+        rollout_save_dir.rmdir()

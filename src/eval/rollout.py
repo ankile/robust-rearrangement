@@ -214,7 +214,10 @@ def calculate_success_rate(
         )
 
         if rollout_save_dir is not None and (save_failures or success):
-            output_path = rollout_save_dir / f"rollout_{rollout_idx}.pkl"
+            output_path = (
+                rollout_save_dir
+                / f"rollout_{rollout_idx}_{'success' if success else 'failure'}.pkl"
+            )
 
             # Save the raw rollout data
             save_raw_rollout(
@@ -278,6 +281,8 @@ def do_rollout_evaluation(
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
     )
+
+    best_success_rate = max(best_success_rate, success_rate)
 
     # Log the success rate to wandb
     wandb.log(

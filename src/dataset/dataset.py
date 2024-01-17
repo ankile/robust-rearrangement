@@ -115,6 +115,10 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             color_jitter=True,
         )
 
+        self.task_idxs = np.array(
+            [furniture2idx[f] for f in self.train_data["furniture"][:data_subset]]
+        )
+
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
@@ -173,6 +177,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             nsample["color_image2"] = np.stack(
                 [self.image_augmentation(sample) for sample in nsample["color_image2"]]
             )
+
+        # Add the task index to the sample
+        nsample["task_idx"] = self.task_idxs[demo_idx]
 
         return nsample
 

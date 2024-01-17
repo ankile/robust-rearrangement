@@ -164,11 +164,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="multi-task",
+        project="round-table",
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        notes="Train on three tasks with simple task conditioning.",
+        # notes="Train on three tasks with simple task conditioning.",
     )
 
     # save stats to wandb and update the config object
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = True
+    config.multi_task = False
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
 
@@ -459,19 +459,18 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
-    )
     # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(
-    #         config.observation_type,
-    #         config.vision_encoder.model,
-    #         config.furniture,
-    #         # suffix="updated_env",
-    #     )
+    #     "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
     # )
+    config.datasim_path = (
+        config.data_base_dir
+        / "processed/sim"
+        / get_data_path(
+            config.observation_type,
+            config.vision_encoder.model,
+            config.furniture,
+        )
+    )
 
     print(f"Using data from {config.datasim_path}")
 
