@@ -44,6 +44,12 @@ if __name__ == "__main__":
 
     config = ConfigDict(run.config)
 
+    if "act_rot_repr" not in config:
+        config.act_rot_repr = "quat"
+
+    # Add the original project name to the config
+    config.project_name = run.project
+
     # Make the device
     device = torch.device(
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
@@ -59,11 +65,12 @@ if __name__ == "__main__":
     # Get the environment
     env = get_env(
         gpu_id=args.gpu,
-        obs_type="image",
         furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
         resize_img=True,
+        act_rot_repr=config.act_rot_repr,
+        ctrl_mode="osc",
         verbose=False,
     )
 

@@ -24,6 +24,7 @@ from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
+from src.common.control import RotationMode
 
 from ml_collections import ConfigDict
 
@@ -44,7 +45,7 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(),
+            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
@@ -55,10 +56,10 @@ def main(config: ConfigDict):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(),
+            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
-            include_task=config.multi_task,
+            act_rot_repr=config.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -128,11 +129,11 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
-        project="teleop-finetune",
+        project=config.wandb.project,
         entity="robot-rearrangement",
         config=config.to_dict(),
         mode="online" if not config.dryrun else "disabled",
-        # notes="",
+        notes=config.wandb.notes,
     )
 
     # save stats to wandb and update the config object
@@ -142,7 +143,7 @@ def main(config: ConfigDict):
             "num_samples_test": len(test_dataset),
             "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
             "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": StateActionNormalizer().stats_dict,
+            "stats": StateActionNormalizer(act_rot_repr=config.act_rot_repr).stats_dict,
         }
     )
     wandb.config.update(config.to_dict())
@@ -169,7 +170,6 @@ def main(config: ConfigDict):
         dataset.augment_image = config.augment_image
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
-            break
             opt_noise.zero_grad()
 
             # device transfer
@@ -279,13 +279,13 @@ def main(config: ConfigDict):
             if env is None:
                 env: FurnitureSimEnv = get_env(
                     config.gpu_id,
-                    obs_type=config.observation_type,
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
                     # resize_img=not config.augment_image,
                     # Make sure the image is 224x224 out of the simulator for consistency
                     resize_img=True,
+                    act_rot_repr=config.act_rot_repr,
                 )
 
             best_success_rate = do_rollout_evaluation(
@@ -324,6 +324,7 @@ if __name__ == "__main__":
     parser.add_argument("--encoder", "-e", type=str, default="vip")
     parser.add_argument("--furniture", "-f", type=str, default="one_leg")
     parser.add_argument("--no-rollout", action="store_true")
+    parser.add_argument("--data-subset", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -333,6 +334,13 @@ if __name__ == "__main__":
     num_envs = dryrun(8, fb=2)
 
     config = ConfigDict()
+
+    config.wandb = ConfigDict()
+    config.wandb.project = "teleop-finetune"
+    # config.wandb.project = "simple-regularization"
+    config.wandb.notes = (
+        "Fine-tune on 60 scripted demos after pretraining on one_leg data"
+    )
 
     # defaults
     config.action_horizon = 8
@@ -363,10 +371,10 @@ if __name__ == "__main__":
     config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
     # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
     config.rollout_base_dir = None
-    config.actor_lr = 1e-4
+    config.actor_lr = 5e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = dryrun(None, 10)
+    config.data_subset = dryrun(args.data_subset, 10)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
@@ -374,7 +382,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/misunderstood-meadow-21/actor_chkpt_latest.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/gallant-water-7/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -384,8 +392,8 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(1, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(2, fb=float("inf"))
+    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
+    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
@@ -422,25 +430,36 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    config.feature_layernorm = False
-    # config.feature_layernorm = True
+    # config.feature_layernorm = False
+    config.feature_layernorm = True
 
-    config.augment_image = True
+    config.augment_image = False
     config.augmentation = ConfigDict()
-    config.augmentation.translate = 10
-    config.augmentation.color_jitter = False
+    # config.augmentation.translate = 10
+    # config.augmentation.color_jitter = False
 
     config.model_save_dir = "models"
     config.checkpoint_model = True
+
+    # Control mode
+    config.act_rot_repr = RotationMode.quat
 
     assert (
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/teleop.zarr"
-    )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/scripted.zarr"
+    # config.datasim_path = (
+    # "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/teleop.zarr"
+    # )
+    # config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/scripted_teleop.zarr"
+    # config.datasim_path = (
+    #     "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
+    # )
+    # config.datasim_path = (
+    #     "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
+    # )
     # config.datasim_path = (
     #     config.data_base_dir
     #     / "processed/sim"

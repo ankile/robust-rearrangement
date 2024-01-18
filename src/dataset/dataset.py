@@ -202,7 +202,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         normalizer: StateActionNormalizer,
         data_subset: int = None,
         first_action_idx: int = 0,
-        include_task: bool = False,
+        act_rot_repr: str = "quat",
     ):
         # Read from zarr dataset
         self.dataset = zarr.open(dataset_path, "r")
@@ -211,10 +211,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         # Get only the first data_subset episodes
         self.episode_ends = self.dataset["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
+
+        action_key = "action" if act_rot_repr == "quat" else "action_6d"
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
             "robot_state": self.dataset["robot_state"][: self.episode_ends[-1]],
-            "action": self.dataset["action"][: self.episode_ends[-1]],
+            "action": self.dataset[action_key][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence

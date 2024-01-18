@@ -46,7 +46,7 @@ def mp4_from_pickle(pickle_path, filename=None):
 
 
 def extract_numpy_frames(pickle_path: Union[str, Path]) -> np.ndarray:
-    data = pickle_data(pickle_path)
+    data = unpickle_data(pickle_path)
     ims = data_to_video(data)
 
     return ims
@@ -59,7 +59,7 @@ def data_to_video(data: dict) -> np.ndarray:
     return ims
 
 
-def pickle_data(pickle_path):
+def unpickle_data(pickle_path):
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
     return data

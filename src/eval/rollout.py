@@ -53,7 +53,14 @@ def rollout(
     # It is zero everywhere except for the first element of the rotation
     # as the quaternion noop is (1, 0, 0, 0)
     # The elements are: (x, y, z) + (a, b, c, d) + (w,)
-    noop = torch.tensor([0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda")
+    noop = {
+        "quat": torch.tensor(
+            [0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda"
+        ),
+        "rot_6d": torch.tensor(
+            [0, 0, 0, 1, 0, 0, 0, 1, 0, 0], dtype=torch.float32, device="cuda"
+        ),
+    }[env.act_rot_repr]
 
     step_idx = 0
     while not done.all():
@@ -62,7 +69,7 @@ def rollout(
         curr_action = action_pred.clone()
         curr_action[done.nonzero()] = noop
 
-        obs, reward, done, _ = env.step(action_pred)
+        obs, reward, done, _ = env.step(curr_action)
 
         # save observations
         obs_deque.append(obs)
@@ -132,6 +139,14 @@ def calculate_success_rate(
     rollout_save_dir: Union[str, None] = None,
     save_failures: bool = False,
 ):
+    def pbar_desc(self: tqdm, i: int, n_success: int):
+        rnd = i + 1
+        total = i * env.num_envs
+        success_rate = n_success / total if total > 0 else 0
+        self.set_description(
+            f"Performing rollouts: round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
+        )
+
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
     )
@@ -141,6 +156,8 @@ def calculate_success_rate(
         leave=False,
         total=rollout_max_steps * (n_rollouts // env.num_envs),
     )
+
+    tqdm.pbar_desc = pbar_desc
 
     n_success = 0
 
@@ -152,9 +169,7 @@ def calculate_success_rate(
     all_success = list()
 
     for i in range(n_rollouts // env.num_envs):
-        pbar.set_description(
-            f"Performing rollouts: round {i+1}/{n_rollouts//env.num_envs}, success: {n_success}/{i * env.num_envs}"
-        )
+        pbar.pbar_desc(i, n_success)
         # Perform a rollout with the current model
         robot_states, imgs1, imgs2, actions, rewards = rollout(
             env,
@@ -174,9 +189,6 @@ def calculate_success_rate(
         all_actions.extend(actions)
         all_rewards.extend(rewards)
         all_success.extend(success)
-
-        # Update progress bar
-        pbar.set_description
 
     total_return = 0
     table_rows = []

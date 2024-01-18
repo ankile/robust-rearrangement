@@ -14,7 +14,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    BASE = Path(os.environ.get("ROLLOUT_SAVE_DIR", "data"))
+    BASE = Path(os.environ.get("DATA_DIR_RAW", "data"))
 
     # TODO: Consider what we do with images of full size and if that's needed
     # For now, we assume that images are stored in 224x224 and we know that as`image`
@@ -24,6 +24,7 @@ if __name__ == "__main__":
 
     data_path = BASE / "raw" / "sim" / args.furniture / args.randomness
     data_path.mkdir(parents=True, exist_ok=True)
+
     print(f"Saving data to {data_path}")
 
     collector = DataCollector(
