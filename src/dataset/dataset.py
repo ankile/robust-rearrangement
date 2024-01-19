@@ -111,7 +111,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         for i in trange(
             0,
             self.train_data["color_image1"].shape[0],
-            store.zattrs["chunksize"],
+            store.attrs["chunksize"],
             desc="Loading image data",
         ):
             end_idx = min(i + 10_000, self.train_data["color_image1"].shape[0])
@@ -149,6 +149,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.task_idxs = np.array(
             [furniture2idx[f] for f in store["furniture"][:data_subset]]
         )
+        self.successes = store["success"][:data_subset].astype(np.uint8)
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -204,8 +205,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 [self.image_augmentation2(sample) for sample in nsample["color_image2"]]
             )
 
-        # Add the task index to the sample
+        # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
+        nsample["success"] = self.successes[demo_idx]
 
         return nsample
 
@@ -227,18 +229,18 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         act_rot_repr: str = "quat",
     ):
         # Read from zarr dataset
-        dataset = zarr.open(dataset_path, "r")
+        store = zarr.open(dataset_path, "r")
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = dataset["episode_ends"][:data_subset]
+        self.episode_ends = store["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
         action_key = "action" if act_rot_repr == "quat" else "action_6d"
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
-            "action": dataset[action_key][: self.episode_ends[-1]],
+            "robot_state": store["robot_state"][: self.episode_ends[-1]],
+            "action": store[action_key][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence
@@ -251,12 +253,13 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         )
 
         # float32, (N, embed_dim)
-        train_data["feature1"] = dataset["feature1"][: self.episode_ends[-1]]
-        train_data["feature2"] = dataset["feature2"][: self.episode_ends[-1]]
+        train_data["feature1"] = store["feature1"][: self.episode_ends[-1]]
+        train_data["feature2"] = store["feature2"][: self.episode_ends[-1]]
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in dataset["furniture"][:data_subset]]
+            [furniture2idx[f] for f in store["furniture"][:data_subset]]
         )
+        self.successes = store["success"][:data_subset].astype(np.uint8)
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
@@ -315,8 +318,9 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        # Add the task index to the sample
+        # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
+        nsample["success"] = self.successes[demo_idx]
 
         # for diffusion policy version (self.first_action_offset = 0)
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx

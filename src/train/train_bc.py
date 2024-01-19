@@ -33,7 +33,7 @@ from gym import logger
 logger.set_level(logger.DISABLED)
 
 
-def main(config: ConfigDict):
+def main(config: ConfigDict, start_epoch: int = 0):
     env = None
     device = torch.device(
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
@@ -129,6 +129,8 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
+        id="ndgecbbk",
+        resume="must",
         project=config.wandb.project,
         entity="robot-rearrangement",
         config=config.to_dict(),
@@ -158,7 +160,7 @@ def main(config: ConfigDict):
     best_success_rate = 0
 
     tglobal = tqdm(
-        range(config.num_epochs),
+        range(start_epoch, config.num_epochs),
         desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
@@ -302,14 +304,28 @@ def main(config: ConfigDict):
     wandb.finish()
 
 
-def get_data_path(obs_type, encoder, task, suffix=None):
-    if obs_type == "image":
-        return f"image/{task}/data_batch_32{'_'+suffix if suffix else ''}.zarr"
-    elif obs_type == "feature":
-        # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature/{encoder}/{task}/data{'_'+suffix if suffix else ''}.zarr"
+def get_data_path(
+    obs_type,
+    encoder,
+    task=None,
+    demo_source=["scripted"],
+    language_cond=False,
+    success_cond=False,
+):
+    path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed" / "sim" / obs_type
 
-    raise ValueError(f"Unknown obs_type: {obs_type}")
+    if obs_type == "feature":
+        path /= encoder + "_lang" if language_cond else ""
+
+    if task is not None:
+        path /= task
+
+    filename = "_".join(sorted(demo_source))
+
+    if success_cond:
+        filename += "_success"
+
+    return path / (filename + ".zarr")
 
 
 if __name__ == "__main__":
@@ -368,7 +384,6 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
     # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
     config.rollout_base_dir = None
     config.actor_lr = 1e-4
@@ -382,7 +397,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/trim-wave-5/actor_chkpt_best_test_loss.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/pious-disco-7/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -420,6 +435,10 @@ if __name__ == "__main__":
     config.multi_task = True
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
+    config.language_conditioning = False
+
+    # Trajectory success conditioning options
+    config.trajectory_success_conditioning = True
 
     # Regularization
     config.weight_decay = 1e-6
@@ -430,8 +449,8 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    config.feature_layernorm = False
-    # config.feature_layernorm = True
+    # config.feature_layernorm = False
+    config.feature_layernorm = True
 
     config.augment_image = True
     config.augmentation = ConfigDict()
@@ -448,20 +467,15 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.remove_noop = True
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/processed/sim/image/one_leg/scripted.zarr"
+    config.datasim_path = get_data_path(
+        config.observation_type,
+        config.vision_encoder.model,
+        config.furniture,
+        config.demo_source,
+        config.language_conditioning,
+        config.trajectory_success_conditioning,
     )
-    # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(
-    #         config.observation_type,
-    #         config.vision_encoder.model,
-    #         config.furniture,
-    #     )
-    # )
 
     print(f"Using data from {config.datasim_path}")
 
-    main(config)
+    main(config, start_epoch=0)
