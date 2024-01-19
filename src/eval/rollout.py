@@ -202,13 +202,13 @@ def calculate_success_rate(
         success = all_success[rollout_idx].item()
         furniture = env.furniture_name
 
-        # Stack the two videos side by side into a single video
-        # and keep axes as (T, H, W, C)
-        video = np.concatenate([video1, video2], axis=2)
-        video = create_in_memory_mp4(video, fps=10)
-
         # Number of steps until success, i.e., the index of the final reward received
         n_steps = np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
+
+        # Stack the two videos side by side into a single video
+        # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
+        video = np.concatenate([video1, video2], axis=2)[:n_steps]
+        video = create_in_memory_mp4(video, fps=10)
 
         # Calculate the return for this rollout
         episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
@@ -233,11 +233,11 @@ def calculate_success_rate(
 
             # Save the raw rollout data
             save_raw_rollout(
-                robot_states,
-                video1,
-                video2,
-                actions,
-                rewards,
+                robot_states[:n_steps],
+                video1[:n_steps],
+                video2[:n_steps],
+                actions[:n_steps],
+                rewards[:n_steps],
                 success,
                 furniture,
                 output_path,

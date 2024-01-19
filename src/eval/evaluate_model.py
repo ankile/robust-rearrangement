@@ -120,6 +120,10 @@ if __name__ == "__main__":
         save_failures=args.save_failures,
     )
 
+    print(
+        f"Success rate: {success_rate:.2%} ({int(round(success_rate * args.n_rollouts))}/{args.n_rollouts})"
+    )
+
     # Log the success rate to wandb
     wandb.log(
         {

@@ -1,13 +1,16 @@
 import argparse
 import os
-from pathlib import Path
 import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+
 import numpy as np
 import zarr
-from numcodecs import Blosc
-from tqdm import tqdm
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
-from datetime import datetime
+from numcodecs import Blosc
+from src.common.types import Trajectory
+from tqdm import tqdm
 
 
 # === Modified Function to Initialize Zarr Store with Full Dimensions ===
@@ -44,7 +47,7 @@ def process_pickle_file(pickle_path, noop_threshold):
     Process a single pickle file and return processed data.
     """
     with open(pickle_path, "rb") as f:
-        data = pickle.load(f)
+        data: Trajectory = pickle.load(f)
 
     obs = data["observations"][:-1]
     assert len(obs) == len(
@@ -71,14 +74,11 @@ def process_pickle_file(pickle_path, noop_threshold):
         "skill": skill[moving],
         "episode_length": len(action[moving]),
         "furniture": data["furniture"],
+        "success": data["success"],
         "pickle_file": pickle_path.name,
     }
 
     return processed_data
-
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 
 
 def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
@@ -133,10 +133,6 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         aggregated_data[key] = np.concatenate(aggregated_data[key])
 
     return aggregated_data
-
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 
 
 def write_to_zarr_store(z, key, value):
@@ -222,14 +218,17 @@ if __name__ == "__main__":
 
     # Define the full shapes for each dataset
     full_data_shapes = [
+        # These are of length: number of timesteps
         ("robot_state", all_data["robot_state"].shape, np.float32),
         ("color_image1", all_data["color_image1"].shape, np.uint8),
         ("color_image2", all_data["color_image2"].shape, np.uint8),
         ("action", all_data["action"].shape, np.float32),
         ("reward", all_data["reward"].shape, np.float32),
         ("skill", all_data["skill"].shape, np.float32),
+        # These are of length: number of episodes
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),
+        ("success", (len(all_data["success"]),), np.uint8),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 
