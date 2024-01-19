@@ -39,68 +39,6 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     return z
 
 
-# === Modified Function to Process All Pickle Files into Memory First ===
-def process_all_pickle_files(pickle_paths, noop_threshold):
-    """
-    Process all pickle files and store data in memory.
-    """
-    all_data = {
-        "robot_state": [],
-        "color_image1": [],
-        "color_image2": [],
-        "action": [],
-        "reward": [],
-        "skill": [],
-        "episode_ends": [],
-        "furniture": [],
-        "pickle_files": [],
-    }
-
-    for path in tqdm(pickle_paths, desc="Processing pickle files"):
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-
-        obs = data["observations"][:-1]
-        assert len(obs) == len(
-            data["actions"]
-        ), f"Mismatch in {path}, lengths differ by {len(obs) - len(data['actions'])}"
-
-        color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
-        color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
-        robot_state = np.array(
-            [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
-            dtype=np.float32,
-        )
-        action = np.array(data["actions"], dtype=np.float32)
-        reward = np.array(data["rewards"], dtype=np.float32)
-        skill = np.array(data["skills"], dtype=np.float32)
-
-        moving = np.linalg.norm(action[:, :6], axis=1) >= noop_threshold
-
-        all_data["robot_state"].append(robot_state[moving])
-        all_data["color_image1"].append(color_image1[moving])
-        all_data["color_image2"].append(color_image2[moving])
-        all_data["action"].append(action[moving])
-        all_data["reward"].append(reward[moving])
-        all_data["skill"].append(skill[moving])
-
-        curr_index = (
-            all_data["episode_ends"][-1] if len(all_data["episode_ends"]) > 0 else 0
-        )
-        all_data["episode_ends"].append(curr_index + len(action[moving]))
-        all_data["furniture"].append(data["furniture"])
-
-        pickle_file = path.parts[path.parts.index("raw") + 1 :]
-        all_data["pickle_files"].append("/".join(pickle_file))
-
-    # Concatenate lists into numpy arrays
-    for key in tqdm(all_data, desc="Concatenating data"):
-        if key not in ["furniture", "pickle_files", "episode_ends"]:
-            all_data[key] = np.concatenate(all_data[key])
-
-    return all_data
-
-
 def process_pickle_file(pickle_path, noop_threshold):
     """
     Process a single pickle file and return processed data.
@@ -155,7 +93,7 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "action": [],
         "reward": [],
         "skill": [],
-        "episode_ends": [],  # Start with 0
+        "episode_ends": [],
         "furniture": [],
         "pickle_file": [],
     }

@@ -36,6 +36,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":
         return MAEEncoder(freeze=freeze, device=device)
+    if encoder_name == "voltron":
+        return VoltronEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
@@ -329,9 +331,13 @@ class VoltronEncoder(torch.nn.Module):
 
         self.encoding_dim = 384
 
-    def forward(self, x):
+    def forward(self, x, lang=None):
         x = x.permute(0, 3, 1, 2)
         x = self.preprocess(x)
-        x = self.model(x)
+        if lang is not None:
+            x = self.model(x, lang=lang, mode="multimodal")
+        else:
+            x = self.model(x, mode="visual")
+
         x = self.vector_extractor(x)
         return x
