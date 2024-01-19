@@ -25,6 +25,8 @@ import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.control import RotationMode
+from src.common.files import get_data_path
+
 
 from ml_collections import ConfigDict
 
@@ -129,8 +131,8 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
     # Init wandb
     wandb.init(
-        id="ndgecbbk",
-        resume="must",
+        id=config.wandb.continue_run_id,
+        resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
         entity="robot-rearrangement",
         config=config.to_dict(),
@@ -304,30 +306,6 @@ def main(config: ConfigDict, start_epoch: int = 0):
     wandb.finish()
 
 
-def get_data_path(
-    obs_type,
-    encoder,
-    task=None,
-    demo_source=["scripted"],
-    language_cond=False,
-    success_cond=False,
-):
-    path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed" / "sim" / obs_type
-
-    if obs_type == "feature":
-        path /= encoder + "_lang" if language_cond else ""
-
-    if task is not None:
-        path /= task
-
-    filename = "_".join(sorted(demo_source))
-
-    if success_cond:
-        filename += "_success"
-
-    return path / (filename + ".zarr")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
@@ -357,6 +335,7 @@ if __name__ == "__main__":
     # config.wandb.project = "simple-regularization"
     config.wandb.notes = "Continue training end-to-end with spatial softmax."
     config.wandb.mode = args.wb_mode
+    config.wandb.continue_run_id = None
 
     # defaults
     config.action_horizon = 8

@@ -149,7 +149,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.task_idxs = np.array(
             [furniture2idx[f] for f in store["furniture"][:data_subset]]
         )
-        self.successes = store["success"][:data_subset].astype(np.uint8)
+        # self.successes = store["success"][:data_subset].astype(np.uint8)
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -207,7 +207,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
-        nsample["success"] = self.successes[demo_idx]
+        # nsample["success"] = self.successes[demo_idx]
 
         return nsample
 

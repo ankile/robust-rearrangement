@@ -18,6 +18,7 @@ from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
 from src.common.tasks import furniture2idx
+from src.data_collection.io import save_raw_rollout
 
 
 import wandb
@@ -102,32 +103,6 @@ def rollout(
     )
 
 
-def save_raw_rollout(
-    robot_states, imgs1, imgs2, actions, rewards, success, furniture, output_path
-):
-    observations = list()
-
-    for robot_state, image1, image2 in zip(robot_states, imgs1, imgs2):
-        observations.append(
-            {
-                "robot_state": robot_state,
-                "color_image1": image1,
-                "color_image2": image2,
-            }
-        )
-
-    data = {
-        "observations": observations,
-        "actions": actions.tolist(),
-        "rewards": rewards.tolist(),
-        "success": success,
-        "furniture": furniture,
-    }
-
-    with open(output_path, "wb") as f:
-        pickle.dump(data, f)
-
-
 @torch.no_grad()
 def calculate_success_rate(
     env: FurnitureSimEnv,
@@ -141,7 +116,7 @@ def calculate_success_rate(
 ):
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
-        total = i * env.num_envs
+        total = rnd * env.num_envs
         success_rate = n_success / total if total > 0 else 0
         self.set_description(
             f"Performing rollouts: round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
@@ -168,8 +143,8 @@ def calculate_success_rate(
     all_rewards = list()
     all_success = list()
 
+    pbar.pbar_desc(0, n_success)
     for i in range(n_rollouts // env.num_envs):
-        pbar.pbar_desc(i, n_success)
         # Perform a rollout with the current model
         robot_states, imgs1, imgs2, actions, rewards = rollout(
             env,
@@ -190,9 +165,12 @@ def calculate_success_rate(
         all_rewards.extend(rewards)
         all_success.extend(success)
 
+        # Update the progress bar
+        pbar.pbar_desc(i, n_success)
+
     total_return = 0
     table_rows = []
-    for rollout_idx in range(n_rollouts):
+    for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
         # Get the rewards and images for this rollout
         robot_states = all_robot_states[rollout_idx].numpy()
         video1 = all_imgs1[rollout_idx].numpy()

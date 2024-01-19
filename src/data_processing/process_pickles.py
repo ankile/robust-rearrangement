@@ -176,6 +176,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--furniture", "-f", type=str, default=None)
     parser.add_argument("--randomness", "-r", type=str, default=None)
+    parser.add_argument("--use-failures", action="store_true")
 
     args = parser.parse_args()
 

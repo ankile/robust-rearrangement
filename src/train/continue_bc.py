@@ -18,6 +18,7 @@ if __name__ == "__main__":
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(exist_ok=True).name
     config = ConfigDict(run.config)
+    config.wandb.continue_run_id = args.run_id
 
     # Get the epoch the model was saved at
     start_epoch = run.summary["epoch"]
