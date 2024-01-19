@@ -286,6 +286,7 @@ def main(config: ConfigDict):
                     # Make sure the image is 224x224 out of the simulator for consistency
                     resize_img=True,
                     act_rot_repr=config.act_rot_repr,
+                    ctrl_mode="osc",
                 )
 
             best_success_rate = do_rollout_evaluation(
@@ -336,11 +337,9 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.wandb = ConfigDict()
-    config.wandb.project = "teleop-finetune"
+    config.wandb.project = "multi-task"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = (
-        "Fine-tune on 60 scripted demos after pretraining on one_leg data"
-    )
+    config.wandb.notes = "First run with the Voltron encoder."
 
     # defaults
     config.action_horizon = 8
@@ -371,7 +370,7 @@ if __name__ == "__main__":
     config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
     # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
     config.rollout_base_dir = None
-    config.actor_lr = 5e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(args.data_subset, 10)
@@ -382,7 +381,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/gallant-water-7/actor_chkpt_best_test_loss.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/gallant-water-7/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -449,17 +448,7 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/scripted.zarr"
-    # config.datasim_path = (
-    # "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/teleop.zarr"
-    # )
-    # config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/lamp/scripted_teleop.zarr"
-    # config.datasim_path = (
-    #     "/data/scratch/ankile/furniture-data/processed/sim/feature/vip/combined.zarr"
-    # )
-    # config.datasim_path = (
-    #     "/data/scratch/ankile/furniture-data/processed/sim/image/data_batch_32.zarr"
-    # )
+    config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/voltron/one_leg/scripted.zarr"
     # config.datasim_path = (
     #     config.data_base_dir
     #     / "processed/sim"

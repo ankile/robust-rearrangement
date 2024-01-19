@@ -32,7 +32,7 @@ complex_task_descriptions = {
 
 simple_task_descriptions = {
     "one_leg": [
-        "Assemble the one-legged furniture",
+        "Screw in the leg into the square tabletop",
         "Put together the one-legged piece",
         "Construct the one-leg item",
         "Build the one-legged structure",

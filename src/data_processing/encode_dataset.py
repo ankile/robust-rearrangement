@@ -1,13 +1,15 @@
 from pathlib import Path
 import argparse
 import os
+from turtle import color
 import numpy as np
 import zarr
 from tqdm import trange
 from src.models.vision import get_encoder
 import torch
 from datetime import datetime
-from src.common.tasks import simple_task_descriptions
+from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
+from ipdb import set_trace as bp
 
 
 # === Image Zarr to feature Zarr ===
@@ -49,10 +51,16 @@ def process_zarr_to_feature(
 
     # Assuming other data like actions, rewards, etc. are also stored in the zarr file
     action = zarr_group["action"]
-    furniture = zarr_group["furniture"]
     reward = zarr_group["reward"]
     robot_state = zarr_group["robot_state"]
     skills = zarr_group["skill"]
+
+    furniture = zarr_group["furniture"]
+    furniture_idxs = np.zeros(color_image1.shape[0], dtype=np.uint8)
+
+    prev_idx = 0
+    for i, f in zip(episode_ends, furniture):
+        furniture_idxs[prev_idx:i] = furniture2idx[f]
 
     encoding_dim = encoder.encoding_dim
 
@@ -65,10 +73,11 @@ def process_zarr_to_feature(
 
         language = None
         if use_language:
-            # Load language
-            language = zarr_group["language"][i:slice_end]
             # Use only the first simeple task description for now
-            language = [simple_task_descriptions[l][0] for l in language]
+            language = [
+                simple_task_descriptions[idx2furniture[f]][0]
+                for f in furniture_idxs[i:slice_end]
+            ]
 
         features1[i:slice_end] = encode_numpy_batch(
             encoder, color_image1[i:slice_end], lang=language

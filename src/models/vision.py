@@ -335,7 +335,7 @@ class VoltronEncoder(torch.nn.Module):
         x = x.permute(0, 3, 1, 2)
         x = self.preprocess(x)
         if lang is not None:
-            x = self.model(x, lang=lang, mode="multimodal")
+            x = self.model(x, lang, mode="multimodal")
         else:
             x = self.model(x, mode="visual")
 
