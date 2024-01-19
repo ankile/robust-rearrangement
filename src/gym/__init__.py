@@ -8,21 +8,14 @@ from src.common.context import suppress_all_output
 
 def get_env(
     gpu_id,
-    obs_type="state",
     furniture="one_leg",
     num_envs=1,
     randomness="low",
     resize_img=True,
+    act_rot_repr="quat",
+    ctrl_mode: str = "osc",
     verbose=False,
 ):
-    if obs_type == "state":
-        obs_keys = DEFAULT_STATE_OBS
-        +["color_image1", "color_image2"]
-    elif obs_type in ["image", "feature"]:
-        obs_keys = DEFAULT_VISUAL_OBS
-    else:
-        raise ValueError(f"Unknown observation type: {obs_type}")
-
     with suppress_all_output(True):
         env = gym.make(
             "FurnitureSim-v0",
@@ -31,7 +24,7 @@ def get_env(
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=True,  # If true, robot state is concatenated to the observation.
             headless=True,  # If true, simulation runs without GUI.
-            obs_keys=obs_keys,
+            obs_keys=DEFAULT_VISUAL_OBS,
             compute_device_id=gpu_id,
             graphics_device_id=gpu_id,
             init_assembled=False,  # If true, the environment is initialized with assembled furniture.
@@ -42,7 +35,8 @@ def get_env(
             save_camera_input=False,  # If true, the initial camera inputs are saved.
             record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps=3000,  # Maximum number of steps per episode.
-            act_rot_repr="quat",  # Representation of rotation for action space. Options are 'quat' and 'axis'.
+            act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
+            ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
             verbose=verbose,  # If true, prints debug information.
         )
 

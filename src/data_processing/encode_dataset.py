@@ -1,58 +1,96 @@
 from pathlib import Path
-import pickle
-from glob import glob
 import argparse
 import os
+from turtle import color
 import numpy as np
 import zarr
-from tqdm import tqdm, trange
+from tqdm import trange
 from src.models.vision import get_encoder
 import torch
-from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from datetime import datetime
-
+from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
 from ipdb import set_trace as bp
 
 
 # === Image Zarr to feature Zarr ===
 @torch.no_grad()
-def encode_numpy_batch(buffer, encoder):
+def encode_numpy_batch(encoder, buffer, lang=None):
     # Move buffer to same device as encoder
-    tensor = torch.from_numpy(buffer).to(encoder.device)
+    tensor = torch.from_numpy(buffer).to(device)
+    if lang is not None:
+        return encoder(tensor, lang=lang).cpu().numpy()
+
     return encoder(tensor).cpu().numpy()
 
 
-def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_size=256):
+def process_zarr_to_feature(
+    zarr_input_path,
+    zarr_output_path,
+    encoder,
+    batch_size=256,
+    use_language=False,
+):
     zarr_group = zarr.open(zarr_input_path, mode="r")
     episode_ends = zarr_group["episode_ends"]
     print(f"Number of episodes: {len(episode_ends)}")
 
-    color_image1 = zarr_group["color_image1"]
-    color_image2 = zarr_group["color_image2"]
+    from numcodecs import blosc
+
+    blosc.use_threads = True
+    blosc.set_nthreads(32)
+
+    color_image1 = np.zeros(zarr_group["color_image1"].shape, dtype=np.uint8)
+    color_image2 = np.zeros(zarr_group["color_image2"].shape, dtype=np.uint8)
+
+    # Load images into memory
+    for i in trange(0, len(color_image1), 10_000, desc="Loading images"):
+        slice_end = min(i + 10_000, len(color_image1))
+
+        color_image1[i:slice_end] = zarr_group["color_image1"][i:slice_end]
+        color_image2[i:slice_end] = zarr_group["color_image2"][i:slice_end]
 
     # Assuming other data like actions, rewards, etc. are also stored in the zarr file
     action = zarr_group["action"]
-    furniture = zarr_group["furniture"]
     reward = zarr_group["reward"]
     robot_state = zarr_group["robot_state"]
     skills = zarr_group["skill"]
 
+    furniture = zarr_group["furniture"]
+    furniture_idxs = np.zeros(color_image1.shape[0], dtype=np.uint8)
+
+    prev_idx = 0
+    for i, f in zip(episode_ends, furniture):
+        furniture_idxs[prev_idx:i] = furniture2idx[f]
+
+    encoding_dim = encoder.encoding_dim
+
     # Process images and create features
-    features1, features2 = [], []
+    features1 = np.zeros((len(color_image1), encoding_dim), dtype=np.float32)
+    features2 = np.zeros((len(color_image2), encoding_dim), dtype=np.float32)
+
     for i in trange(0, len(color_image1), batch_size):
         slice_end = min(i + batch_size, len(color_image1))
 
-        features1.extend(
-            encode_numpy_batch(color_image1[i:slice_end], encoder).tolist()
+        language = None
+        if use_language:
+            # Use only the first simeple task description for now
+            language = [
+                simple_task_descriptions[idx2furniture[f]][0]
+                for f in furniture_idxs[i:slice_end]
+            ]
+
+        features1[i:slice_end] = encode_numpy_batch(
+            encoder, color_image1[i:slice_end], lang=language
         )
-        features2.extend(
-            encode_numpy_batch(color_image2[i:slice_end], encoder).tolist()
+        features2[i:slice_end] = encode_numpy_batch(
+            encoder, color_image2[i:slice_end], lang=language
         )
 
     # Create a new Zarr file for output
     output_group = zarr.open(zarr_output_path, mode="w")
-    output_group.array("feature1", np.array(features1, dtype=np.float32))
-    output_group.array("feature2", np.array(features2, dtype=np.float32))
+    output_group.array("feature1", features1)
+    output_group.array("feature2", features2)
+
     output_group.array("action", action)
     output_group.array("episode_ends", episode_ends)
     output_group.array("furniture", furniture, dtype=str)
@@ -64,68 +102,54 @@ def process_zarr_to_feature(zarr_input_path, zarr_output_path, encoder, batch_si
     output_group.attrs["time_created"] = datetime.now().astimezone().isoformat()
     output_group.attrs["noop_threshold"] = zarr_group.attrs["noop_threshold"]
     output_group.attrs["encoder"] = encoder.__class__.__name__
+    output_group.attrs["encoding_dim"] = encoding_dim
+    output_group.attrs["use_language"] = use_language
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", "-e", type=str)
-    parser.add_argument(
-        "--source",
-        "-s",
-        type=str,
-        choices=["scripted", "rollout", "teleop"],
-        default="scripted",
-        nargs="+",
-    )
-    parser.add_argument("--obs-in", "-i", type=str)
-    parser.add_argument("--obs-out", "-o", type=str)
     parser.add_argument("--encoder", "-c", default=None, type=str)
-    parser.add_argument("--furniture", "-f", type=str, default=None)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--randomness", "-r", type=str, default=None)
+    parser.add_argument("--zarr-path", "-z", type=str, required=True)
+    parser.add_argument("--use-language", "-l", action="store_true")
 
     args = parser.parse_args()
 
     global device
     device = torch.device(f"cuda:{args.gpu_id}")
 
-    if args.obs_out == "feature":
-        assert args.encoder is not None, "Must specify encoder when using feature obs"
+    assert args.encoder is not None, "Must specify encoder when using feature obs"
+    assert (
+        not args.use_language or args.encoder == "voltron"
+    ), "Only voltron supports language"
 
-    data_base_path_in = Path(os.environ["DATA_DIR_RAW"])
-    data_base_path_out = Path(os.environ["DATA_DIR_PROCESSED"])
+    input_path = Path(args.zarr_path)
 
-    obs_out_path = args.obs_out
+    path_parts = list(input_path.parts)
 
-    raw_data_path = data_base_path_in / "raw" / args.env / args.source
-    output_path = data_base_path_out / "processed" / args.env / obs_out_path
+    # Find index of "image" in the path
+    image_index = path_parts.index("image")
 
-    encoder = None
-    if args.encoder is not None:
-        output_path = output_path / args.encoder
-        encoder = get_encoder(args.encoder, freeze=True, device=device)
-        encoder.eval()
+    # Insert "feature" instead of "image" and the encoder name after "feature"
+    path_parts[image_index] = "feature"
+    path_parts.insert(
+        image_index + 1, args.encoder + ("_lang" if args.use_language else "")
+    )
 
-    if args.furniture is not None:
-        raw_data_path = raw_data_path / args.furniture
-        output_path = output_path / args.furniture
+    # Turn it back into a path
+    output_path = Path(os.path.join(*path_parts))
 
-    if args.randomness is not None:
-        assert (
-            args.furniture is not None
-        ), "Must specify furniture when using randomness"
-        assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
-        raw_data_path = raw_data_path / args.randomness
-        output_path = output_path / args.randomness
+    encoder = get_encoder(args.encoder, freeze=True, device=device)
+    encoder.eval()
 
-    print(f"Raw data path: {raw_data_path}")
-
-    output_path = output_path / "data.zarr"
+    print(f"Raw data path: {args.zarr_path}")
     print(f"Output path: {output_path}")
+
     process_zarr_to_feature(
-        f"/data/scratch/ankile/furniture-data/data/processed/sim/image/{args.furniture}/data_batch_32.zarr",
+        args.zarr_path,
         output_path,
         encoder,
         batch_size=args.batch_size,
+        use_language=args.use_language,
     )

@@ -1,3 +1,4 @@
+from typing import Union
 import torch
 import torch.nn as nn
 import numpy as np
@@ -15,43 +16,84 @@ def get_data_stats(data):
 # The values were very similar to the values for the `lamp` task collected in the real world.
 # TODO: Investigate more data from more tasks to see if these stats are good enough.
 class StateActionNormalizer(nn.Module):
-    def __init__(self):
+    def __init__(self, act_rot_repr: str = "quat"):
         super().__init__()
+        self.act_rot_repr = act_rot_repr
+
+        action_stats = {
+            "quat": nn.ParameterDict(
+                {
+                    "min": nn.Parameter(
+                        torch.tensor(
+                            [
+                                -0.11999873,
+                                -0.11999782,
+                                -0.0910784,
+                                -0.41173494,
+                                -0.7986815,
+                                -0.73318267,
+                                -1.00000012,
+                                -1.0,
+                            ]
+                        )
+                    ),
+                    "max": nn.Parameter(
+                        torch.tensor(
+                            [
+                                0.11999907,
+                                0.11999977,
+                                0.1,
+                                0.27584794,
+                                0.80490655,
+                                0.75659704,
+                                1.00000024,
+                                1.0,
+                            ]
+                        )
+                    ),
+                }
+            ),
+            "rot_6d": nn.ParameterDict(
+                {
+                    "min": nn.Parameter(
+                        torch.tensor(
+                            [
+                                -0.11999829,
+                                -0.11999908,
+                                -0.08132574,
+                                -0.35798502,
+                                -0.99999934,
+                                -0.70630395,
+                                -0.99999964,
+                                -0.28959465,
+                                -0.89785737,
+                                -1.0,
+                            ],
+                        )
+                    ),
+                    "max": nn.Parameter(
+                        torch.tensor(
+                            [
+                                0.11999787,
+                                0.11999953,
+                                0.07999872,
+                                1.0,
+                                0.9999992,
+                                0.9999981,
+                                0.9999772,
+                                1.0,
+                                0.49280044,
+                                1.0,
+                            ],
+                        )
+                    ),
+                }
+            ),
+        }
 
         self.stats = nn.ParameterDict(
             {
-                "action": nn.ParameterDict(
-                    {
-                        "min": nn.Parameter(
-                            torch.tensor(
-                                [
-                                    -0.11999873,
-                                    -0.11999782,
-                                    -0.0910784,
-                                    -0.41173494,
-                                    -0.7986815,
-                                    -0.73318267,
-                                    -1.00000012,
-                                    -1.0,
-                                ]
-                            )
-                        ),
-                        "max": nn.Parameter(
-                            torch.tensor(
-                                [
-                                    0.11999907,
-                                    0.11999977,
-                                    0.1,
-                                    0.27584794,
-                                    0.80490655,
-                                    0.75659704,
-                                    1.00000024,
-                                    1.0,
-                                ]
-                            )
-                        ),
-                    }
-                ),
+                "action": action_stats[self.act_rot_repr],
                 "robot_state": nn.ParameterDict(
                     {
                         "min": nn.Parameter(
@@ -116,11 +158,30 @@ class StateActionNormalizer(nn.Module):
         x = x * (stats["max"] - stats["min"]) + stats["min"]
         return x
 
-    def forward(self, x, key, forward=True):
-        if forward:
-            return self._normalize(x, key)
+    def forward(
+        self,
+        x: Union[np.ndarray, torch.Tensor],
+        key: str,
+        forward: bool = True,
+    ) -> Union[np.ndarray, torch.Tensor]:
+        """
+        Normalize or denormalize the input data.
 
-        return self._denormalize(x, key)
+        It accepts either a numpy array or a torch tensor and will return the same type.
+        """
+        numpy = False
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+            numpy = True
+
+        if forward:
+            x = self._normalize(x, key)
+        else:
+            x = self._denormalize(x, key)
+
+        if numpy:
+            return x.numpy()
+        return x
 
     def keys(self):
         return self.stats.keys()

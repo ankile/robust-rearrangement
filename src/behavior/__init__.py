@@ -32,7 +32,7 @@ def get_actor(config: ConfigDict, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(),
+                normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
                 config=config,
             )
         else:
@@ -40,7 +40,7 @@ def get_actor(config: ConfigDict, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(),
+                normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
                 config=config,
             )
 

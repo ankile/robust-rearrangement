@@ -2,14 +2,15 @@ import torch
 import torch.nn as nn
 import torchvision
 import transformers
-import warnings
 from vip import load_vip
 from r3m import load_r3m
+from voltron import instantiate_extractor, load as load_voltron
+
+
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
-from src.behavior.base import Actor
 
 from robomimic.models.obs_core import VisualCore
 
@@ -35,6 +36,8 @@ def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":
         return MAEEncoder(freeze=freeze, device=device)
+    if encoder_name == "voltron":
+        return VoltronEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 
 
@@ -52,7 +55,7 @@ def get_resnet(model_name, weights=None, **kwargs):
 
 
 class VisionEncoder(ModuleAttrMixin):
-    model: Actor
+    model: nn.Module
 
     def freeze(self):
         for param in self.model.parameters():
@@ -189,10 +192,7 @@ class VIPEncoder(torch.nn.Module):
         super().__init__()
         self.device = device
 
-        # Temporarily suppres warnings when loading VIP
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=UserWarning)
-            self.model = load_vip().module.to(device)
+        self.model = load_vip().module.to(device)
 
         self.encoding_dim = self.model.convnet.fc.out_features
 
@@ -310,4 +310,34 @@ class MAEEncoder(torch.nn.Module):
         x = x / 255.0
         x = self.normalize(x)
         x = self.model.forward_features(x)
+        return x
+
+
+class VoltronEncoder(torch.nn.Module):
+    def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
+        super().__init__()
+        # Load a frozen Voltron (V-Cond) model & configure a vector extractor
+        vcond, preprocess = load_voltron(
+            "v-cond",
+            device=device,
+            freeze=freeze,
+            cache="/data/scratch/ankile/.voltron",
+        )
+        vector_extractor = instantiate_extractor(vcond)().to(device)
+
+        self.model = vcond
+        self.preprocess = preprocess
+        self.vector_extractor = vector_extractor
+
+        self.encoding_dim = 384
+
+    def forward(self, x, lang=None):
+        x = x.permute(0, 3, 1, 2)
+        x = self.preprocess(x)
+        if lang is not None:
+            x = self.model(x, lang, mode="multimodal")
+        else:
+            x = self.model(x, mode="visual")
+
+        x = self.vector_extractor(x)
         return x

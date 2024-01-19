@@ -1,113 +1,56 @@
-from pathlib import Path
-import pickle
-from glob import glob
 import argparse
 import os
+from pathlib import Path
+import pickle
 import numpy as np
 import zarr
-from ipdb import set_trace as bp  # noqa
+from numcodecs import Blosc
 from tqdm import tqdm
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from datetime import datetime
 
 
-# === Image obs ===
-def initialize_zarr_store(out_path, initial_data, chunksize=32):
+# === Modified Function to Initialize Zarr Store with Full Dimensions ===
+def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     """
-    Initialize the Zarr store with datasets based on the initial data sample.
+    Initialize the Zarr store with full dimensions for each dataset.
     """
     z = zarr.open(str(out_path), mode="w")
-    z.attrs["time_created"] = str(np.datetime64("now"))
+    z.attrs["time_created"] = datetime.now().astimezone().isoformat()
 
-    images_shape = initial_data["observations"][0]["color_image1"].shape
-    actions_shape = initial_data["actions"][0].shape
-    robot_state_shape = (
-        len(
-            filter_and_concat_robot_state(
-                initial_data["observations"][0]["robot_state"]
+    # Define the compressor
+    compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
+
+    # Initialize datasets with full shapes
+    for name, shape, dtype in full_data_shapes:
+        if "color_image" in name:  # Apply compression to image data
+            z.create_dataset(
+                name,
+                shape=shape,
+                dtype=dtype,
+                chunks=(chunksize,) + shape[1:],
+                compressor=compressor,
             )
-        ),
-    )
-
-    # Initialize datasets with shapes based on the initial data
-    print("Chunksize", (chunksize,) + robot_state_shape)
-    z.create_dataset(
-        "robot_state",
-        shape=(0,) + robot_state_shape,
-        dtype=np.float32,
-        chunks=(chunksize,) + robot_state_shape,
-    )
-    z.create_dataset(
-        "color_image1",
-        shape=(0,) + images_shape,
-        dtype=np.uint8,
-        chunks=(chunksize,) + images_shape,
-    )
-    z.create_dataset(
-        "color_image2",
-        shape=(0,) + images_shape,
-        dtype=np.uint8,
-        chunks=(chunksize,) + images_shape,
-    )
-    z.create_dataset(
-        "action",
-        shape=(0,) + actions_shape,
-        dtype=np.float32,
-        chunks=(chunksize,) + actions_shape,
-    )
-    # Setting chunking to True in the below is a mistake
-    # Since we're appending to the dataset, the best Zarr
-    # can do is to have chunksize 1, meaning we get no.
-    # episodes times episode length chunks (too many).
-    z.create_dataset(
-        "reward",
-        shape=(0,),
-        dtype=np.float32,
-        chunks=(chunksize,),
-    )
-    z.create_dataset(
-        "skill",
-        shape=(0,),
-        dtype=np.float32,
-        chunks=(chunksize,),
-    )
-    # It doesn't really matter what this does wrt. chunking, since
-    # the number of elements is small and each element is small.
-    z.create_dataset(
-        "episode_ends",
-        shape=(0,),
-        dtype=np.uint32,
-    )
-    z.create_dataset(
-        "furniture",
-        shape=(0,),
-        dtype=str,
-    )
-
-    # Add an array that stores a list of the pickle files used to create the dataset to make it easier to extend with more data later
-    z.create_dataset(
-        "pickle_files",
-        shape=(0,),
-        dtype=str,
-    )
+        else:
+            z.create_dataset(
+                name, shape=shape, dtype=dtype, chunks=(chunksize,) + shape[1:]
+            )
 
     return z
 
 
-def process_pickle_file(z, pickle_path, noop_threshold):
+def process_pickle_file(pickle_path, noop_threshold):
     """
-    Process a single pickle file and append data to the Zarr store.
+    Process a single pickle file and return processed data.
     """
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
 
     obs = data["observations"][:-1]
-
     assert len(obs) == len(
         data["actions"]
     ), f"Mismatch in {pickle_path}, lengths differ by {len(obs) - len(data['actions'])}"
 
-    # Convert all lists to numpy arrays
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
     color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
     robot_state = np.array(
@@ -117,59 +60,114 @@ def process_pickle_file(z, pickle_path, noop_threshold):
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
 
-    if len(action.shape) < 2:
-        bp()
-
-    # Find the indexes where no action is taken
     moving = np.linalg.norm(action[:, :6], axis=1) >= noop_threshold
 
-    # Filter out the non-moving observations and add to the Zarr store
-    z["robot_state"].append(robot_state[moving])
-    z["color_image1"].append(color_image1[moving])
-    z["color_image2"].append(color_image2[moving])
-    z["action"].append(action[moving])
-    z["reward"].append(reward[moving])
-    z["skill"].append(skill[moving])
+    processed_data = {
+        "robot_state": robot_state[moving],
+        "color_image1": color_image1[moving],
+        "color_image2": color_image2[moving],
+        "action": action[moving],
+        "reward": reward[moving],
+        "skill": skill[moving],
+        "episode_length": len(action[moving]),
+        "furniture": data["furniture"],
+        "pickle_file": pickle_path.name,
+    }
 
-    # Add the episode ends, furniture, and pickle file name to the Zarr store
-    curr_index = z["episode_ends"][-1] if len(z["episode_ends"]) > 0 else 0
-    z["episode_ends"].append([curr_index + len(action[moving])])
-    z["furniture"].append([data["furniture"]])
-
-    # Keep only everything after `raw` in the path (the relevant part)
-    pickle_file = pickle_path.parts[pickle_path.parts.index("raw") + 1 :]
-    z["pickle_files"].append(["/".join(pickle_file)])
+    return processed_data
 
 
-def create_zarr_dataset(pickle_paths, out_path, chunksize=32, noop_threshold=0):
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+
+
+def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
     """
-    Create a Zarr dataset from multiple pickle files in a directory.
+    Process all pickle files in parallel and aggregate results.
     """
-    print(f"Number of trajectories: {len(pickle_paths)}")
+    # Initialize empty data structures to hold aggregated data
+    aggregated_data = {
+        "robot_state": [],
+        "color_image1": [],
+        "color_image2": [],
+        "action": [],
+        "reward": [],
+        "skill": [],
+        "episode_ends": [],
+        "furniture": [],
+        "pickle_file": [],
+    }
 
-    out_path.mkdir(parents=True, exist_ok=True)
+    # Process files in parallel
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [
+            executor.submit(process_pickle_file, path, noop_threshold)
+            for path in pickle_paths
+        ]
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Processing files"
+        ):
+            data = future.result()
+            # Aggregate data from each file
+            for key in data:
+                if key == "episode_length":
+                    # Calculate and append to episode_ends
+                    last_end = (
+                        aggregated_data["episode_ends"][-1]
+                        if len(aggregated_data["episode_ends"]) > 0
+                        else 0
+                    )
+                    aggregated_data["episode_ends"].append(last_end + data[key])
+                else:
+                    aggregated_data[key].append(data[key])
 
-    # Load one file to initialize the Zarr store
-    with open(pickle_paths[0], "rb") as f:
-        initial_data = pickle.load(f)
+    # Convert lists to numpy arrays for numerical data
+    for key in [
+        "robot_state",
+        "color_image1",
+        "color_image2",
+        "action",
+        "reward",
+        "skill",
+    ]:
+        aggregated_data[key] = np.concatenate(aggregated_data[key])
 
-    z = initialize_zarr_store(out_path, initial_data, chunksize=chunksize)
+    return aggregated_data
 
-    # Process the first file
-    process_pickle_file(z, pickle_paths[0], noop_threshold=noop_threshold)
 
-    # Process the remaining files
-    for path in tqdm(pickle_paths[1:], desc="Processing pickle files"):
-        process_pickle_file(z, path, noop_threshold=noop_threshold)
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
-    # Update any final metadata if necessary
-    # Set the time finished to now with timezone info
-    z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
-    z.attrs["noop_threshold"] = noop_threshold
-    z.attrs["chunksize"] = chunksize
 
+def write_to_zarr_store(z, key, value):
+    """
+    Function to write data to a Zarr store.
+    """
+    z[key][:] = value
+
+
+def parallel_write_to_zarr(z, aggregated_data, num_threads):
+    """
+    Write aggregated data to the Zarr store in parallel.
+    """
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = []
+        for key, value in aggregated_data.items():
+            # Schedule the writing of each dataset
+            futures.append(executor.submit(write_to_zarr_store, z, key, value))
+
+        # Wait for all futures to complete and track progress
+        for future in tqdm(
+            as_completed(futures), total=len(futures), desc="Writing to Zarr store"
+        ):
+            future.result()
+
+
+# === Entry Point of the Script ===
+# ... (Your argument parsing code remains the same) ...
 
 if __name__ == "__main__":
+    # ... (Your argument parsing code remains the same) ...
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", "-e", type=str)
     parser.add_argument(
@@ -209,16 +207,47 @@ if __name__ == "__main__":
     for path in raw_data_paths:
         pickle_paths += list(path.glob("**/*_success.pkl"))
 
+    print(f"Found {len(pickle_paths)} pickle files")
+
     sources = "_".join(sorted(args.source))
 
-    chunksize = 32
+    chunksize = 10_000
     noop_threshold = 0.0
     output_path = output_path / f"{sources}.zarr"
 
     print(f"Output path: {output_path}")
-    create_zarr_dataset(
-        pickle_paths,
-        output_path,
-        chunksize=chunksize,
-        noop_threshold=noop_threshold,
-    )
+
+    # Process all pickle files
+    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, 32)
+
+    # Define the full shapes for each dataset
+    full_data_shapes = [
+        ("robot_state", all_data["robot_state"].shape, np.float32),
+        ("color_image1", all_data["color_image1"].shape, np.uint8),
+        ("color_image2", all_data["color_image2"].shape, np.uint8),
+        ("action", all_data["action"].shape, np.float32),
+        ("reward", all_data["reward"].shape, np.float32),
+        ("skill", all_data["skill"].shape, np.float32),
+        ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
+        ("furniture", (len(all_data["furniture"]),), str),
+        ("pickle_file", (len(all_data["pickle_file"]),), str),
+    ]
+
+    # Initialize Zarr store with full dimensions
+    z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
+
+    from numcodecs import blosc
+
+    blosc.use_threads = True
+    blosc.set_nthreads(32)
+
+    # Write the data to the Zarr store
+    it = tqdm(all_data)
+    for name in it:
+        it.set_description(f"Writing data to zarr: {name}")
+        z[name][:] = all_data[name]
+
+    # Update final metadata
+    z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
+    z.attrs["noop_threshold"] = noop_threshold
+    z.attrs["chunksize"] = chunksize

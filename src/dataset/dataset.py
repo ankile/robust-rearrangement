@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from tqdm import trange
 import zarr
 
 from src.dataset.normalizer import StateActionNormalizer
@@ -87,17 +88,43 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.obs_horizon = obs_horizon
         self.normalizer = normalizer.cpu()
 
-        # Store the zarr dataset for later reading into
-        # (actions and robot_state will not be normalized in batch)
-        self.train_data = ZarrSubsetView(
-            zarr_group=zarr.open(dataset_path, "r"),
-            include_keys=["color_image1", "color_image2", "robot_state", "action"],
-        )
-
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = self.train_data["episode_ends"][:data_subset]
+        store = zarr.open(dataset_path, "r")
+        self.episode_ends = store["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
+
+        self.train_data = {
+            "color_image1": np.zeros(
+                (self.episode_ends[-1],) + store["color_image1"].shape[1:],
+                dtype=np.uint8,
+            ),
+            "color_image2": np.zeros(
+                (self.episode_ends[-1],) + store["color_image2"].shape[1:],
+                dtype=np.uint8,
+            ),
+            "robot_state": store["robot_state"][: self.episode_ends[-1]],
+            "action": store["action"][: self.episode_ends[-1]],
+        }
+
+        # Load the image data into the arrays
+        for i in trange(
+            0,
+            self.train_data["color_image1"].shape[0],
+            store.zattrs["chunksize"],
+            desc="Loading image data",
+        ):
+            end_idx = min(i + 10_000, self.train_data["color_image1"].shape[0])
+            self.train_data["color_image1"][i:end_idx] = store["color_image1"][
+                i:end_idx
+            ]
+            self.train_data["color_image2"][i:end_idx] = store["color_image2"][
+                i:end_idx
+            ]
+
+        # Normalize data to [-1,1]
+        for key in normalizer.keys():
+            self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -120,7 +147,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in self.train_data["furniture"][:data_subset]]
+            [furniture2idx[f] for f in store["furniture"][:data_subset]]
         )
 
         # Add action and observation dimensions to the dataset
@@ -128,6 +155,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
 
         # Take into account possibility of predicting an action that doesn't align with the first observation
+        # TODO: Verify this works with the BC_RNN baseline
         self.first_action_idx = first_action_idx
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
@@ -167,12 +195,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        # Normalize the robot state and actions
-        for key in ["robot_state", "action"]:
-            nsample[key] = self.normalizer(
-                torch.from_numpy(nsample[key]), key, forward=True
-            ).numpy()
-
         if self.augment_image:
             # Image augmentation function accepts one image at a time, need to loop over the batch
             nsample["color_image1"] = np.stack(
@@ -202,19 +224,21 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         normalizer: StateActionNormalizer,
         data_subset: int = None,
         first_action_idx: int = 0,
-        include_task: bool = False,
+        act_rot_repr: str = "quat",
     ):
         # Read from zarr dataset
-        self.dataset = zarr.open(dataset_path, "r")
+        dataset = zarr.open(dataset_path, "r")
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = self.dataset["episode_ends"][:data_subset]
+        self.episode_ends = dataset["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
+
+        action_key = "action" if act_rot_repr == "quat" else "action_6d"
         train_data = {
             # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": self.dataset["robot_state"][: self.episode_ends[-1]],
-            "action": self.dataset["action"][: self.episode_ends[-1]],
+            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
+            "action": dataset[action_key][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence
@@ -227,11 +251,11 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         )
 
         # float32, (N, embed_dim)
-        train_data["feature1"] = self.dataset["feature1"][: self.episode_ends[-1]]
-        train_data["feature2"] = self.dataset["feature2"][: self.episode_ends[-1]]
+        train_data["feature1"] = dataset["feature1"][: self.episode_ends[-1]]
+        train_data["feature2"] = dataset["feature2"][: self.episode_ends[-1]]
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in self.dataset["furniture"][:data_subset]]
+            [furniture2idx[f] for f in dataset["furniture"][:data_subset]]
         )
 
         # Normalize data to [-1,1]
