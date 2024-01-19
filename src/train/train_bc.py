@@ -132,7 +132,7 @@ def main(config: ConfigDict):
         project=config.wandb.project,
         entity="robot-rearrangement",
         config=config.to_dict(),
-        mode="online" if not config.dryrun else "disabled",
+        mode=config.wandb.mode if not config.dryrun else "disabled",
         notes=config.wandb.notes,
     )
 
@@ -339,7 +339,8 @@ if __name__ == "__main__":
     config.wandb = ConfigDict()
     config.wandb.project = "multi-task"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "First run with the Voltron encoder."
+    config.wandb.notes = "Continue training end-to-end with spatial softmax."
+    config.wandb.mode = args.wb_mode
 
     # defaults
     config.action_horizon = 8
@@ -381,7 +382,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/gallant-water-7/actor_chkpt_best_test_loss.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/trim-wave-5/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -404,8 +405,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.freeze = False
+    config.vision_encoder.pretrained = False
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -416,7 +417,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = False
+    config.multi_task = True
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
 
@@ -429,10 +430,10 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    # config.feature_layernorm = False
-    config.feature_layernorm = True
+    config.feature_layernorm = False
+    # config.feature_layernorm = True
 
-    config.augment_image = False
+    config.augment_image = True
     config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False
@@ -448,7 +449,9 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     # config.remove_noop = True
-    config.datasim_path = "/data/scratch/ankile/furniture-data/processed/sim/feature/voltron/one_leg/scripted.zarr"
+    config.datasim_path = (
+        "/data/scratch/ankile/furniture-data/processed/sim/image/one_leg/scripted.zarr"
+    )
     # config.datasim_path = (
     #     config.data_base_dir
     #     / "processed/sim"

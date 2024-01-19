@@ -1,3 +1,4 @@
+from typing import Union
 import torch
 import torch.nn as nn
 import numpy as np
@@ -157,11 +158,30 @@ class StateActionNormalizer(nn.Module):
         x = x * (stats["max"] - stats["min"]) + stats["min"]
         return x
 
-    def forward(self, x, key, forward=True):
-        if forward:
-            return self._normalize(x, key)
+    def forward(
+        self,
+        x: Union[np.ndarray, torch.Tensor],
+        key: str,
+        forward: bool = True,
+    ) -> Union[np.ndarray, torch.Tensor]:
+        """
+        Normalize or denormalize the input data.
 
-        return self._denormalize(x, key)
+        It accepts either a numpy array or a torch tensor and will return the same type.
+        """
+        numpy = False
+        if isinstance(x, np.ndarray):
+            x = torch.from_numpy(x).float()
+            numpy = True
+
+        if forward:
+            x = self._normalize(x, key)
+        else:
+            x = self._denormalize(x, key)
+
+        if numpy:
+            return x.numpy()
+        return x
 
     def keys(self):
         return self.stats.keys()
