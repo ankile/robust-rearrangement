@@ -4,6 +4,9 @@ import torch.nn as nn
 from src.dataset.normalizer import StateActionNormalizer
 
 from ipdb import set_trace as bp  # noqa
+from torchvision import transforms
+
+resize_transform = transforms.Resize((224, 224))
 
 
 # Update the PostInitCaller to be compatible
@@ -55,6 +58,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         B = nrobot_state.shape[0]
 
+        # from furniture_bench.perception.image_utils import resize, resize_crop
         # Get size of the image
         img_size = obs[0]["color_image1"].shape[-3:]
 
@@ -65,6 +69,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
             B * self.obs_horizon, *img_size
         )
+
+        # Resize the images to 224x224
+        img1 = resize_transform(img1.transpose(1, 3)).transpose(1, 3)
+        img2 = resize_transform(img2.transpose(1, 3)).transpose(1, 3)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         feature1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)

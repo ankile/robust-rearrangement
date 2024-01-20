@@ -11,11 +11,11 @@ import torch
 
 from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
-from furniture_bench.config import config
 from furniture_bench.sim_config import sim_config
-from furniture_bench.perception.image_utils import resize, resize_crop
 from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
+
+from src.data_processing.utils import resize, resize_crop
 
 
 class DataCollector:

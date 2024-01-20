@@ -12,7 +12,7 @@ if __name__ == "__main__":
     # parser.add_argument("--resize-sim-img", action="store_true")
     parser.add_argument("--furniture", "-f", type=str, required=True)
     parser.add_argument("--save-failure", action="store_true")
-    parser.add_argument("--draw-marker", action="store_true")
+    parser.add_argument("--headless", action="store_true")
 
     args = parser.parse_args()
 
@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # # Add the suffix _highres if we are not resizing images in or after simulation
     # if not args.resize_img_after_sim and not args.small_sim_img_size:
     #     obs_type = obs_type + "_highres"
-    resize_sim_img = True
+    resize_sim_img = False
 
     data_path = trajectory_save_dir(
         environment="sim",
@@ -37,10 +37,10 @@ if __name__ == "__main__":
         data_path=data_path,
         furniture=args.furniture,
         device_interface=None,
-        headless=True,
-        draw_marker=args.draw_marker,
+        headless=args.headless,
         manual_label=False,
         scripted=True,
+        draw_marker=True,
         randomness=args.randomness,
         save_failure=args.save_failure,
         num_demos=args.num_demos,
