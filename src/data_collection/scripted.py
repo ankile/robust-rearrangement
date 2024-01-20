@@ -1,17 +1,16 @@
+import furniture_bench  # noqa: F401
 import argparse
-import os
-from pathlib import Path
 
 from src.data_collection.data_collector import DataCollector
 from src.common.files import trajectory_save_dir
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--randomness", type=str, default="low")
-    parser.add_argument("--num-demos", type=int, default=100)
-    parser.add_argument("--gpu-id", type=int, default=0)
+    parser.add_argument("--randomness", "-r", type=str, default="low")
+    parser.add_argument("--num-demos", "-n", type=int, default=100)
+    parser.add_argument("--gpu-id", "-g", type=int, default=0)
     # parser.add_argument("--resize-sim-img", action="store_true")
-    parser.add_argument("--furniture", type=str, required=True)
+    parser.add_argument("--furniture", "-f", type=str, required=True)
     parser.add_argument("--save-failure", action="store_true")
     parser.add_argument("--draw-marker", action="store_true")
 
@@ -25,9 +24,9 @@ if __name__ == "__main__":
     resize_sim_img = True
 
     data_path = trajectory_save_dir(
-        environment="sim" if args.is_sim else "real",
+        environment="sim",
         task=args.furniture,
-        demo_source="teleop",
+        demo_source="scripted",
         randomness=args.randomness,
     )
 
@@ -49,6 +48,7 @@ if __name__ == "__main__":
         compute_device_id=args.gpu_id,
         graphics_device_id=args.gpu_id,
         ctrl_mode="osc",
+        compress_pickles=True,
     )
 
     collector.collect()

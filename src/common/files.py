@@ -103,8 +103,8 @@ def trajectory_save_dir(
         Path(os.environ["DATA_DIR_RAW"])
         / "raw"
         / environment
-        / demo_source
         / task
+        / demo_source
         / randomness
     )
 

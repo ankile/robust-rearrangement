@@ -1,3 +1,6 @@
+import gzip
+import lzma
+
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -59,10 +62,19 @@ def data_to_video(data: dict) -> np.ndarray:
     return ims
 
 
-def unpickle_data(pickle_path):
-    with open(pickle_path, "rb") as f:
-        data = pickle.load(f)
-    return data
+def unpickle_data(pickle_path: Union[Path, str]):
+    pickle_path = Path(pickle_path)
+    if pickle_path.suffix == ".gz":
+        with gzip.open(pickle_path, "rb") as f:
+            return pickle.load(f)
+    elif pickle_path.suffix == ".pkl":
+        with open(pickle_path, "rb") as f:
+            return pickle.load(f)
+    elif pickle_path.suffix == ".xz":
+        with lzma.open(pickle_path, "rb") as f:
+            return pickle.load(f)
+
+    raise ValueError(f"Invalid file extension: {pickle_path.suffix}")
 
 
 def create_in_memory_mp4(np_images, fps=10):

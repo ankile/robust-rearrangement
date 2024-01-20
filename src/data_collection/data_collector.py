@@ -1,14 +1,13 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
+import lzma
 import time
 import pickle
 from datetime import datetime
 from pathlib import Path
 import gzip
 
-import cv2
 import gym
 import torch
-from joblib import Parallel, delayed
 
 from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
@@ -47,6 +46,7 @@ class DataCollector:
         resize_sim_img: bool = False,
         ctrl_mode: str = "osc",
         compress_pickles: bool = False,
+        verbose: bool = False,
     ):
         """
         Args:
@@ -118,8 +118,13 @@ class DataCollector:
         self.save_failure = save_failure
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
+        self.verbose = verbose
 
         self._reset_collector_buffer()
+
+    def _verbose_print(self, msg):
+        if self.verbose:
+            print(msg)
 
     def collect(self):
         print("[data collection] Start collecting the data!")
@@ -218,7 +223,7 @@ class DataCollector:
 
             # Logging a step.
             self.step_counter += 1
-            print(
+            self._verbose_print(
                 f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} num assembled: {len(self.env.furniture.assembled_set)} Skill: {len(self.skill_set)}"
             )
 
@@ -293,18 +298,6 @@ class DataCollector:
     def save(self, collect_enum: CollectEnum, info):
         print(f"Length of trajectory: {len(self.obs)}")
 
-        # Color data paths.
-        self.color_names = ["color_image1", "color_image2", "color_image3"]
-        self.color_video_names = []
-        for name in self.color_names:
-            self.color_video_names.append(demo_path / f"{data_name}_{name}.mp4")
-
-        # Depth data paths.
-        self.depth_names = ["depth_image1", "depth_image2", "depth_image3"]
-        self.depth_paths = []
-        for name in self.depth_names:
-            self.depth_paths.append(demo_path / f"{data_name}_{name}")
-
         # Save transitions with resized images.
         data = {}
         data["observations"] = self.obs
@@ -321,17 +314,16 @@ class DataCollector:
             data["error"] = False
             data["error_description"] = ""
 
-
         # Save data.
         demo_path = self.data_path / ("success" if data["success"] else "failure")
         demo_path.mkdir(parents=True, exist_ok=True)
 
-        path = demo_path / f"{datetime.now().strftime("%Y-%m-%d-%H:%M:%S")}.pkl"
+        path = demo_path / f"{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}.pkl"
 
         if self.compress_pickles:
             # Add the suffix .gz if we are compressing the pickle files
-            path = path.with_suffix(".pkl.gz")
-            with gzip.open(path, "wb") as f:
+            path = path.with_suffix(".pkl.xz")
+            with lzma.open(path, "wb") as f:
                 pickle.dump(data, f)
         else:
             with open(path, "wb") as f:

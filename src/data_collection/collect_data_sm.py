@@ -1,11 +1,8 @@
-import os
 import argparse
-import os.path as osp
 
 import furniture_bench
 from furniture_bench.device import make_device
 from furniture_bench.config import config
-from furniture_bench.envs.initialization_mode import Randomness
 
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
 from src.common.files import trajectory_save_dir
