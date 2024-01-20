@@ -6,8 +6,6 @@ from src.dataset.normalizer import StateActionNormalizer
 from ipdb import set_trace as bp  # noqa
 from torchvision import transforms
 
-resize_transform = transforms.Resize((224, 224))
-
 
 # Update the PostInitCaller to be compatible
 class PostInitCaller(type(torch.nn.Module)):
@@ -26,6 +24,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     feature_dropout: bool = False
     feature_layernorm: bool = False
     encoding_dim: int
+
+    # Set image transforms
+    camera1_transform = transforms.Resize((224, 224), antialias=True)
+    camera2_transform = transforms.CenterCrop((224, 224))
 
     def __post_init__(self, *args, **kwargs):
         if self.feature_dropout:
@@ -71,8 +73,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         )
 
         # Resize the images to 224x224
-        img1 = resize_transform(img1.transpose(1, 3)).transpose(1, 3)
-        img2 = resize_transform(img2.transpose(1, 3)).transpose(1, 3)
+        img1 = self.camera1_transform(img1.transpose(1, 3)).transpose(1, 3)
+        img2 = self.camera2_transform(img2.transpose(1, 3)).transpose(1, 3)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         feature1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
@@ -112,10 +114,24 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         B = nrobot_state.shape[0]
 
         if self.observation_type == "image":
-            # Convert images from (batch_size, obs_horizon, 224, 224, 3) -> (batch_size * obs_horizon, 224, 224, 3)
-            # so that it's compatible with the encoder
-            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
-            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
+            image1 = batch["color_image1"]
+            image2 = batch["color_image2"]
+
+            # Reshape the images to (B * obs_horizon, H, W, C) for the encoder
+            image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])
+            image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
+
+            # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+            image1 = image1.permute(0, 3, 1, 2)
+            image2 = image2.permute(0, 3, 1, 2)
+
+            # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+            image1 = self.camera1_transform(image1)
+            image2 = self.camera2_transform(image2)
+
+            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+            image1 = image1.permute(0, 2, 3, 1)
+            image2 = image2.permute(0, 2, 3, 1)
 
             # Encode images and reshape back to (B, obs_horizon, encoding_dim)
             feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)

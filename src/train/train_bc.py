@@ -25,7 +25,7 @@ import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.control import RotationMode
-from src.common.files import get_data_path
+from src.common.files import get_processed_path
 
 
 from ml_collections import ConfigDict
@@ -43,7 +43,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
-            dataset_path=config.datasim_path,
+            dataset_path=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
@@ -54,7 +54,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
-            dataset_path=config.datasim_path,
+            dataset_path=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
@@ -376,7 +376,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/pious-disco-7/actor_chkpt_best_test_loss.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/pious-disco-7/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -446,15 +446,16 @@ if __name__ == "__main__":
         config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.datasim_path = get_data_path(
-        config.observation_type,
-        config.vision_encoder.model,
-        config.furniture,
-        config.demo_source,
-        config.language_conditioning,
-        config.trajectory_success_conditioning,
+    config.data_path = get_processed_path(
+        obs_type=config.observation_type,
+        encoder=config.vision_encoder.model,
+        environment="sim",
+        task=config.furniture,
+        demo_source="scripted",
+        randomness=None,
+        demo_outcome="success",
     )
 
-    print(f"Using data from {config.datasim_path}")
+    print(f"Using data from {config.data_path}")
 
     main(config, start_epoch=0)
