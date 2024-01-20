@@ -1,16 +1,20 @@
 import argparse
+from email.contentmanager import raw_data_manager
 import os
+from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from pathlib import Path
+from typing import List
 
 import numpy as np
 import zarr
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
-from numcodecs import Blosc
-from src.common.types import Trajectory
+from numcodecs import Blosc, blosc
 from tqdm import tqdm
+from src.common.types import Trajectory
+from src.common.files import get_processed_path, get_raw_paths
+from src.visualization.render_mp4 import unpickle_data
 
 
 # === Modified Function to Initialize Zarr Store with Full Dimensions ===
@@ -42,12 +46,11 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     return z
 
 
-def process_pickle_file(pickle_path, noop_threshold):
+def process_pickle_file(pickle_path: Path, noop_threshold: float):
     """
     Process a single pickle file and return processed data.
     """
-    with open(pickle_path, "rb") as f:
-        data: Trajectory = pickle.load(f)
+    data: Trajectory = unpickle_data(pickle_path)
 
     obs = data["observations"][:-1]
     assert len(obs) == len(
@@ -95,6 +98,7 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "skill": [],
         "episode_ends": [],
         "furniture": [],
+        "success": [],
         "pickle_file": [],
     }
 
@@ -165,57 +169,66 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 if __name__ == "__main__":
     # ... (Your argument parsing code remains the same) ...
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", "-e", type=str)
+    parser.add_argument("--env", "-e", type=str, nargs="+", default=None)
+    parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
     parser.add_argument(
         "--source",
         "-s",
         type=str,
         choices=["scripted", "rollout", "teleop"],
-        default="scripted",
+        default=None,
         nargs="+",
     )
-    parser.add_argument("--furniture", "-f", type=str, default=None)
-    parser.add_argument("--randomness", "-r", type=str, default=None)
-    parser.add_argument("--use-failures", action="store_true")
-
+    parser.add_argument(
+        "--randomness",
+        "-r",
+        type=str,
+        default=None,
+        nargs="+",
+    )
+    parser.add_argument(
+        "--demo-outcome",
+        "-d",
+        type=str,
+        choices=["success", "failure"],
+        default=None,
+        nargs="+",
+    )
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    data_base_path_in = Path(os.environ["DATA_DIR_RAW"])
-    data_base_path_out = Path(os.environ["DATA_DIR_PROCESSED"])
-
-    raw_data_paths = [data_base_path_in / "raw" / args.env / s for s in args.source]
-    output_path = data_base_path_out / "processed" / args.env / "image"
-
-    if args.furniture is not None:
-        raw_data_paths = [p / args.furniture for p in raw_data_paths]
-        output_path = output_path / args.furniture
-
-    if args.randomness is not None:
-        assert (
-            args.furniture is not None
-        ), "Must specify furniture when using randomness"
-        assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
-        raw_data_paths = [p / args.randomness for p in raw_data_paths]
-        output_path = output_path / args.randomness
-
-    print(f"Raw data paths: {raw_data_paths}")
-
-    pickle_paths = []
-    for path in raw_data_paths:
-        pickle_paths += list(path.glob("**/*_success.pkl"))
+    pickle_paths: List[Path] = get_raw_paths(
+        environment=args.env,
+        task=args.furniture,
+        demo_source=args.source,
+        randomness=args.randomness,
+        demo_outcome=args.demo_outcome,
+    )
 
     print(f"Found {len(pickle_paths)} pickle files")
 
-    sources = "_".join(sorted(args.source))
-
-    chunksize = 10_000
-    noop_threshold = 0.0
-    output_path = output_path / f"{sources}.zarr"
+    output_path = get_processed_path(
+        obs_type="image",
+        environment=args.env,
+        task=args.furniture,
+        demo_source=args.source,
+        randomness=args.randomness,
+        demo_outcome=args.demo_outcome,
+    )
 
     print(f"Output path: {output_path}")
 
+    if output_path.exists() and not args.overwrite:
+        raise ValueError(
+            f"Output path already exists: {output_path}. Use --overwrite to overwrite."
+        )
+
     # Process all pickle files
-    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, 32)
+    chunksize = 1_000
+    noop_threshold = 0.0
+    n_cpus = os.cpu_count()
+
+    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, n_cpus)
 
     # Define the full shapes for each dataset
     full_data_shapes = [
@@ -236,10 +249,8 @@ if __name__ == "__main__":
     # Initialize Zarr store with full dimensions
     z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
 
-    from numcodecs import blosc
-
     blosc.use_threads = True
-    blosc.set_nthreads(32)
+    blosc.set_nthreads(n_cpus)
 
     # Write the data to the Zarr store
     it = tqdm(all_data)

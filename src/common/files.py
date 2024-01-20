@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from typing import Literal, Union, List
+from glob import glob
+from ipdb import set_trace as bp
 
 from src.common.types import (
     EncoderName,
@@ -12,6 +14,17 @@ from src.common.types import (
 )
 
 
+def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
+    if parts is None:
+        return path
+    elif isinstance(parts, str):
+        return path / parts
+    elif isinstance(parts, list):
+        return path / "-".join(sorted(parts))
+    else:
+        raise ValueError(f"Invalid part: {part}")
+
+
 def get_processed_path(
     obs_type: Literal["image", "feature"] = "image",
     encoder: Union[EncoderName, None] = None,
@@ -19,8 +32,8 @@ def get_processed_path(
     task: Union[List[TaskName], TaskName, None] = "one_leg",
     demo_source: Union[List[DemoSources], DemoSources, None] = "scripted",
     randomness: Union[List[Randomness], Randomness, None] = None,
-    success_cond: Union[List[DemoStatus], DemoStatus] = "success",
-):
+    demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
+) -> Path:
     path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
 
     # Image observations and procomputed features can not be mixed
@@ -33,33 +46,31 @@ def get_processed_path(
         path /= encoder
 
     # We can mix sim and real environments
-    path /= "-".join(sorted(environment))
+    path = add_subdir(path, environment)
 
-    # We can mix different tasks
-    path /= "-".join(sorted(task))
+    # We can mix tasks
+    path = add_subdir(path, task)
 
-    # We can mix different demo sources
-    path /= "-".join(sorted(demo_source))
+    # We can mix demo sources
+    path = add_subdir(path, demo_source)
 
-    # We can mix different randomness levels
-    path /= "-".join(sorted(randomness))
+    # We can mix randomness
+    path = add_subdir(path, randomness)
 
-    # We can mix success and failure conditions
-    path /= "-".join(sorted(success_cond))
+    # We can mix demo outcomes
+    path = add_subdir(path, demo_outcome)
 
     # Set the file extension
     path = path.with_suffix(".zarr")
 
-    # Raise an error if the path does not exist
-    if not path.exists():
-        raise FileNotFoundError(f"Path {path} does not exist")
-
     return path
 
 
-def add_glob_part(paths, part):
+def add_glob_part(paths, part) -> List[Path]:
     if part is None:
-        return [path / "*" for path in paths]
+        if paths[0].parts[-1] == "**":
+            return paths
+        return [path / "**" for path in paths]
     elif isinstance(part, str):
         return [path / part for path in paths]
     elif isinstance(part, list):
@@ -73,8 +84,8 @@ def get_raw_paths(
     task: List[TaskName] = ["square_table"],
     demo_source: List[Literal["scripted", "rollout", "teleop"]] = ["scripted"],
     randomness: List[Literal["low", "med", "high"]] = [],
-    success_cond: List[Literal["success", "failure"]] = ["success"],
-):
+    demo_outcome: List[Literal["success", "failure"]] = ["success"],
+) -> List[Path]:
     path = Path(os.environ["DATA_DIR_RAW"]) / "raw"
 
     paths = [path]
@@ -82,14 +93,33 @@ def get_raw_paths(
     # We can mix sim and real environments
     paths = add_glob_part(paths, environment)
 
-    # Set the file extension
-    path = path.with_suffix(".pkl")
+    # Add the task pattern to all paths
+    paths = add_glob_part(paths, task)
 
-    # Raise an error if the path does not exist
-    if not path.exists():
-        raise FileNotFoundError(f"Path {path} does not exist")
+    # Add the demo source pattern to all paths
+    paths = add_glob_part(paths, demo_source)
 
-    return path
+    # Add the randomness pattern to all paths
+    paths = add_glob_part(paths, randomness)
+
+    # Add the demo outcome pattern to all paths
+    paths = add_glob_part(paths, demo_outcome)
+
+    # Add ** if we are not using an explicit demo outcome
+    if demo_outcome is None and paths[0].parts[-1] != "**":
+        paths = add_glob_part(paths, "**")
+
+    # Add the extension pattern to all paths
+    paths = [path / "*.pkl*" for path in paths]
+
+    print("Found the following paths:")
+    for p in paths:
+        print("   ", p)
+
+    # Use glob to find all the pickle files
+    pickle_paths = [Path(path) for p in paths for path in glob(str(p), recursive=True)]
+
+    return pickle_paths
 
 
 def trajectory_save_dir(
