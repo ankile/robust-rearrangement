@@ -24,7 +24,7 @@ from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
-from src.common.control import RotationMode
+from src.common.control import RotationMode, ControlMode
 from src.common.files import get_processed_path
 
 
@@ -47,7 +47,6 @@ def main(config: ConfigDict, start_epoch: int = 0):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
@@ -58,10 +57,8 @@ def main(config: ConfigDict, start_epoch: int = 0):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
-            act_rot_repr=config.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -147,7 +144,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
             "num_samples_test": len(test_dataset),
             "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
             "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": StateActionNormalizer(act_rot_repr=config.act_rot_repr).stats_dict,
+            "stats": StateActionNormalizer().stats_dict,
         }
     )
     wandb.config.update(config.to_dict())
@@ -366,7 +363,7 @@ if __name__ == "__main__":
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = dryrun(args.data_subset, 1)
+    config.data_subset = dryrun(args.data_subset, 10)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
@@ -374,7 +371,6 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/pious-disco-7/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -439,7 +435,8 @@ if __name__ == "__main__":
     config.checkpoint_model = True
 
     # Control mode
-    config.act_rot_repr = RotationMode.quat
+    config.act_rot_repr = RotationMode.rot_6d
+    config.control_mode = ControlMode.delta
 
     assert (
         config.rollout.count % config.num_envs == 0

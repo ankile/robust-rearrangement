@@ -5,8 +5,6 @@ from src.behavior.mlp import MLPActor
 from src.behavior.rnn import RNNActor
 from src.behavior.diffusion import DiffusionPolicy, MultiTaskDiffusionPolicy
 
-from src.dataset.normalizer import StateActionNormalizer
-
 
 def get_actor(config: ConfigDict, device) -> Actor:
     """Returns an actor model."""
@@ -15,7 +13,6 @@ def get_actor(config: ConfigDict, device) -> Actor:
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
             config=config,
         )
     elif config.actor == "rnn":
@@ -23,7 +20,6 @@ def get_actor(config: ConfigDict, device) -> Actor:
             device=device,
             encoder_name=config.vision_encoder.model,
             freeze_encoder=config.vision_encoder.freeze,
-            normalizer=StateActionNormalizer(),
             config=config,
         )
     elif config.actor == "diffusion":
@@ -32,7 +28,6 @@ def get_actor(config: ConfigDict, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
                 config=config,
             )
         else:
@@ -40,7 +35,6 @@ def get_actor(config: ConfigDict, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
-                normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
                 config=config,
             )
 

@@ -18,7 +18,6 @@ class DiffusionPolicy(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
         config,
     ) -> None:
         super().__init__()
@@ -57,7 +56,7 @@ class DiffusionPolicy(Actor):
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = normalizer.to(device)
+        self.normalizer = StateActionNormalizer(config.control_mode).to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
@@ -184,14 +183,12 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
         config,
     ) -> None:
         super().__init__(
             device=device,
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
-            normalizer=normalizer,
             config=config,
         )
 

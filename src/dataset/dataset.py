@@ -1,3 +1,4 @@
+from os import ST_APPEND
 import numpy as np
 import torch
 from tqdm import trange
@@ -6,6 +7,8 @@ import zarr
 from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
 from src.dataset.zarr_mod import ZarrSubsetView
+from src.common.control import RotationMode, ControlMode
+
 from src.common.tasks import furniture2idx
 
 
@@ -78,15 +81,19 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: StateActionNormalizer,
         augment_image: bool = False,
         data_subset: int = None,
         first_action_idx: int = 0,
+        control_mode: ControlMode = ControlMode.delta,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
-        self.normalizer = normalizer.cpu()
+        self.control_mode = control_mode
+
+        normalizer = StateActionNormalizer(
+            control_mode=control_mode,
+        ).cpu()
 
         # (N, D)
         # Get only the first data_subset episodes
@@ -104,7 +111,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 dtype=np.uint8,
             ),
             "robot_state": store["robot_state"][: self.episode_ends[-1]],
-            "action": store["action"][: self.episode_ends[-1]],
+            "action": store["action"][control_mode][: self.episode_ends[-1]],
         }
 
         # Load the image data into the arrays
