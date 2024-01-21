@@ -206,6 +206,11 @@ if __name__ == "__main__":
     )
 
     print(f"Found {len(pickle_paths)} pickle files")
+    print(f"Found {len(set(pickle_paths))} unique pickle files")
+
+    print("Files found:")
+    for p in pickle_paths:
+        print("   ", p)
 
     output_path = get_processed_path(
         obs_type="image",

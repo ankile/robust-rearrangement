@@ -28,5 +28,8 @@ if __name__ == "__main__":
 
     # Change any parameters here
     config.num_epochs = 200
+    config.augment_image = False
+    config.save_rollouts = False
+    config.rollout.every = 10
 
     train_bc_main(config, start_epoch=start_epoch)

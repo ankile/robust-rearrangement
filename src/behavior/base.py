@@ -27,7 +27,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
     # Set image transforms
     camera1_transform = transforms.Resize((224, 224), antialias=True)
-    camera2_transform = transforms.CenterCrop((224, 224))
+
+    camera2_transform_train = transforms.RandomCrop((224, 224))
+    camera2_transform_val = transforms.CenterCrop((224, 224))
+    camera2_transform = camera2_transform_train
 
     def __post_init__(self, *args, **kwargs):
         if self.feature_dropout:
@@ -165,12 +168,14 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         Set models to train mode
         """
         self.train()
+        self.camera2_transform = self.camera2_transform_train
 
     def eval_mode(self):
         """
         Set models to eval mode
         """
         self.eval()
+        self.camera2_transform = self.camera2_transform_val
 
     def action(self, obs: deque) -> torch.Tensor:
         """
