@@ -295,11 +295,6 @@ if __name__ == "__main__":
     )
 
     print(f"Found {len(pickle_paths)} pickle files")
-    print(f"Found {len(set(pickle_paths))} unique pickle files")
-
-    print("Files found:")
-    for p in pickle_paths:
-        print("   ", p)
 
     output_path = get_processed_path(
         obs_type="image",
@@ -330,9 +325,10 @@ if __name__ == "__main__":
         ("robot_state", all_data["robot_state"].shape, np.float32),
         ("color_image1", all_data["color_image1"].shape, np.uint8),
         ("color_image2", all_data["color_image2"].shape, np.uint8),
-        ("action", all_data["action"].shape, np.float32),
-        ("reward", all_data["reward"].shape, np.float32),
+        ("action/delta", all_data["action/delta"].shape, np.float32),
+        ("action/pos", all_data["action/pos"].shape, np.float32),
         ("skill", all_data["skill"].shape, np.float32),
+        ("reward", all_data["reward"].shape, np.float32),
         # These are of length: number of episodes
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),

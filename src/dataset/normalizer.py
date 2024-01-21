@@ -2,6 +2,7 @@ from typing import Union
 import torch
 import torch.nn as nn
 import numpy as np
+from src.dataset.data_stats import data_stats
 
 
 def get_data_stats(data):
@@ -12,129 +13,31 @@ def get_data_stats(data):
 
 # For now, these stats come from calculating the min/max of data
 # collected from the robot in the sim for the `one_leg` task,
-# for 490 trajectories, roughly evenly split between low, medium, and high randomness.
-# The values were very similar to the values for the `lamp` task collected in the real world.
-# TODO: Investigate more data from more tasks to see if these stats are good enough.
+# for ~200 episodes after the change in the controller
 class StateActionNormalizer(nn.Module):
-    def __init__(self, act_rot_repr: str = "quat"):
+    def __init__(self, control_mode="delta"):
         super().__init__()
-        self.act_rot_repr = act_rot_repr
-
-        action_stats = {
-            "quat": nn.ParameterDict(
-                {
-                    "min": nn.Parameter(
-                        torch.tensor(
-                            [
-                                -0.11999873,
-                                -0.11999782,
-                                -0.0910784,
-                                -0.41173494,
-                                -0.7986815,
-                                -0.73318267,
-                                -1.00000012,
-                                -1.0,
-                            ]
-                        )
-                    ),
-                    "max": nn.Parameter(
-                        torch.tensor(
-                            [
-                                0.11999907,
-                                0.11999977,
-                                0.1,
-                                0.27584794,
-                                0.80490655,
-                                0.75659704,
-                                1.00000024,
-                                1.0,
-                            ]
-                        )
-                    ),
-                }
-            ),
-            "rot_6d": nn.ParameterDict(
-                {
-                    "min": nn.Parameter(
-                        torch.tensor(
-                            [
-                                -0.11999829,
-                                -0.11999908,
-                                -0.08132574,
-                                -0.35798502,
-                                -0.99999934,
-                                -0.70630395,
-                                -0.99999964,
-                                -0.28959465,
-                                -0.89785737,
-                                -1.0,
-                            ],
-                        )
-                    ),
-                    "max": nn.Parameter(
-                        torch.tensor(
-                            [
-                                0.11999787,
-                                0.11999953,
-                                0.07999872,
-                                1.0,
-                                0.9999992,
-                                0.9999981,
-                                0.9999772,
-                                1.0,
-                                0.49280044,
-                                1.0,
-                            ],
-                        )
-                    ),
-                }
-            ),
-        }
+        assert control_mode in ["delta", "pos"]
 
         self.stats = nn.ParameterDict(
             {
-                "action": action_stats[self.act_rot_repr],
                 "robot_state": nn.ParameterDict(
                     {
                         "min": nn.Parameter(
-                            torch.tensor(
-                                [
-                                    2.80025989e-01,
-                                    -1.65265590e-01,
-                                    -1.33207440e-03,
-                                    -9.99999881e-01,
-                                    -8.32509935e-01,
-                                    -5.51004350e-01,
-                                    1.40711887e-08,
-                                    -7.02747107e-01,
-                                    -1.01964152e00,
-                                    -7.42725849e-01,
-                                    -2.45710993e00,
-                                    -2.84063244e00,
-                                    -3.71836829e00,
-                                    4.75169145e-05,
-                                ]
-                            )
+                            torch.tensor(data_stats["robot_state"]["min"])
                         ),
                         "max": nn.Parameter(
-                            torch.tensor(
-                                [
-                                    0.68205643,
-                                    0.31372252,
-                                    0.27053252,
-                                    0.99999988,
-                                    0.8431676,
-                                    0.56648922,
-                                    0.20231877,
-                                    0.65723258,
-                                    0.75370288,
-                                    0.50734419,
-                                    2.4507556,
-                                    2.72471213,
-                                    3.6940937,
-                                    0.07003613,
-                                ]
-                            )
+                            torch.tensor(data_stats["robot_state"]["max"])
+                        ),
+                    }
+                ),
+                "action": nn.ParameterDict(
+                    {
+                        "min": nn.Parameter(
+                            torch.tensor(data_stats[f"action/{control_mode}"]["min"])
+                        ),
+                        "max": nn.Parameter(
+                            torch.tensor(data_stats[f"action/{control_mode}"]["max"])
                         ),
                     }
                 ),

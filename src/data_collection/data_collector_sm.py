@@ -278,6 +278,9 @@ class DataCollectorSpaceMouse:
         target_pose_last_action_rv = None
         ready_to_grasp = True
         steps_since_grasp = 0
+        min_iz = float("inf")
+        max_iz = float("-inf")
+
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
                 t_start = time.monotonic()
@@ -512,6 +515,20 @@ class DataCollectorSpaceMouse:
                             self.rews.append(rew)
                             self.skills.append(skill_complete)
 
+                            # Intrinsic rotation
+                            translation, quat_xyzw = self.env.get_ee_pose()
+                            translation, quat_xyzw = (
+                                translation.cpu().numpy().squeeze(),
+                                quat_xyzw.cpu().numpy().squeeze(),
+                            )
+                            ix, iy, iz = st.Rotation.from_quat(quat_xyzw).as_euler(
+                                "XYZ", degrees=True
+                            )
+                            min_iz = min(min_iz, iz)
+                            max_iz = max(max_iz, iz)
+
+                            print(f"{min_iz} < {iz} < {max_iz}")
+
                     obs = next_obs
 
                     # target_pose = new_target_pose
@@ -521,6 +538,7 @@ class DataCollectorSpaceMouse:
                         quat_xyzw.cpu().numpy().squeeze(),
                     )
                     rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
+
                     target_pose_rv = np.array([*translation, *rotvec])
 
                     # SM wait
