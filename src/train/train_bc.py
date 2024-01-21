@@ -57,6 +57,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
+            encoder_name=config.vision_encoder.model,
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
         )
@@ -327,9 +328,9 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.wandb = ConfigDict()
-    config.wandb.project = "multi-task"
+    config.wandb.project = "new-controller-test"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Continue training end-to-end with spatial softmax."
+    config.wandb.notes = "Run with proper normalization and 6D control"
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
@@ -359,7 +360,7 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.save_rollouts = True
+    config.save_rollouts = False
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
@@ -412,7 +413,7 @@ if __name__ == "__main__":
     config.language_conditioning = False
 
     # Trajectory success conditioning options
-    config.trajectory_success_conditioning = True
+    config.trajectory_success_conditioning = False
 
     # Regularization
     config.weight_decay = 1e-6

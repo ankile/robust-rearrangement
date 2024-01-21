@@ -230,10 +230,10 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: StateActionNormalizer,
+        encoder_name: str,
         data_subset: int = None,
         first_action_idx: int = 0,
-        act_rot_repr: str = "quat",
+        control_mode: ControlMode = ControlMode.delta,
     ):
         # Read from zarr dataset
         store = zarr.open(dataset_path, "r")
@@ -243,11 +243,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         self.episode_ends = store["episode_ends"][:data_subset]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
-        action_key = "action" if act_rot_repr == "quat" else "action_6d"
         train_data = {
-            # first two dims of state vector are agent (i.e. gripper) locations
+            # Load features in in one go as they are small
+            "feature1": store["feature"][encoder_name][: self.episode_ends[-1]],
+            "feature2": store["feature"][encoder_name][: self.episode_ends[-1]],
             "robot_state": store["robot_state"][: self.episode_ends[-1]],
-            "action": store[action_key][: self.episode_ends[-1]],
+            "action": store["action"][control_mode][: self.episode_ends[-1]],
         }
 
         # compute start and end of each state-action sequence
@@ -259,14 +260,14 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1,
         )
 
-        # float32, (N, embed_dim)
-        train_data["feature1"] = store["feature1"][: self.episode_ends[-1]]
-        train_data["feature2"] = store["feature2"][: self.episode_ends[-1]]
-
         self.task_idxs = np.array(
             [furniture2idx[f] for f in store["furniture"][:data_subset]]
         )
         self.successes = store["success"][:data_subset].astype(np.uint8)
+
+        normalizer = StateActionNormalizer(
+            control_mode=control_mode,
+        ).cpu()
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
