@@ -340,7 +340,7 @@ if __name__ == "__main__":
     config.action_horizon = 8
     config.pred_horizon = 16
     config.first_action_index = 0
-    config.obs_horizon = 2
+    config.obs_horizon = 1
 
     config.actor = "diffusion"
 
@@ -449,7 +449,8 @@ if __name__ == "__main__":
         obs_type=config.observation_type,
         encoder=config.vision_encoder.model,
         environment="sim",
-        task=config.furniture,
+        # task=config.furniture,
+        task="one_leg",
         demo_source="scripted",
         randomness=None,
         demo_outcome="success",

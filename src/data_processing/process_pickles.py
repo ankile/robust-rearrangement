@@ -1,8 +1,6 @@
 import argparse
-from email.contentmanager import raw_data_manager
 import os
 from pathlib import Path
-import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import List
@@ -15,6 +13,7 @@ from tqdm import tqdm
 from src.common.types import Trajectory
 from src.common.files import get_processed_path, get_raw_paths
 from src.visualization.render_mp4 import unpickle_data
+from src.common.geometry import np_isaac_quat_to_rot_6d
 
 
 # === Modified Function to Initialize Zarr Store with Full Dimensions ===
@@ -46,39 +45,127 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     return z
 
 
+def action_to_6d_rotation(action: np.ndarray) -> np.ndarray:
+    """
+    Convert the 8D action space to 10D action space.
+
+    Parts:
+        - 3D position
+        - 4D quaternion rotation
+        - 1D gripper
+
+    Rotation 4D quaternion -> 6D vector represention
+    """
+    assert action.shape[1] == 8, "Action must be 8D"
+
+    # Get each part of the action
+    delta_pos = action[:, :3]
+    delta_quat = action[:, 3:7]
+    delta_gripper = action[:, 7:]
+
+    # Convert quaternion to 6D rotation
+    delta_rot = np_isaac_quat_to_rot_6d(delta_quat)
+
+    # Concatenate all parts
+    action_6d = np.concatenate([delta_pos, delta_rot, delta_gripper], axis=1)
+
+    return action_6d
+
+
+def proprioceptive_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
+    """
+    Convert the 14D proprioceptive state space to 16D state space.
+
+    Parts:
+        - 3D position
+        - 4D quaternion rotation
+        - 3D linear velocity
+        - 3D angular velocity
+        - 1D gripper width
+
+    Rotation 4D quaternion -> 6D vector represention
+    """
+    assert robot_state.shape[1] == 14, "Robot state must be 14D"
+
+    # Get each part of the robot state
+    pos = robot_state[:, :3]
+    ori_quat = robot_state[:, 3:7]
+    pos_vel = robot_state[:, 7:10]
+    ori_vel = robot_state[:, 10:13]
+    gripper = robot_state[:, 13:]
+
+    # Convert quaternion to 6D rotation
+    ori_6d = np_isaac_quat_to_rot_6d(ori_quat)
+
+    # Concatenate all parts
+    robot_state_6d = np.concatenate([pos, ori_6d, pos_vel, ori_vel, gripper], axis=1)
+
+    return robot_state_6d
+
+
+def extract_ee_pose_6d(robot_state: np.ndarray) -> np.ndarray:
+    """
+    Extract the end effector pose from the 6D robot state.
+    """
+    assert robot_state.shape[1] == 16, "Robot state must be 16D"
+
+    # Get each part of the robot state
+    pos = robot_state[:, :3]
+    ori_6d = robot_state[:, 3:9]
+
+    # Concatenate all parts
+    ee_pose_6d = np.concatenate([pos, ori_6d], axis=1)
+
+    return ee_pose_6d
+
+
 def process_pickle_file(pickle_path: Path, noop_threshold: float):
     """
     Process a single pickle file and return processed data.
     """
     data: Trajectory = unpickle_data(pickle_path)
+    obs = data["observations"]
 
-    obs = data["observations"][:-1]
-    assert len(obs) == len(
-        data["actions"]
-    ), f"Mismatch in {pickle_path}, lengths differ by {len(obs) - len(data['actions'])}"
-
-    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
-    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
-    robot_state = np.array(
+    # Extract the observations from the pickle file and convert to 6D rotation
+    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]
+    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)[:-1]
+    all_robot_state = np.array(
         [filter_and_concat_robot_state(o["robot_state"]) for o in obs], dtype=np.float32
     )
-    action = np.array(data["actions"], dtype=np.float32)
+    all_robot_state = proprioceptive_to_6d_rotation(all_robot_state)
+    robot_state = all_robot_state[:-1]
+
+    # Extract the delta actions from the pickle file and convert to 6D rotation
+    action_delta = np.array(data["actions"], dtype=np.float32)
+    action_delta = action_to_6d_rotation(action_delta)
+
+    # Extract the position control actions from the pickle file
+    action_pos = extract_ee_pose_6d(all_robot_state[1:])
+
+    # Extract the rewards and skills from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
 
-    moving = np.linalg.norm(action[:, :6], axis=1) >= noop_threshold
+    # Sanity check that all arrays are the same length
+    assert len(robot_state) == len(
+        action_delta
+    ), f"Mismatch in {pickle_path}, lengths differ by {len(robot_state) - len(action_delta)}"
+
+    # Extract the pickle file name as the path after `raw` in the path
+    pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
     processed_data = {
-        "robot_state": robot_state[moving],
-        "color_image1": color_image1[moving],
-        "color_image2": color_image2[moving],
-        "action": action[moving],
-        "reward": reward[moving],
-        "skill": skill[moving],
-        "episode_length": len(action[moving]),
+        "robot_state": robot_state,
+        "color_image1": color_image1,
+        "color_image2": color_image2,
+        "action/delta": action_delta,
+        "action/pos": action_pos,
+        "reward": reward,
+        "skill": skill,
+        "episode_length": len(action_delta),
         "furniture": data["furniture"],
         "success": data["success"],
-        "pickle_file": pickle_path.name,
+        "pickle_file": pickle_file,
     }
 
     return processed_data
@@ -93,7 +180,8 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "robot_state": [],
         "color_image1": [],
         "color_image2": [],
-        "action": [],
+        "action/delta": [],
+        "action/pos": [],
         "reward": [],
         "skill": [],
         "episode_ends": [],
@@ -130,7 +218,8 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "robot_state",
         "color_image1",
         "color_image2",
-        "action",
+        "action/delta",
+        "action/pos",
         "reward",
         "skill",
     ]:

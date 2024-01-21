@@ -18,7 +18,7 @@ if __name__ == "__main__":
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(exist_ok=True).name
     config = ConfigDict(run.config)
-    config.wandb.continue_run_id = args.run_id
+    config.wandb.continue_run_id = run.id
 
     # Get the epoch the model was saved at
     start_epoch = run.summary["epoch"]
@@ -31,5 +31,6 @@ if __name__ == "__main__":
     config.augment_image = False
     config.save_rollouts = False
     config.rollout.every = 10
+    config.batch_size = 256
 
     train_bc_main(config, start_epoch=start_epoch)
