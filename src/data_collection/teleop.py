@@ -88,17 +88,17 @@ def main():
         headless=args.headless,
         draw_marker=args.draw_marker,
         manual_label=args.manual_label,
-        obs_type="image",
-        resize_img_after_sim=False,
-        small_sim_img_size=True,  # raw sim images come downsized (i.e., don't call separate resize function)
+        resize_sim_img=False,
         scripted=args.scripted,
         randomness=args.randomness,
-        gpu_id=args.gpu_id,
+        compute_device_id=args.gpu_id,
+        graphics_device_id=args.gpu_id,
         pkl_only=args.pkl_only,
         save_failure=args.save_failure,
         num_demos=args.num_demos,
         ctrl_mode=args.ctrl_mode,
         ee_laser=args.ee_laser,
+        compress_pickles=False,
     )
     data_collector.collect()
 

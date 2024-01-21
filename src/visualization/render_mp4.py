@@ -73,6 +73,21 @@ def unpickle_data(pickle_path: Union[Path, str]):
     raise ValueError(f"Invalid file extension: {pickle_path.suffix}")
 
 
+def pickle_data(data, pickle_path: Union[Path, str]):
+    pickle_path = Path(pickle_path)
+    if pickle_path.suffix == ".gz":
+        with gzip.open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    elif pickle_path.suffix == ".pkl":
+        with open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    elif pickle_path.suffix == ".xz":
+        with lzma.open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    else:
+        raise ValueError(f"Invalid file extension: {pickle_path.suffix}")
+
+
 def create_in_memory_mp4(np_images, fps=10):
     output = BytesIO()
 

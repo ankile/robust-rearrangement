@@ -18,8 +18,9 @@ from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
 from src.common.tasks import furniture2idx
+from src.common.files import trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
-
+from src.data_processing.utils import resize, resize_crop
 
 import wandb
 
@@ -33,6 +34,10 @@ def rollout(
     # get first observation
     with suppress_all_output(True):
         obs = env.reset()
+
+    # Resize the images in the observation
+    obs["color_image1"] = resize(obs["color_image1"])
+    obs["color_image2"] = resize_crop(obs["color_image2"])
 
     obs_horizon = actor.obs_horizon
 
@@ -48,6 +53,7 @@ def rollout(
     imgs2 = [obs["color_image2"].cpu()]
     actions = list()
     rewards = list()
+    parts_poses = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     # Define a noop tensor to use when done
@@ -72,15 +78,20 @@ def rollout(
 
         obs, reward, done, _ = env.step(curr_action)
 
-        # save observations
+        # Resize the images in the observation
+        obs["color_image1"] = resize(obs["color_image1"])
+        obs["color_image2"] = resize_crop(obs["color_image2"])
+
+        # Save observations for the policy
         obs_deque.append(obs)
 
-        # and reward/vis
+        # Store the results for visualization and logging
         robot_states.append(obs["robot_state"].cpu())
         imgs1.append(obs["color_image1"].cpu())
         imgs2.append(obs["color_image2"].cpu())
         actions.append(curr_action.cpu())
         rewards.append(reward.cpu())
+        parts_poses.append(obs["parts_poses"].cpu())
 
         # update progress bar
         step_idx += 1
@@ -95,11 +106,13 @@ def rollout(
             break
 
     return (
-        torch.stack(robot_states).transpose(0, 1),
-        torch.stack(imgs1).transpose(0, 1),
-        torch.stack(imgs2).transpose(0, 1),
+        torch.stack(robot_states, dim=1),
+        torch.stack(imgs1, dim=1),
+        torch.stack(imgs2, dim=1),
         torch.stack(actions, dim=1),
+        # Using cat here removes the singleton dimension
         torch.cat(rewards, dim=1),
+        torch.stack(parts_poses, dim=1),
     )
 
 
@@ -141,12 +154,13 @@ def calculate_success_rate(
     all_imgs2 = list()
     all_actions = list()
     all_rewards = list()
+    all_parts_poses = list()
     all_success = list()
 
     pbar.pbar_desc(0, n_success)
     for i in range(n_rollouts // env.num_envs):
         # Perform a rollout with the current model
-        robot_states, imgs1, imgs2, actions, rewards = rollout(
+        robot_states, imgs1, imgs2, actions, rewards, parts_poses = rollout(
             env,
             actor,
             rollout_max_steps,
@@ -163,6 +177,7 @@ def calculate_success_rate(
         all_imgs2.extend(imgs2)
         all_actions.extend(actions)
         all_rewards.extend(rewards)
+        all_parts_poses.extend(parts_poses)
         all_success.extend(success)
 
         # Update the progress bar
@@ -177,6 +192,7 @@ def calculate_success_rate(
         video2 = all_imgs2[rollout_idx].numpy()
         actions = all_actions[rollout_idx].numpy()
         rewards = all_rewards[rollout_idx].numpy()
+        parts_poses = all_parts_poses[rollout_idx].numpy()
         success = all_success[rollout_idx].item()
         furniture = env.furniture_name
 
@@ -204,11 +220,6 @@ def calculate_success_rate(
         )
 
         if rollout_save_dir is not None and (save_failures or success):
-            output_path = (
-                rollout_save_dir
-                / f"rollout_{rollout_idx}_{'success' if success else 'failure'}.pkl"
-            )
-
             # Save the raw rollout data
             save_raw_rollout(
                 robot_states[:n_steps],
@@ -216,9 +227,10 @@ def calculate_success_rate(
                 video2[:n_steps],
                 actions[:n_steps],
                 rewards[:n_steps],
+                parts_poses[:n_steps],
                 success,
                 furniture,
-                output_path,
+                rollout_save_dir,
             )
 
     # Sort the table rows by return (highest at the top)
@@ -244,21 +256,22 @@ def calculate_success_rate(
 def do_rollout_evaluation(
     config: ConfigDict,
     env: FurnitureSimEnv,
-    rollout_base_dir: Union[Path, None],
+    save_rollouts: bool,
     actor: Actor,
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
     rollout_save_dir = None
 
-    if rollout_base_dir is not None:
-        rollout_save_dir = (
-            rollout_base_dir
-            / "raw"
-            / "sim_rollouts"
-            / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    if save_rollouts:
+        rollout_save_dir = trajectory_save_dir(
+            environment="sim",
+            task=config.furniture,
+            demo_source="rollout",
+            randomness=config.randomness,
+            # Don't create here because we have to do it when we save anyway
+            create=False,
         )
-        rollout_save_dir.mkdir(parents=True, exist_ok=True)
 
     actor.set_task(furniture2idx[config.furniture])
 
@@ -270,6 +283,7 @@ def do_rollout_evaluation(
         epoch_idx=epoch_idx,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
+        save_failures=config.rollout.save_failures,
     )
 
     best_success_rate = max(best_success_rate, success_rate)

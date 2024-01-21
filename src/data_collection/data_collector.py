@@ -16,6 +16,7 @@ from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
 
 from src.data_processing.utils import resize, resize_crop
+from src.visualization.render_mp4 import pickle_data
 
 
 class DataCollector:
@@ -318,16 +319,13 @@ class DataCollector:
         demo_path = self.data_path / ("success" if data["success"] else "failure")
         demo_path.mkdir(parents=True, exist_ok=True)
 
-        path = demo_path / f"{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}.pkl"
+        path = demo_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
 
         if self.compress_pickles:
             # Add the suffix .gz if we are compressing the pickle files
             path = path.with_suffix(".pkl.xz")
-            with lzma.open(path, "wb") as f:
-                pickle.dump(data, f)
-        else:
-            with open(path, "wb") as f:
-                pickle.dump(data, f)
+
+        pickle_data(data, path)
 
         print(f"Data saved at {path}")
 

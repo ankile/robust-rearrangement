@@ -4,19 +4,19 @@ import pickle
 from datetime import datetime
 from pathlib import Path
 
-import cv2
 import gym
 import torch
-from joblib import Parallel, delayed
 from tqdm import tqdm
 from ipdb import set_trace as st
 
 from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
-from furniture_bench.config import config
+from furniture_bench.sim_config import sim_config
 from furniture_bench.perception.image_utils import resize, resize_crop
 from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
+from src.visualization.render_mp4 import pickle_data
+
 
 import os
 import sys
@@ -77,19 +77,18 @@ class DataCollectorSpaceMouse:
         manual_label: bool,
         scripted: bool,
         randomness: Randomness.LOW,
-        gpu_id: int = 0,
+        compute_device_id: int,
+        graphics_device_id: int,
         pkl_only: bool = False,
         save_failure: bool = False,
         num_demos: int = 100,
-        resize_img_after_sim: bool = True,
-        small_sim_img_size: bool = False,
+        resize_sim_img: bool = True,
         verbose: bool = True,
         show_pbar: bool = False,
-        obs_type: str = "state",
-        encoder_type: str = "vip",
         ctrl_mode: str = "osc",
         ee_laser: bool = True,
-        right_multiply_rot: bool = True
+        right_multiply_rot: bool = True,
+        compress_pickles: bool = False,
     ):
         """
         Args:
@@ -111,38 +110,24 @@ class DataCollectorSpaceMouse:
             right_multiply_rot (bool): If True, convert rotation actions (delta rot) assuming they're applied as RIGHT multiplys (local rotations)
         """
         if is_sim:
-            sim_type = dict(
-                state="FurnitureSimState-v0",
-                full="FurnitureSimFull-v0",
-                image="FurnitureSimFull-v0",
-                feature="FurnitureSimImageFeature-v0",
-            )[obs_type]
-
-            kwargs = dict(
+            self.env = gym.make(
+                "FurnitureSimFull-v0",
                 furniture=furniture,
-                max_env_steps=600 if scripted else 3000,
+                max_env_steps=sim_config["scripted_timeout"][furniture]
+                if scripted
+                else 3000,
                 headless=headless,
                 num_envs=1,  # Only support 1 for now.
                 manual_done=False if scripted else True,
+                resize_img=resize_sim_img,
+                np_step_out=False,  # Always output Tensor in this setting. Will change to numpy in this code.
+                channel_first=False,
                 randomness=randomness,
-                compute_device_id=gpu_id,
-                graphics_device_id=gpu_id,
-                resize_img=small_sim_img_size,
+                compute_device_id=compute_device_id,
+                graphics_device_id=graphics_device_id,
                 ctrl_mode=ctrl_mode,
                 ee_laser=ee_laser,
             )
-            if obs_type != "feature":
-                kwargs.update(
-                    resize_img=small_sim_img_size,
-                    np_step_out=False,  # Always output Tensor in this setting. Will change to numpy in this code.
-                    channel_first=False,
-                )
-            if obs_type == "feature":
-                kwargs.update(
-                    encoder_type=encoder_type,
-                )
-
-            self.env = gym.make(sim_type, **kwargs)
         else:
             if randomness == "med":
                 randomness = Randomness.MEDIUM_COLLECT
@@ -174,11 +159,11 @@ class DataCollectorSpaceMouse:
 
         self.pkl_only = pkl_only
         self.save_failure = save_failure
-        self.resize_img_after_sim = resize_img_after_sim
+        self.resize_sim_img = resize_sim_img
+        self.compress_pickles = compress_pickles
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
-        self.obs_type = obs_type
 
         # our flags
         self.right_multiply_rot = right_multiply_rot
@@ -215,12 +200,22 @@ class DataCollectorSpaceMouse:
         self.verbose_print("[data collection] Start collecting the data!")
 
         from collections import namedtuple
-        args = namedtuple('Args', ['frequency', 'command_latency', 'deadzone', 'max_pos_speed', 'max_rot_speed'])
+
+        args = namedtuple(
+            "Args",
+            [
+                "frequency",
+                "command_latency",
+                "deadzone",
+                "max_pos_speed",
+                "max_rot_speed",
+            ],
+        )
 
         args.frequency = 10
         args.command_latency = 0.01
         args.deadzone = 0.05
-        if self.env.ctrl_mode == 'diffik':
+        if self.env.ctrl_mode == "diffik":
             args.max_pos_speed = 0.3
             args.max_rot_speed = 0.7
         else:
@@ -237,7 +232,10 @@ class DataCollectorSpaceMouse:
 
         translation, quat_xyzw = self.env.get_ee_pose()
         env_device = self.env.device
-        translation, quat_xyzw = translation.cpu().numpy().squeeze(), quat_xyzw.cpu().numpy().squeeze()
+        translation, quat_xyzw = (
+            translation.cpu().numpy().squeeze(),
+            quat_xyzw.cpu().numpy().squeeze(),
+        )
         rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         target_pose_rv = np.array([*translation, *rotvec])
         grasp_flag = torch.from_numpy(np.array([-1])).to(env_device)
@@ -249,7 +247,9 @@ class DataCollectorSpaceMouse:
             pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_rv[3:]).as_matrix()
             return pose_mat
 
-        def to_isaac_dpose_from_abs(current_pose_mat, goal_pose_mat, grasp_flag, device, rm=True):
+        def to_isaac_dpose_from_abs(
+            current_pose_mat, goal_pose_mat, grasp_flag, device, rm=True
+        ):
             """
             Convert from absolute current and desired pose to delta pose
 
@@ -257,19 +257,26 @@ class DataCollectorSpaceMouse:
                 rm (bool): 'rm' stands for 'right multiplication' - If True, assume commands send as right multiply (local rotations)
             """
             if rm:
-                delta_rot_mat = np.linalg.inv(current_pose_mat[:-1, :-1]) @ goal_pose_mat[:-1, :-1]
+                delta_rot_mat = (
+                    np.linalg.inv(current_pose_mat[:-1, :-1]) @ goal_pose_mat[:-1, :-1]
+                )
             else:
-                delta_rot_mat = goal_pose_mat[:-1 :-1] @ np.linalg.inv(current_pose_mat[:-1, :-1])
-            
+                delta_rot_mat = goal_pose_mat[:-1:-1] @ np.linalg.inv(
+                    current_pose_mat[:-1, :-1]
+                )
+
             dpos = goal_pose_mat[:-1, -1] - current_pose_mat[:-1, -1]
             target_translation = torch.from_numpy(dpos).float().to(device)
-            
+
             target_rot = st.Rotation.from_matrix(delta_rot_mat)
             target_quat_xyzw = torch.from_numpy(target_rot.as_quat()).float().to(device)
-            target_dpose = torch.cat((target_translation, target_quat_xyzw, grasp_flag), dim=-1).reshape(1, -1)
+            target_dpose = torch.cat(
+                (target_translation, target_quat_xyzw, grasp_flag), dim=-1
+            ).reshape(1, -1)
             return target_dpose
 
-        ready_to_grasp = True 
+        target_pose_last_action_rv = None
+        ready_to_grasp = True
         steps_since_grasp = 0
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
@@ -279,7 +286,7 @@ class DataCollectorSpaceMouse:
 
                 while self.num_success < self.num_demos:
                     if self.scripted:
-                        raise ValueError('Not using scripted with spacemouse')
+                        raise ValueError("Not using scripted with spacemouse")
 
                     # Get an action.
 
@@ -295,12 +302,26 @@ class DataCollectorSpaceMouse:
                     drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
                     drot = st.Rotation.from_euler("xyz", drot_xyz)
 
-                    keyboard_action, collect_enum = self.device_interface.get_action()  # from the keyboard
+                    (
+                        keyboard_action,
+                        collect_enum,
+                    ) = self.device_interface.get_action()  # from the keyboard
 
                     if np.allclose(dpos, 0.0) and np.allclose(drot_xyz, 0.0):
                         action_taken = False
+                        if target_pose_last_action_rv is None:
+                            translation, quat_xyzw = self.env.get_ee_pose()
+                            translation, quat_xyzw = (
+                                translation.cpu().numpy().squeeze(),
+                                quat_xyzw.cpu().numpy().squeeze(),
+                            )
+                            rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
+                            target_pose_last_action_rv = np.array(
+                                [*translation, *rotvec]
+                            )
                     else:
                         action_taken = True
+                        target_pose_last_action_rv = None
 
                     steps_since_grasp += 1
                     if steps_since_grasp > 10:
@@ -308,8 +329,10 @@ class DataCollectorSpaceMouse:
                     if steps_since_grasp < 10:
                         action_taken = True
 
-                    kb_grasp = (prev_keyboard_gripper != keyboard_action[-1])
-                    sm_grasp = (sm.is_button_pressed(0) or sm.is_button_pressed(1)) and ready_to_grasp
+                    kb_grasp = prev_keyboard_gripper != keyboard_action[-1]
+                    sm_grasp = (
+                        sm.is_button_pressed(0) or sm.is_button_pressed(1)
+                    ) and ready_to_grasp
                     if kb_grasp or sm_grasp:
                         # env.gripper_close() if gripper_open else env.gripper_open()
                         grasp_flag = -1 * grasp_flag
@@ -321,11 +344,16 @@ class DataCollectorSpaceMouse:
 
                     new_target_pose_rv = target_pose_rv.copy()
                     new_target_pose_rv[:3] += dpos
-                    new_target_pose_rv[3:] = (drot * st.Rotation.from_rotvec(target_pose_rv[3:])).as_rotvec()
+                    new_target_pose_rv[3:] = (
+                        drot * st.Rotation.from_rotvec(target_pose_rv[3:])
+                    ).as_rotvec()
 
                     target_pose_mat = pose_rv2mat(target_pose_rv)
-                    new_target_pose_mat = pose_rv2mat(new_target_pose_rv)
-                    
+                    if target_pose_last_action_rv is not None:
+                        new_target_pose_mat = pose_rv2mat(target_pose_last_action_rv)
+                    else:
+                        new_target_pose_mat = pose_rv2mat(new_target_pose_rv)
+
                     # convert this into the furniture bench info we need
                     # action, collect_enum = to_isaac_pose(new_target_pose), CollectEnum.DONE_FALSE  # TODO
                     action = to_isaac_dpose_from_abs(
@@ -333,19 +361,25 @@ class DataCollectorSpaceMouse:
                         goal_pose_mat=new_target_pose_mat,
                         grasp_flag=grasp_flag,
                         device=env_device,
-                        rm=self.right_multiply_rot
-                    ) 
-                    pos_bounds_m = 0.02 if self.env.ctrl_mode == 'diffik' else 0.025
-                    ori_bounds_deg = 15 if self.env.ctrl_mode == 'diffik' else 20
+                        rm=self.right_multiply_rot,
+                    )
+                    pos_bounds_m = 0.02 if self.env.ctrl_mode == "diffik" else 0.025
+                    ori_bounds_deg = 15 if self.env.ctrl_mode == "diffik" else 20
                     action = scale_scripted_action(
                         action.detach().cpu().clone(),
                         pos_bounds_m=pos_bounds_m,
                         ori_bounds_deg=ori_bounds_deg,
-                        device=self.env.device)
+                        device=self.env.device,
+                    )
 
                     if not (np.allclose(keyboard_action[:6], 0.0)):
-                        action[0, :7] = torch.from_numpy(keyboard_action[:7]).float().to(action.device)
+                        action[0, :7] = (
+                            torch.from_numpy(keyboard_action[:7])
+                            .float()
+                            .to(action.device)
+                        )
                         action_taken = True
+                        target_pose_last_action_rv = None
 
                     skill_complete = int(collect_enum == CollectEnum.SKILL)
                     if skill_complete == 1:
@@ -369,18 +403,23 @@ class DataCollectorSpaceMouse:
                         self.org_obs.append(next_obs)
 
                         n_ob = {}
-
-                        self._set_dictionary(to=n_ob, from_=next_obs)
-
+                        n_ob["color_image1"] = resize(next_obs["color_image1"])
+                        n_ob["color_image2"] = resize_crop(next_obs["color_image2"])
+                        n_ob["robot_state"] = next_obs["robot_state"]
+                        n_ob["parts_poses"] = next_obs["parts_poses"]
                         self.obs.append(n_ob)
 
-                        if (done and not self.env.furnitures[0].all_assembled()) or collect_enum is CollectEnum.FAIL:
+                        if (
+                            done and not self.env.furnitures[0].all_assembled()
+                        ) or collect_enum is CollectEnum.FAIL:
                             collect_enum = CollectEnum.FAIL
                             if self.save_failure:
                                 self.verbose_print("Saving failure trajectory.")
                                 obs = self.save_and_reset(collect_enum, {})
                             else:
-                                self.verbose_print("Failed to assemble the furniture, reset without saving.")
+                                self.verbose_print(
+                                    "Failed to assemble the furniture, reset without saving."
+                                )
                                 obs = self.reset()
                             self.num_fail += 1
                         else:
@@ -392,12 +431,16 @@ class DataCollectorSpaceMouse:
                             self.update_pbar()
 
                         self.traj_counter += 1
-                        self.verbose_print(f"Success: {self.num_success}, Fail: {self.num_fail}")
+                        self.verbose_print(
+                            f"Success: {self.num_success}, Fail: {self.num_fail}"
+                        )
 
                         done = False
 
                         steps_since_grasp = 0
                         ready_to_grasp = True
+                        target_pose_last_action_rv = None
+
                         continue
 
                     # Execute action.
@@ -408,7 +451,9 @@ class DataCollectorSpaceMouse:
 
                     # Label reward.
                     if collect_enum == CollectEnum.REWARD:
-                        rew = self.env.furniture.manual_assemble_label(self.device_interface.rew_key)
+                        rew = self.env.furniture.manual_assemble_label(
+                            self.device_interface.rew_key
+                        )
                         if rew == 0:
                             # Correction the label.
                             self.rews[self.last_reward_idx] = 0
@@ -416,7 +461,9 @@ class DataCollectorSpaceMouse:
 
                     # Error handling.
                     if not info["obs_success"]:
-                        self.verbose_print("Getting observation failed, save trajectory.")
+                        self.verbose_print(
+                            "Getting observation failed, save trajectory."
+                        )
                         # Pop the last reward and action so that obs has length plus 1 then those of actions and rewards.
                         self.rews.pop()
                         self.acts.pop()
@@ -445,8 +492,17 @@ class DataCollectorSpaceMouse:
                             self.org_obs.append(obs.copy())
 
                             ob = {}
-                            self._set_dictionary(to=ob, from_=obs)
+                            if (not self.is_sim) or (not self.resize_sim_img):
+                                # Resize for every real world images, or for sim didn't resize in simulation side.
+                                ob["color_image1"] = resize(obs["color_image1"])
+                                ob["color_image2"] = resize_crop(obs["color_image2"])
+                            else:
+                                ob["color_image1"] = obs["color_image1"]
+                                ob["color_image2"] = obs["color_image2"]
+                            ob["robot_state"] = obs["robot_state"]
+                            ob["parts_poses"] = obs["parts_poses"]
                             self.obs.append(ob)
+
                             if self.is_sim:
                                 if isinstance(action, torch.Tensor):
                                     action = action.squeeze().cpu().numpy()
@@ -460,7 +516,10 @@ class DataCollectorSpaceMouse:
 
                     # target_pose = new_target_pose
                     translation, quat_xyzw = self.env.get_ee_pose()
-                    translation, quat_xyzw = translation.cpu().numpy().squeeze(), quat_xyzw.cpu().numpy().squeeze()
+                    translation, quat_xyzw = (
+                        translation.cpu().numpy().squeeze(),
+                        quat_xyzw.cpu().numpy().squeeze(),
+                    )
                     rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
                     target_pose_rv = np.array([*translation, *rotvec])
 
@@ -468,7 +527,9 @@ class DataCollectorSpaceMouse:
                     precise_wait(t_cycle_end)
                     iter_idx += 1
 
-                self.verbose_print(f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!")
+                self.verbose_print(
+                    f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
+                )
 
     def save_and_reset(self, collect_enum: CollectEnum, info):
         """Saves the collected data and reset the environment."""
@@ -501,84 +562,37 @@ class DataCollectorSpaceMouse:
         self.skill_set = []
 
     def save(self, collect_enum: CollectEnum, info):
-        self.verbose_print(f"Length of trajectory: {len(self.obs)}")
+        print(f"Length of trajectory: {len(self.obs)}")
 
-        data_name = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
-        demo_path = self.data_path / data_name
-        demo_path.mkdir(parents=True, exist_ok=True)
+        # Save transitions with resized images.
+        data = {}
+        data["observations"] = self.obs
+        data["actions"] = self.acts
+        data["rewards"] = self.rews
+        data["skills"] = self.skills
+        data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
+        data["furniture"] = self.furniture
 
-        # Color data paths.
-        self.color_names = ["color_image1", "color_image2", "color_image3"]
-        self.color_video_names = []
-        for name in self.color_names:
-            self.color_video_names.append(demo_path / f"{data_name}_{name}.mp4")
-
-        # Depth data paths.
-        self.depth_names = ["depth_image1", "depth_image2", "depth_image3"]
-        self.depth_paths = []
-        for name in self.depth_names:
-            self.depth_paths.append(demo_path / f"{data_name}_{name}")
+        if "error" in info:
+            data["error_description"] = info["error"].value
+            data["error"] = True
+        else:
+            data["error"] = False
+            data["error_description"] = ""
 
         # Save data.
-        path = demo_path / f"{data_name}.pkl"
-        with open(path, "wb") as f:
-            # Save transitions with resized images.
-            data = {}
-            data["observations"] = self.obs
-            data["actions"] = self.acts
-            data["rewards"] = self.rews
-            data["skills"] = self.skills
-            data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
-            data["furniture"] = self.furniture
+        demo_path = self.data_path / ("success" if data["success"] else "failure")
+        demo_path.mkdir(parents=True, exist_ok=True)
 
-            if "error" in info:
-                data["error_description"] = info["error"].value
-                data["error"] = True
-            else:
-                data["error"] = False
-                data["error_description"] = ""
+        path = demo_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
 
-            if not self.is_sim:
-                data["cam2_to_base"] = self.env.cam_to_base[2]
-                data["cam3_to_base"] = self.env.cam_to_base[3]
+        if self.compress_pickles:
+            # Add the suffix .gz if we are compressing the pickle files
+            path = path.with_suffix(".pkl.xz")
 
-                data["cam1_intr"] = self.env.cam_intrs[1]
-                data["cam2_intr"] = self.env.cam_intrs[2]
-                data["cam3_intr"] = self.env.cam_intrs[3]
+        pickle_data(data, path)
 
-            # Save raw color images in mp4.
-            if not self.pkl_only:
-                self.verbose_print("Start saving raw color images.")
-                outs = []
-                for n in self.color_video_names:
-                    outs.append(
-                        cv2.VideoWriter(
-                            str(n),
-                            cv2.VideoWriter_fourcc("m", "p", "4", "v"),
-                            10,
-                            config["camera"]["color_img_size"],
-                        )
-                    )
-                for i, k in enumerate(self.color_names):
-                    for obs in self.org_obs:
-                        outs[i].write(cv2.cvtColor(obs[k], cv2.COLOR_RGB2BGR))
-                    outs[i].release()
-
-                # Save raw depth images in png.
-                self.verbose_print("Start saving raw depth images.")
-                for i, k in enumerate(self.depth_names):
-                    self.depth_paths[i].mkdir(parents=True, exist_ok=True)
-                    Parallel(n_jobs=8)(
-                        delayed(cv2.imwrite)(
-                            f"{self.depth_paths[i]}/{j:05}.png",
-                            obs[k],
-                            [int(cv2.IMWRITE_PNG_COMPRESSION), 5],
-                        )
-                        for j, obs in enumerate(self.org_obs)
-                    )
-
-            pickle.dump(data, f)
-        self.verbose_print(f"Data saved at {path}")
+        print(f"Data saved at {path}")
 
     def verbose_print(self, *args, **kwargs):
         if self.verbose:

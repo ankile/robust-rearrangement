@@ -127,6 +127,7 @@ def trajectory_save_dir(
     task: TaskName,
     demo_source: DemoSources,
     randomness: Randomness,
+    create: bool = True,
 ) -> Path:
     # Make the path to the directory
     path = (
@@ -138,8 +139,9 @@ def trajectory_save_dir(
         / randomness
     )
 
-    # Make the directory if it does not exist
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        # Make the directory if it does not exist
+        path.mkdir(parents=True, exist_ok=True)
 
     return path
 

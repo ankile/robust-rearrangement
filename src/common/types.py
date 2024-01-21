@@ -7,6 +7,7 @@ class Observation(TypedDict):
     color_image2: np.ndarray
     robot_state: dict
     image_size: Tuple[int]
+    parts_poses: np.ndarray
 
 
 class Trajectory(TypedDict):

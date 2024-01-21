@@ -286,9 +286,8 @@ def main(config: ConfigDict, start_epoch: int = 0):
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
-                    # resize_img=not config.augment_image,
-                    # Make sure the image is 224x224 out of the simulator for consistency
-                    resize_img=True,
+                    # Now using full size images in sim and resizing to be consistent
+                    resize_img=False,
                     act_rot_repr=config.act_rot_repr,
                     ctrl_mode="osc",
                 )
@@ -296,7 +295,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
             best_success_rate = do_rollout_evaluation(
                 config,
                 env,
-                config.rollout_base_dir,
+                config.save_rollouts,
                 actor,
                 best_success_rate,
                 epoch_idx,
@@ -363,12 +362,11 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
-    config.rollout_base_dir = None
+    config.save_rollouts = True
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = dryrun(args.data_subset, 10)
+    config.data_subset = dryrun(args.data_subset, 1)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
@@ -392,6 +390,7 @@ if __name__ == "__main__":
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
     config.rollout.count = num_envs * 1
+    config.rollout.save_failures = True
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
