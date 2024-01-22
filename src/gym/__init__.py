@@ -1,5 +1,6 @@
 import furniture_bench  # noqa: F401
 from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 import gym
 
@@ -15,7 +16,7 @@ def get_env(
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
     verbose=False,
-):
+) -> FurnitureSimEnv:
     with suppress_all_output(True):
         env = gym.make(
             "FurnitureSim-v0",

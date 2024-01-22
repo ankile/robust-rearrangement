@@ -7,7 +7,7 @@ from pathlib import Path
 import gym
 import torch
 from tqdm import tqdm
-from ipdb import set_trace as st
+from ipdb import set_trace as bp
 
 from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
@@ -15,7 +15,7 @@ from furniture_bench.sim_config import sim_config
 from furniture_bench.perception.image_utils import resize, resize_crop
 from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
-from src.visualization.render_mp4 import pickle_data
+from src.visualization.render_mp4 import pickle_data, unpickle_data
 
 
 import os
@@ -170,31 +170,22 @@ class DataCollectorSpaceMouse:
 
         self._reset_collector_buffer()
 
+    def load_state(self, state: dict):
+        # Get the state dict at the end of a one_leg trajectory
+        print("Loading state")
+        state = unpickle_data(
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted/low/success/2024-01-22T01:13:22.pkl.xz"
+        )["observations"][-1]
+        self.env.reset_env_to(env_idx=0, state=state)
+        self.env.refresh()
+
+        return state
+
     def _squeeze_and_numpy(self, v):
         if isinstance(v, torch.Tensor):
             v = v.cpu().numpy()
         v = v.squeeze()
         return v
-
-    def _set_dictionary(self, to, from_):
-        if self.obs_type in ["full", "image"]:
-            to["color_image1"] = from_["color_image1"]
-            to["color_image2"] = from_["color_image2"]
-
-            if self.resize_img_after_sim:
-                to["color_image1"] = resize(to["color_image1"])
-                to["color_image2"] = resize_crop(to["color_image2"])
-
-            to["image_size"] = to["color_image2"].shape[:2]
-
-        if self.obs_type in ["state", "full"]:
-            to["parts_poses"] = from_["parts_poses"]
-
-        if self.obs_type == "feature":
-            to["feature1"] = from_["image1"]
-            to["feature2"] = from_["image2"]
-
-        to["robot_state"] = from_["robot_state"]
 
     def collect(self):
         self.verbose_print("[data collection] Start collecting the data!")
@@ -231,15 +222,23 @@ class DataCollectorSpaceMouse:
         done = False
 
         translation, quat_xyzw = self.env.get_ee_pose()
+
+        # Overwrite the state with our desired state
+        # translation = torch.from_numpy(state["robot_state"]["ee_pos"]).float()
+        # quat_xyzw = torch.from_numpy(state["robot_state"]["ee_quat"]).float()
+
         env_device = self.env.device
         translation, quat_xyzw = (
             translation.cpu().numpy().squeeze(),
             quat_xyzw.cpu().numpy().squeeze(),
         )
+        gripper_width = self.env.gripper_width()
         rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         target_pose_rv = np.array([*translation, *rotvec])
-        grasp_flag = torch.from_numpy(np.array([-1])).to(env_device)
-        gripper_open = True
+        gripper_open = gripper_width >= 0.95
+        grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
+            env_device
+        )
 
         def pose_rv2mat(pose_rv):
             pose_mat = np.eye(4)
@@ -278,8 +277,6 @@ class DataCollectorSpaceMouse:
         target_pose_last_action_rv = None
         ready_to_grasp = True
         steps_since_grasp = 0
-        min_iz = float("inf")
-        max_iz = float("-inf")
 
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
@@ -366,8 +363,11 @@ class DataCollectorSpaceMouse:
                         device=env_device,
                         rm=self.right_multiply_rot,
                     )
+
                     pos_bounds_m = 0.02 if self.env.ctrl_mode == "diffik" else 0.025
                     ori_bounds_deg = 15 if self.env.ctrl_mode == "diffik" else 20
+
+                    # bp()
                     action = scale_scripted_action(
                         action.detach().cpu().clone(),
                         pos_bounds_m=pos_bounds_m,
@@ -444,6 +444,11 @@ class DataCollectorSpaceMouse:
                         ready_to_grasp = True
                         target_pose_last_action_rv = None
 
+                        gripper_open = gripper_width >= 0.95
+                        grasp_flag = torch.from_numpy(
+                            np.array([-1 if gripper_open else 1])
+                        ).to(env_device)
+
                         continue
 
                     # Execute action.
@@ -477,7 +482,7 @@ class DataCollectorSpaceMouse:
                     if action_taken:
                         self.step_counter += 1
                         print(
-                            f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} num assembled: {len(self.env.furniture.assembled_set)} Skill: {len(self.skill_set)}"
+                            f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} num assembled: {len(self.env.furniture.assembled_set)} Skill: {len(self.skill_set)}. (Z-rot: {self.device_interface.rot_fraction:.1%})"
                         )
 
                         # Store a transition.
@@ -521,14 +526,6 @@ class DataCollectorSpaceMouse:
                                 translation.cpu().numpy().squeeze(),
                                 quat_xyzw.cpu().numpy().squeeze(),
                             )
-                            ix, iy, iz = st.Rotation.from_quat(quat_xyzw).as_euler(
-                                "XYZ", degrees=True
-                            )
-                            min_iz = min(min_iz, iz)
-                            max_iz = max(max_iz, iz)
-
-                            print(f"{min_iz} < {iz} < {max_iz}")
-
                     obs = next_obs
 
                     # target_pose = new_target_pose
@@ -558,6 +555,8 @@ class DataCollectorSpaceMouse:
     def reset(self):
         obs = self.env.reset()
         self._reset_collector_buffer()
+
+        self.load_state(state=None)
 
         self.verbose_print("Start collecting the data!")
         if not self.scripted:

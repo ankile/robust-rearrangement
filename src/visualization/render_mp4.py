@@ -31,6 +31,11 @@ def mp4_from_pickle_jupyter(pickle_path: Union[str, Path], filename=None, fps=10
     return create_mp4_jupyter(ims, filename, fps)
 
 
+def mp4_from_data_dict_jupyter(data_dict: dict, filename, fps=10):
+    ims = data_to_video(data_dict)
+    return create_mp4_jupyter(ims, filename, fps)
+
+
 def create_mp4(np_images: np.ndarray, filename: Union[str, Path], fps=10) -> None:
     # duration = 1000 / fps
     with imageio.get_writer(filename, fps=fps) as writer:

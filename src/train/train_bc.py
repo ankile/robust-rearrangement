@@ -382,7 +382,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
@@ -444,11 +444,8 @@ if __name__ == "__main__":
     ), "n_rollouts must be divisible by num_envs"
 
     config.data_path = get_processed_path(
-        obs_type=config.observation_type,
-        encoder=config.vision_encoder.model,
         environment="sim",
-        # task=config.furniture,
-        task="one_leg",
+        task=config.furniture,
         demo_source="scripted",
         randomness=None,
         demo_outcome="success",

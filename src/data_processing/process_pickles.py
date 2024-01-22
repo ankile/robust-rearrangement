@@ -9,7 +9,7 @@ import numpy as np
 import zarr
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from numcodecs import Blosc, blosc
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from src.common.types import Trajectory
 from src.common.files import get_processed_path, get_raw_paths
 from src.visualization.render_mp4 import unpickle_data
@@ -29,7 +29,8 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     z.attrs["time_created"] = datetime.now().astimezone().isoformat()
 
     # Define the compressor
-    compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
+    # compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
+    compressor = Blosc(cname="lz4")
 
     # Initialize datasets with full shapes
     for name, shape, dtype in full_data_shapes:
@@ -224,16 +225,24 @@ if __name__ == "__main__":
         demo_outcome=args.demo_outcome,
     )
 
+    import random
+
+    random.shuffle(pickle_paths)
+
+    pickle_paths = pickle_paths[:150]
+
     print(f"Found {len(pickle_paths)} pickle files")
 
     output_path = get_processed_path(
-        obs_type="image",
         environment=args.env,
         task=args.furniture,
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
     )
+
+    # Change the filename to `processed.zarr`
+    # output_path = output_path.with_name("processed_zl4.zarr")
 
     print(f"Output path: {output_path}")
 
@@ -243,9 +252,13 @@ if __name__ == "__main__":
         )
 
     # Process all pickle files
-    chunksize = 1_000
+    chunksize = 5_000
     noop_threshold = 0.0
     n_cpus = os.cpu_count()
+
+    print(
+        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
+    )
 
     all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, n_cpus)
 
@@ -269,14 +282,18 @@ if __name__ == "__main__":
     # Initialize Zarr store with full dimensions
     z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
 
-    blosc.use_threads = True
-    blosc.set_nthreads(n_cpus)
+    # blosc.use_threads = True
+    # blosc.set_nthreads(n_cpus)
 
     # Write the data to the Zarr store
     it = tqdm(all_data)
     for name in it:
         it.set_description(f"Writing data to zarr: {name}")
-        z[name][:] = all_data[name]
+        for i in trange(
+            0, len(all_data[name]), chunksize, desc="Writing chunks", leave=False
+        ):
+            end_idx = min(i + chunksize, len(all_data[name]))
+            z[name][i : i + end_idx] = all_data[name][i : i + end_idx]
 
     # Update final metadata
     z.attrs["time_finished"] = datetime.now().astimezone().isoformat()

@@ -26,8 +26,6 @@ def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
 
 
 def get_processed_path(
-    obs_type: Literal["image", "feature"] = "image",
-    encoder: Union[EncoderName, None] = None,
     environment: Union[List[Environments], Environments, None] = "sim",
     task: Union[List[TaskName], TaskName, None] = "one_leg",
     demo_source: Union[List[DemoSources], DemoSources, None] = "scripted",
@@ -35,15 +33,6 @@ def get_processed_path(
     demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
 ) -> Path:
     path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
-
-    # Image observations and procomputed features can not be mixed
-    path /= obs_type
-
-    # If we are using features, we need to specify the encoder
-    # and the language condition
-    if obs_type == "feature":
-        assert encoder is not None, "Encoder must be specified for feature observations"
-        path /= encoder
 
     # We can mix sim and real environments
     path = add_subdir(path, environment)

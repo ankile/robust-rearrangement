@@ -164,14 +164,20 @@ class DataCollector:
                         if isinstance(v, dict):
                             for k1, v1 in v.items():
                                 v[k1] = v1.squeeze().cpu().numpy()
+                        elif k == "color_image1":
+                            next_obs[k] = resize(next_obs[k]).squeeze().cpu().numpy()
+                        elif k == "color_image2":
+                            next_obs[k] = (
+                                resize_crop(next_obs[k]).squeeze().cpu().numpy()
+                            )
                         else:
                             next_obs[k] = v.squeeze().cpu().numpy()
 
                 self.org_obs.append(next_obs)
 
                 n_ob = {}
-                n_ob["color_image1"] = resize(next_obs["color_image1"])
-                n_ob["color_image2"] = resize_crop(next_obs["color_image2"])
+                n_ob["color_image1"] = next_obs["color_image1"]
+                n_ob["color_image2"] = next_obs["color_image2"]
                 n_ob["robot_state"] = next_obs["robot_state"]
                 n_ob["parts_poses"] = next_obs["parts_poses"]
                 self.obs.append(n_ob)
@@ -235,6 +241,10 @@ class DataCollector:
                         if isinstance(v, dict):
                             for k1, v1 in v.items():
                                 v[k1] = v1.squeeze().cpu().numpy()
+                        elif k == "color_image1":
+                            obs[k] = resize(obs[k]).squeeze().cpu().numpy()
+                        elif k == "color_image2":
+                            obs[k] = resize_crop(obs[k]).squeeze().cpu().numpy()
                         else:
                             obs[k] = v.squeeze().cpu().numpy()
                     if isinstance(rew, torch.Tensor):
@@ -242,16 +252,19 @@ class DataCollector:
 
                 self.org_obs.append(obs.copy())
                 ob = {}
-                if (not self.is_sim) or (not self.resize_sim_img):
-                    # Resize for every real world images, or for sim didn't resize in simulation side.
-                    ob["color_image1"] = resize(obs["color_image1"])
-                    ob["color_image2"] = resize_crop(obs["color_image2"])
-                else:
-                    ob["color_image1"] = obs["color_image1"]
-                    ob["color_image2"] = obs["color_image2"]
+                # if (not self.is_sim) or (not self.resize_sim_img):
+                #     # Resize for every real world images, or for sim didn't resize in simulation side.
+                #     ob["color_image1"] = resize(obs["color_image1"])
+                #     ob["color_image2"] = resize_crop(obs["color_image2"])
+                # else:
+                #     ob["color_image1"] = obs["color_image1"]
+                #     ob["color_image2"] = obs["color_image2"]
+                ob["color_image1"] = obs["color_image1"]
+                ob["color_image2"] = obs["color_image2"]
                 ob["robot_state"] = obs["robot_state"]
                 ob["parts_poses"] = obs["parts_poses"]
                 self.obs.append(ob)
+
                 if self.is_sim:
                     if isinstance(action, torch.Tensor):
                         action = action.squeeze().cpu().numpy()

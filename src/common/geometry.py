@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import pytorch3d.transforms as pt
+from ipdb import set_trace as bp
 
 
 def isaac_quat_to_pytorch3d_quat(quat):
@@ -8,7 +9,7 @@ def isaac_quat_to_pytorch3d_quat(quat):
 
     IsaacGym quaternion is (x, y, z, w) while PyTorch3D quaternion is (w, x, y, z).
     """
-    return torch.cat([quat[3:], quat[:3]])
+    return torch.cat([quat[..., 3:], quat[..., :3]], dim=-1)
 
 
 def pytorch3d_quat_to_isaac_quat(quat):
@@ -16,7 +17,7 @@ def pytorch3d_quat_to_isaac_quat(quat):
 
     PyTorch3D quaternion is (w, x, y, z) while IsaacGym quaternion is (x, y, z, w).
     """
-    return torch.cat([quat[1:], quat[:1]])
+    return torch.cat([quat[..., 1:], quat[..., :1]], dim=-1)
 
 
 def isaac_quat_to_rot_6d(quat: torch.Tensor) -> torch.Tensor:

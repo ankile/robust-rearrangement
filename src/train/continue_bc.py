@@ -28,9 +28,12 @@ if __name__ == "__main__":
 
     # Change any parameters here
     config.num_epochs = 200
-    config.augment_image = False
+    # config.augment_image = False
     config.save_rollouts = False
     config.rollout.every = 10
     config.batch_size = 256
+    config.data_path = "/data/scratch/ankile/furniture-data/processed/sim/one_leg/scripted/success.zarr"
+
+    print("Using data", config.data_path)
 
     train_bc_main(config, start_epoch=start_epoch)

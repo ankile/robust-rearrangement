@@ -245,8 +245,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
         train_data = {
             # Load features in in one go as they are small
-            "feature1": store["feature"][encoder_name][: self.episode_ends[-1]],
-            "feature2": store["feature"][encoder_name][: self.episode_ends[-1]],
+            "feature1": store["feature"][encoder_name]["feature1"][
+                : self.episode_ends[-1]
+            ],
+            "feature2": store["feature"][encoder_name]["feature2"][
+                : self.episode_ends[-1]
+            ],
             "robot_state": store["robot_state"][: self.episode_ends[-1]],
             "action": store["action"][control_mode][: self.episode_ends[-1]],
         }
@@ -271,9 +275,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
-            train_data[key] = normalizer(
-                torch.from_numpy(train_data[key]), key, forward=True
-            ).numpy()
+            train_data[key] = normalizer(train_data[key], key, forward=True)
 
         self.indices = indices
         self.train_data = train_data
