@@ -12,7 +12,7 @@ from ipdb import set_trace as bp
 from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
 from furniture_bench.sim_config import sim_config
-from furniture_bench.perception.image_utils import resize, resize_crop
+from src.data_processing.utils import resize, resize_crop
 from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
 from src.visualization.render_mp4 import pickle_data, unpickle_data
@@ -235,7 +235,7 @@ class DataCollectorSpaceMouse:
         gripper_width = self.env.gripper_width()
         rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         target_pose_rv = np.array([*translation, *rotvec])
-        gripper_open = gripper_width >= 0.95
+        gripper_open = gripper_width >= 0.06
         grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
             env_device
         )
@@ -288,8 +288,6 @@ class DataCollectorSpaceMouse:
                     if self.scripted:
                         raise ValueError("Not using scripted with spacemouse")
 
-                    # Get an action.
-
                     # calculate timing
                     t_cycle_end = t_start + (iter_idx + 1) * dt
                     t_sample = t_cycle_end - command_latency
@@ -306,6 +304,33 @@ class DataCollectorSpaceMouse:
                         keyboard_action,
                         collect_enum,
                     ) = self.device_interface.get_action()  # from the keyboard
+
+                    # If undo action is taken, undo the last 10 actions.
+                    if collect_enum == CollectEnum.UNDO:
+                        self.verbose_print("Undo the last 10 actions.")
+                        self.obs = self.obs[:-10]
+
+                        # Set the environment to the state before the last 10 actions.
+                        self.env.reset_env_to(env_idx=0, state=self.obs[-1])
+                        self.env.refresh()
+
+                        translation, quat_xyzw = self.env.get_ee_pose()
+
+                        translation, quat_xyzw = (
+                            translation.cpu().numpy().squeeze(),
+                            quat_xyzw.cpu().numpy().squeeze(),
+                        )
+                        gripper_width = self.env.gripper_width()
+                        rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
+                        target_pose_rv = np.array([*translation, *rotvec])
+                        gripper_open = gripper_width >= 0.06
+                        grasp_flag = torch.from_numpy(
+                            np.array([-1 if gripper_open else 1])
+                        ).to(env_device)
+
+                        target_pose_last_action_rv = None
+
+                        continue
 
                     if np.allclose(dpos, 0.0) and np.allclose(drot_xyz, 0.0):
                         action_taken = False
@@ -491,9 +516,17 @@ class DataCollectorSpaceMouse:
                                 for k, v in obs.items():
                                     if isinstance(v, dict):
                                         for k1, v1 in v.items():
-                                            v[k1] = v1.squeeze().cpu().numpy()
+                                            v[k1] = (
+                                                v1.squeeze().cpu().numpy()
+                                                if isinstance(v1, torch.Tensor)
+                                                else v1
+                                            )
                                     else:
-                                        obs[k] = v.squeeze().cpu().numpy()
+                                        obs[k] = (
+                                            v.squeeze().cpu().numpy()
+                                            if isinstance(v, torch.Tensor)
+                                            else v
+                                        )
                                 if isinstance(rew, torch.Tensor):
                                     rew = float(rew.squeeze().cpu())
 
@@ -556,7 +589,7 @@ class DataCollectorSpaceMouse:
         obs = self.env.reset()
         self._reset_collector_buffer()
 
-        self.load_state(state=None)
+        state = self.load_state(state=None)
 
         self.verbose_print("Start collecting the data!")
         if not self.scripted:
@@ -566,7 +599,7 @@ class DataCollectorSpaceMouse:
                     break
             time.sleep(0.2)
 
-        return obs
+        return state
 
     def _reset_collector_buffer(self):
         self.obs = []

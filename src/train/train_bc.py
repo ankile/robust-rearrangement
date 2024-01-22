@@ -161,6 +161,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
     tglobal = tqdm(
         range(start_epoch, config.num_epochs),
+        initial=start_epoch,
         desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
@@ -382,7 +383,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
+    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )

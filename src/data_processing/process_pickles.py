@@ -73,9 +73,10 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     # Extract the position control actions from the pickle file
     action_pos = np_extract_ee_pose_6d(all_robot_state[1:])
 
-    # Extract the rewards and skills from the pickle file
+    # Extract the rewards, skills, and parts_poses from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
+    parts_poses = np.array(data["parts_poses"], dtype=np.float32)
 
     # Sanity check that all arrays are the same length
     assert len(robot_state) == len(
@@ -93,6 +94,7 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
         "action/pos": action_pos,
         "reward": reward,
         "skill": skill,
+        "parts_poses": parts_poses,
         "episode_length": len(action_delta),
         "furniture": data["furniture"],
         "success": data["success"],
@@ -115,6 +117,7 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "action/pos": [],
         "reward": [],
         "skill": [],
+        "parts_poses": [],
         "episode_ends": [],
         "furniture": [],
         "success": [],
