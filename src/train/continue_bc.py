@@ -31,9 +31,9 @@ if __name__ == "__main__":
     # config.augment_image = False
     config.save_rollouts = False
     # config.rollout.every = 10
-    config.batch_size = 2048
+    config.batch_size = 128
     # config.data_path = "/data/scratch/ankile/furniture-data/processed/sim/one_leg/scripted/success.zarr"
-    # config.actor_lr = 9e-5
+    config.actor_lr = 9e-5
 
     print("Using data", config.data_path)
 

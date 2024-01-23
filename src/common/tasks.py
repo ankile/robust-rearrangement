@@ -1,12 +1,12 @@
 furniture2idx = {
     "one_leg": 0,
+    "square_table": 1,
     "lamp": 1,
     "round_table": 2,
     "desk": 3,
-    "square_table": 4,
-    "cabinet": 5,
-    "stool": 6,
-    "chair": 7,
+    "cabinet": 4,
+    "stool": 5,
+    "chair": 6,
 }
 
 idx2furniture = {v: k for k, v in furniture2idx.items()}

@@ -19,6 +19,8 @@ from src.common.geometry import (
     np_extract_ee_pose_6d,
 )
 
+from ipdb import set_trace as bp  # noqa
+
 
 # === Modified Function to Initialize Zarr Store with Full Dimensions ===
 def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
@@ -56,6 +58,8 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     """
     data: Trajectory = unpickle_data(pickle_path)
     obs = data["observations"]
+
+    bp()
 
     # Extract the observations from the pickle file and convert to 6D rotation
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]

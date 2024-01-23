@@ -1,4 +1,5 @@
 import argparse
+import random
 
 import furniture_bench
 from furniture_bench.device import make_device
@@ -86,7 +87,11 @@ def main():
         Path(
             "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted"
         ).rglob("**/success/*.pkl*")
-    )[:10]
+    )
+
+    random.shuffle(pickle_paths)
+
+    pickle_paths = pickle_paths[:10]
 
     print("loaded num trajectories", len(pickle_paths))
 
