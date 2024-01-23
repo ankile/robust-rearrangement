@@ -68,7 +68,7 @@ if __name__ == "__main__":
         furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
-        resize_img=True,
+        resize_img=False,
         act_rot_repr=config.act_rot_repr,
         ctrl_mode="osc",
         verbose=False,

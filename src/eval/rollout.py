@@ -168,7 +168,7 @@ def calculate_success_rate(
         )
 
         # Calculate the success rate
-        success = rewards.sum(dim=1) == env.furniture.num_parts - 1
+        success = rewards.sum(dim=1) == len(env.furniture.should_be_assembled)
         n_success += success.sum().item()
 
         # Save the results from the rollout
