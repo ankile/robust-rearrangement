@@ -170,48 +170,15 @@ class DataCollectorSpaceMouse:
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
 
+        # Parameters for controlling the time it takes for the robot to settle at the start of a trajectory
+        self.start_delay = 5  # seconds
+        self.robot_settled = False
+        self.starttime = datetime.now()
+
         # our flags
         self.right_multiply_rot = right_multiply_rot
 
         self._reset_collector_buffer()
-
-    def load_state(self):
-        """
-        Load the state of the environment from a one_leg trajectory
-        from the currently first pickle in the resume_trajectory_paths list
-        """
-
-        # Get the state dict at the end of a one_leg trajectory
-        trajectory_path = self.resume_trajectory_paths.pop(0)
-        print("Loading state from:")
-        print(trajectory_path)
-
-        state = unpickle_data(trajectory_path)
-
-        print("State from pickle:")
-        for k, v in state.items():
-            print(k, type(v))
-
-        self.env.reset_env_to(env_idx=0, state=state["observations"][-1])
-        self.env.refresh()
-
-        # Add all the data so far in the trajectory to the collect buffer
-        for i in trange(len(state["observations"]), desc="Hydrating state"):
-            self.store_observation(
-                obs={
-                    "color_image1": np.array(state["observations"][i]["color_image1"]),
-                    "color_image2": np.array(state["observations"][i]["color_image2"]),
-                    "robot_state": np.array(state["observations"][i]["robot_state"]),
-                    "parts_poses": np.array(state["observations"][i]["parts_poses"]),
-                },
-                action=state["actions"][i] if i < len(state["actions"]) else None,
-                rew=state["rewards"][i] if i < len(state["rewards"]) else None,
-                skill_complete=state["skills"][i] if i < len(state["skills"]) else None,
-            )
-
-        self.iter_idx = len(self.obs)
-
-        return self.obs.pop()
 
     def _squeeze_and_numpy(self, v: Union[torch.Tensor, np.ndarray]):
         if isinstance(v, torch.Tensor):
@@ -517,11 +484,6 @@ class DataCollectorSpaceMouse:
 
                     # Logging a step.
                     if action_taken:
-                        self.step_counter += 1
-                        print(
-                            f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} num assembled: {len(self.env.furniture.assembled_set)} Skill: {len(self.skill_set)}. (Z-rot: {self.device_interface.rot_fraction:.1%})"
-                        )
-
                         # Store a transition.
                         if info["action_success"]:
                             self.store_observation(obs, action, rew, skill_complete)
@@ -532,6 +494,7 @@ class DataCollectorSpaceMouse:
                                 translation.cpu().numpy().squeeze(),
                                 quat_xyzw.cpu().numpy().squeeze(),
                             )
+
                     obs = next_obs
 
                     # target_pose = new_target_pose
@@ -548,11 +511,23 @@ class DataCollectorSpaceMouse:
                     precise_wait(t_cycle_end)
                     self.iter_idx += 1
 
+                    if (not self.robot_settled) and (
+                        (datetime.now() - self.starttime).seconds > self.start_delay
+                    ):
+                        self.robot_settled = True
+                        print("Robot settled")
+
                 self.verbose_print(
                     f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
                 )
 
-    def store_observation(self, obs, action=None, rew=None, skill_complete=None):
+    def store_observation(
+        self, obs, action=None, rew=None, skill_complete=None, setup_phase=False
+    ):
+        """Store the observation, action, and reward."""
+        if (not setup_phase) and (not self.robot_settled):
+            return
+
         if self.is_sim:
             # Convert it to numpy.
             for k, v in obs.items():
@@ -584,6 +559,18 @@ class DataCollectorSpaceMouse:
         if skill_complete is not None:
             self.skills.append(skill_complete)
 
+        # We'll update the steps counter whenever we store an observation
+        if not setup_phase:
+            print(
+                f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} "
+                f"num assembled: {len(self.env.furniture.assembled_set)} "
+                f"Skill: {len(self.skill_set)}."
+            )
+
+    @property
+    def step_counter(self):
+        return len(self.obs)
+
     def save_and_reset(self, collect_enum: CollectEnum, info):
         """Saves the collected data and reset the environment."""
         self.save(collect_enum, info)
@@ -610,6 +597,8 @@ class DataCollectorSpaceMouse:
                     break
             time.sleep(0.2)
 
+        self.starttime = datetime.now()
+        self.robot_settled = False
         return obs
 
     def _reset_collector_buffer(self):
@@ -617,9 +606,45 @@ class DataCollectorSpaceMouse:
         self.acts = []
         self.rews = []
         self.skills = []
-        self.step_counter = 0
         self.last_reward_idx = -1
         self.skill_set = []
+
+    def load_state(self):
+        """
+        Load the state of the environment from a one_leg trajectory
+        from the currently first pickle in the resume_trajectory_paths list
+        """
+
+        # Get the state dict at the end of a one_leg trajectory
+        trajectory_path = self.resume_trajectory_paths.pop(0)
+        print("Loading state from:")
+        print(trajectory_path)
+
+        state = unpickle_data(trajectory_path)
+
+        print("State from pickle:")
+        for k, v in state.items():
+            print(k, type(v))
+
+        self.env.reset_env_to(env_idx=0, state=state["observations"][-1])
+        self.env.refresh()
+
+        # Add all the data so far in the trajectory to the collect buffer
+        for i in trange(len(state["observations"]), desc="Hydrating state"):
+            self.store_observation(
+                obs={
+                    "color_image1": np.array(state["observations"][i]["color_image1"]),
+                    "color_image2": np.array(state["observations"][i]["color_image2"]),
+                    "robot_state": np.array(state["observations"][i]["robot_state"]),
+                    "parts_poses": np.array(state["observations"][i]["parts_poses"]),
+                },
+                action=state["actions"][i] if i < len(state["actions"]) else None,
+                rew=state["rewards"][i] if i < len(state["rewards"]) else None,
+                skill_complete=state["skills"][i] if i < len(state["skills"]) else None,
+                setup_phase=True,
+            )
+
+        return self.obs.pop()
 
     def save(self, collect_enum: CollectEnum, info):
         print(f"Length of trajectory: {len(self.obs)}")

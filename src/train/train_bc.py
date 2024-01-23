@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
     config.rollout.max_steps = dryrun(
         sim_config["scripted_timeout"][config.furniture], fb=100
     )
