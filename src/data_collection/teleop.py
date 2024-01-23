@@ -80,6 +80,16 @@ def main():
         randomness=args.randomness,
     )
 
+    from pathlib import Path
+
+    pickle_paths = list(
+        Path(
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted"
+        ).rglob("**/success/*.pkl*")
+    )[:10]
+
+    print("loaded num trajectories", len(pickle_paths))
+
     data_collector = DataCollectorSpaceMouse(
         is_sim=args.is_sim,
         data_path=data_path,
@@ -99,6 +109,7 @@ def main():
         ctrl_mode=args.ctrl_mode,
         ee_laser=args.ee_laser,
         compress_pickles=False,
+        resume_trajectory_paths=pickle_paths,
     )
     data_collector.collect()
 

@@ -65,6 +65,7 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     )
     all_robot_state = np_proprioceptive_to_6d_rotation(all_robot_state)
     robot_state = all_robot_state[:-1]
+    parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
 
     # Extract the delta actions from the pickle file and convert to 6D rotation
     action_delta = np.array(data["actions"], dtype=np.float32)
@@ -76,7 +77,6 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     # Extract the rewards, skills, and parts_poses from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
-    parts_poses = np.array(data["parts_poses"], dtype=np.float32)
 
     # Sanity check that all arrays are the same length
     assert len(robot_state) == len(
@@ -156,6 +156,7 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "action/pos",
         "reward",
         "skill",
+        "parts_poses",
     ]:
         aggregated_data[key] = np.concatenate(aggregated_data[key])
 
@@ -187,10 +188,7 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 
 
 # === Entry Point of the Script ===
-# ... (Your argument parsing code remains the same) ...
-
 if __name__ == "__main__":
-    # ... (Your argument parsing code remains the same) ...
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", "-e", type=str, nargs="+", default=None)
     parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
@@ -228,12 +226,6 @@ if __name__ == "__main__":
         demo_outcome=args.demo_outcome,
     )
 
-    import random
-
-    random.shuffle(pickle_paths)
-
-    pickle_paths = pickle_paths[:150]
-
     print(f"Found {len(pickle_paths)} pickle files")
 
     output_path = get_processed_path(
@@ -244,9 +236,6 @@ if __name__ == "__main__":
         demo_outcome=args.demo_outcome,
     )
 
-    # Change the filename to `processed.zarr`
-    # output_path = output_path.with_name("processed_zl4.zarr")
-
     print(f"Output path: {output_path}")
 
     if output_path.exists() and not args.overwrite:
@@ -255,9 +244,9 @@ if __name__ == "__main__":
         )
 
     # Process all pickle files
-    chunksize = 5_000
+    chunksize = 1_000
     noop_threshold = 0.0
-    n_cpus = os.cpu_count()
+    n_cpus = min(os.cpu_count(), 64)
 
     print(
         f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
@@ -275,6 +264,7 @@ if __name__ == "__main__":
         ("action/pos", all_data["action/pos"].shape, np.float32),
         ("skill", all_data["skill"].shape, np.float32),
         ("reward", all_data["reward"].shape, np.float32),
+        ("parts_poses", all_data["parts_poses"].shape, np.float32),
         # These are of length: number of episodes
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),
@@ -285,8 +275,8 @@ if __name__ == "__main__":
     # Initialize Zarr store with full dimensions
     z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
 
-    # blosc.use_threads = True
-    # blosc.set_nthreads(n_cpus)
+    blosc.use_threads = True
+    blosc.set_nthreads(n_cpus)
 
     # Write the data to the Zarr store
     it = tqdm(all_data)

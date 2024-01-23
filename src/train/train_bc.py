@@ -16,7 +16,7 @@ from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
 from src.common.tasks import furniture2idx
 from src.gym import get_env
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
@@ -159,9 +159,11 @@ def main(config: ConfigDict, start_epoch: int = 0):
     test_loss_mean = float("inf")
     best_success_rate = 0
 
-    tglobal = tqdm(
-        range(start_epoch, config.num_epochs),
+    tglobal = trange(
+        start_epoch,
+        config.num_epochs,
         initial=start_epoch,
+        total=config.num_epochs,
         desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
@@ -339,7 +341,7 @@ if __name__ == "__main__":
     config.action_horizon = 8
     config.pred_horizon = 16
     config.first_action_index = 0
-    config.obs_horizon = 1
+    config.obs_horizon = 2
 
     config.actor = "diffusion"
 
@@ -396,8 +398,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = False
-    config.vision_encoder.pretrained = False
+    config.vision_encoder.freeze = True
+    config.vision_encoder.pretrained = True
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -428,7 +430,7 @@ if __name__ == "__main__":
     # config.feature_layernorm = False
     config.feature_layernorm = True
 
-    config.augment_image = True
+    config.augment_image = False
     config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False

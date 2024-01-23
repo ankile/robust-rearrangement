@@ -212,6 +212,8 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             down_dims=config.down_dims,
         ).to(device)
 
+        self.augment_image = config.augment_image
+
     def _training_obs(self, batch):
         # Get the standard observation data
         nobs = super()._training_obs(batch, flatten=True)

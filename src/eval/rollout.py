@@ -202,7 +202,7 @@ def calculate_success_rate(
         # Stack the two videos side by side into a single video
         # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
         video = np.concatenate([video1, video2], axis=2)[:n_steps]
-        video = create_in_memory_mp4(video, fps=10)
+        video = create_in_memory_mp4(video, fps=20)
 
         # Calculate the return for this rollout
         episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
@@ -210,7 +210,7 @@ def calculate_success_rate(
 
         table_rows.append(
             [
-                wandb.Video(video, fps=10, format="mp4"),
+                wandb.Video(video, fps=20, format="mp4"),
                 success,
                 epoch_idx,
                 np.sum(rewards),

@@ -3,10 +3,11 @@ import time
 import pickle
 from datetime import datetime
 from pathlib import Path
+from typing import Union, List
 
 import gym
 import torch
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 
 from furniture_bench.device.device_interface import DeviceInterface
@@ -89,6 +90,7 @@ class DataCollectorSpaceMouse:
         ee_laser: bool = True,
         right_multiply_rot: bool = True,
         compress_pickles: bool = False,
+        resume_trajectory_paths: Union[List[str], None] = None,
     ):
         """
         Args:
@@ -161,6 +163,9 @@ class DataCollectorSpaceMouse:
         self.save_failure = save_failure
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
+        self.resume_trajectory_paths = resume_trajectory_paths
+
+        self.iter_idx = 0
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
@@ -170,18 +175,45 @@ class DataCollectorSpaceMouse:
 
         self._reset_collector_buffer()
 
-    def load_state(self, state: dict):
+    def load_state(self):
+        """
+        Load the state of the environment from a one_leg trajectory
+        from the currently first pickle in the resume_trajectory_paths list
+        """
+
         # Get the state dict at the end of a one_leg trajectory
-        print("Loading state")
-        state = unpickle_data(
-            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted/low/success/2024-01-22T01:13:22.pkl.xz"
-        )["observations"][-1]
-        self.env.reset_env_to(env_idx=0, state=state)
+        trajectory_path = self.resume_trajectory_paths.pop(0)
+        print("Loading state from:")
+        print(trajectory_path)
+
+        state = unpickle_data(trajectory_path)
+
+        print("State from pickle:")
+        for k, v in state.items():
+            print(k, type(v))
+
+        self.env.reset_env_to(env_idx=0, state=state["observations"][-1])
         self.env.refresh()
 
-        return state
+        # Add all the data so far in the trajectory to the collect buffer
+        for i in trange(len(state["observations"]), desc="Hydrating state"):
+            self.store_observation(
+                obs={
+                    "color_image1": np.array(state["observations"][i]["color_image1"]),
+                    "color_image2": np.array(state["observations"][i]["color_image2"]),
+                    "robot_state": np.array(state["observations"][i]["robot_state"]),
+                    "parts_poses": np.array(state["observations"][i]["parts_poses"]),
+                },
+                action=state["actions"][i] if i < len(state["actions"]) else None,
+                rew=state["rewards"][i] if i < len(state["rewards"]) else None,
+                skill_complete=state["skills"][i] if i < len(state["skills"]) else None,
+            )
 
-    def _squeeze_and_numpy(self, v):
+        self.iter_idx = len(self.obs)
+
+        return self.obs.pop()
+
+    def _squeeze_and_numpy(self, v: Union[torch.Tensor, np.ndarray]):
         if isinstance(v, torch.Tensor):
             v = v.cpu().numpy()
         v = v.squeeze()
@@ -222,10 +254,6 @@ class DataCollectorSpaceMouse:
         done = False
 
         translation, quat_xyzw = self.env.get_ee_pose()
-
-        # Overwrite the state with our desired state
-        # translation = torch.from_numpy(state["robot_state"]["ee_pos"]).float()
-        # quat_xyzw = torch.from_numpy(state["robot_state"]["ee_quat"]).float()
 
         env_device = self.env.device
         translation, quat_xyzw = (
@@ -281,7 +309,7 @@ class DataCollectorSpaceMouse:
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
                 t_start = time.monotonic()
-                iter_idx = 0
+
                 prev_keyboard_gripper = -1
 
                 while self.num_success < self.num_demos:
@@ -289,7 +317,7 @@ class DataCollectorSpaceMouse:
                         raise ValueError("Not using scripted with spacemouse")
 
                     # calculate timing
-                    t_cycle_end = t_start + (iter_idx + 1) * dt
+                    t_cycle_end = t_start + (self.iter_idx + 1) * dt
                     t_sample = t_cycle_end - command_latency
                     # t_command_target = t_cycle_end + dt
                     precise_wait(t_sample)
@@ -419,23 +447,7 @@ class DataCollectorSpaceMouse:
 
                     # An episode is done.
                     if done or collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
-                        if self.is_sim:
-                            # Convert it to numpy.
-                            for k, v in next_obs.items():
-                                if isinstance(v, dict):
-                                    for k1, v1 in v.items():
-                                        v[k1] = self._squeeze_and_numpy(v1)
-                                else:
-                                    next_obs[k] = self._squeeze_and_numpy(v)
-
-                        self.org_obs.append(next_obs)
-
-                        n_ob = {}
-                        n_ob["color_image1"] = resize(next_obs["color_image1"])
-                        n_ob["color_image2"] = resize_crop(next_obs["color_image2"])
-                        n_ob["robot_state"] = next_obs["robot_state"]
-                        n_ob["parts_poses"] = next_obs["parts_poses"]
-                        self.obs.append(n_ob)
+                        self.store_observation(next_obs)
 
                         if (
                             done and not self.env.furnitures[0].all_assembled()
@@ -512,46 +524,7 @@ class DataCollectorSpaceMouse:
 
                         # Store a transition.
                         if info["action_success"]:
-                            if self.is_sim:
-                                for k, v in obs.items():
-                                    if isinstance(v, dict):
-                                        for k1, v1 in v.items():
-                                            v[k1] = (
-                                                v1.squeeze().cpu().numpy()
-                                                if isinstance(v1, torch.Tensor)
-                                                else v1
-                                            )
-                                    else:
-                                        obs[k] = (
-                                            v.squeeze().cpu().numpy()
-                                            if isinstance(v, torch.Tensor)
-                                            else v
-                                        )
-                                if isinstance(rew, torch.Tensor):
-                                    rew = float(rew.squeeze().cpu())
-
-                            self.org_obs.append(obs.copy())
-
-                            ob = {}
-                            if (not self.is_sim) or (not self.resize_sim_img):
-                                # Resize for every real world images, or for sim didn't resize in simulation side.
-                                ob["color_image1"] = resize(obs["color_image1"])
-                                ob["color_image2"] = resize_crop(obs["color_image2"])
-                            else:
-                                ob["color_image1"] = obs["color_image1"]
-                                ob["color_image2"] = obs["color_image2"]
-                            ob["robot_state"] = obs["robot_state"]
-                            ob["parts_poses"] = obs["parts_poses"]
-                            self.obs.append(ob)
-
-                            if self.is_sim:
-                                if isinstance(action, torch.Tensor):
-                                    action = action.squeeze().cpu().numpy()
-                                else:
-                                    action = action.squeeze()
-                            self.acts.append(action)
-                            self.rews.append(rew)
-                            self.skills.append(skill_complete)
+                            self.store_observation(obs, action, rew, skill_complete)
 
                             # Intrinsic rotation
                             translation, quat_xyzw = self.env.get_ee_pose()
@@ -573,11 +546,43 @@ class DataCollectorSpaceMouse:
 
                     # SM wait
                     precise_wait(t_cycle_end)
-                    iter_idx += 1
+                    self.iter_idx += 1
 
                 self.verbose_print(
                     f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
                 )
+
+    def store_observation(self, obs, action=None, rew=None, skill_complete=None):
+        if self.is_sim:
+            # Convert it to numpy.
+            for k, v in obs.items():
+                if isinstance(v, dict):
+                    for k1, v1 in v.items():
+                        v[k1] = self._squeeze_and_numpy(v1)
+                else:
+                    obs[k] = self._squeeze_and_numpy(v)
+
+        n_ob = {}
+        n_ob["color_image1"] = resize(obs["color_image1"])
+        n_ob["color_image2"] = resize_crop(obs["color_image2"])
+        n_ob["robot_state"] = obs["robot_state"]
+        n_ob["parts_poses"] = obs["parts_poses"]
+
+        self.obs.append(n_ob)
+
+        if action is not None:
+            if self.is_sim:
+                if isinstance(action, torch.Tensor):
+                    action = action.squeeze().cpu().numpy()
+                else:
+                    action = action.squeeze()
+            self.acts.append(action)
+
+        if rew is not None:
+            self.rews.append(rew)
+
+        if skill_complete is not None:
+            self.skills.append(skill_complete)
 
     def save_and_reset(self, collect_enum: CollectEnum, info):
         """Saves the collected data and reset the environment."""
@@ -587,9 +592,15 @@ class DataCollectorSpaceMouse:
 
     def reset(self):
         obs = self.env.reset()
+
+        print("State from reset:")
+        for k, v in obs.items():
+            print(k, type(v))
+
         self._reset_collector_buffer()
 
-        state = self.load_state(state=None)
+        if self.resume_trajectory_paths:
+            obs = self.load_state()
 
         self.verbose_print("Start collecting the data!")
         if not self.scripted:
@@ -599,11 +610,10 @@ class DataCollectorSpaceMouse:
                     break
             time.sleep(0.2)
 
-        return state
+        return obs
 
     def _reset_collector_buffer(self):
         self.obs = []
-        self.org_obs = []
         self.acts = []
         self.rews = []
         self.skills = []
