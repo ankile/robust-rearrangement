@@ -2,17 +2,12 @@ import torch
 import torch.nn as nn
 import torchvision
 import transformers
-from vip import load_vip
-from r3m import load_r3m
-from voltron import instantiate_extractor, load as load_voltron
 
 
 from ipdb import set_trace as bp
 from src.models.module_attr_mixin import ModuleAttrMixin
 from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
-
-from robomimic.models.obs_core import VisualCore
 
 
 def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
@@ -79,6 +74,8 @@ class SpatialSoftmaxEncoder(VisionEncoder):
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
+
+        from robomimic.models.obs_core import VisualCore
 
         self.encoding_dim = 256
 
@@ -190,6 +187,9 @@ class DinoV2Encoder(torch.nn.Module):
 class VIPEncoder(torch.nn.Module):
     def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
+
+        from vip import load_vip
+
         self.device = device
 
         self.model = load_vip().module.to(device)
@@ -215,6 +215,8 @@ class R3MEncoder(torch.nn.Module):
         self, model_name="r3m_18", freeze=True, device="cuda", *args, **kwargs
     ) -> None:
         super().__init__()
+        from r3m import load_r3m
+
         assert model_name in ("r3m_18", "r3m_34", "r3m_50")
 
         model_name = f"resnet{model_name.split('_')[1]}"
@@ -316,6 +318,9 @@ class MAEEncoder(torch.nn.Module):
 class VoltronEncoder(torch.nn.Module):
     def __init__(self, freeze=True, device="cuda", *args, **kwargs) -> None:
         super().__init__()
+
+        from voltron import instantiate_extractor, load as load_voltron
+
         # Load a frozen Voltron (V-Cond) model & configure a vector extractor
         vcond, preprocess = load_voltron(
             "v-cond",
