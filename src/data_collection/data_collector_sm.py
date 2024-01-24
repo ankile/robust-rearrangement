@@ -1,10 +1,9 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
-from ast import Dict
 import time
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Dict
 
 import gym
 import torch
@@ -181,7 +180,7 @@ class DataCollectorSpaceMouse:
         self._reset_collector_buffer()
 
     def _squeeze_and_numpy(
-        self, d: Dict[str, Union[torch.Tensor, float, int, None, dict]]
+        self, d: Dict[str, Union[torch.Tensor, np.ndarray, float, int, None]]
     ):
         """
         Recursively squeeze and convert tensors to numpy arrays
@@ -191,19 +190,19 @@ class DataCollectorSpaceMouse:
         for k, v in d.items():
             if isinstance(v, dict):
                 d[k] = self._squeeze_and_numpy(v)
-            elif isinstance(v, (torch.Tensor, np.ndarray)):
-                if v.ndim == 0:
-                    d[k] = v.item()
-                else:
-                    if isinstance(v, torch.Tensor):
-                        v = v.cpu().numpy()
-                    d[k] = v.squeeze()
-
-            elif isinstance(v, (int, float)):
-                d[k] = float(v)
 
             elif v is None:
                 continue
+
+            elif isinstance(v, (torch.Tensor, np.ndarray)):
+                if isinstance(v, torch.Tensor):
+                    v = v.cpu().numpy()
+                d[k] = v.squeeze()
+
+            elif k == "rewards":
+                d[k] = float(v)
+            elif k == "skills":
+                d[k] = int(v)
             else:
                 raise ValueError(f"Unsupported type: {type(v)}")
 
@@ -413,7 +412,7 @@ class DataCollectorSpaceMouse:
 
                     # An episode is done.
                     if done or collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
-                        self.store_observation(next_obs)
+                        self.store_transition(next_obs)
 
                         if (
                             done and not self.env.furnitures[0].all_assembled()
@@ -458,17 +457,7 @@ class DataCollectorSpaceMouse:
                     next_obs, rew, done, info = self.env.step(action)
 
                     if rew == 1:
-                        self.last_reward_idx = len(self.acts)
-
-                    # Label reward.
-                    if collect_enum == CollectEnum.REWARD:
-                        rew = self.env.furniture.manual_assemble_label(
-                            self.device_interface.rew_key
-                        )
-                        if rew == 0:
-                            # Correction the label.
-                            self.rews[self.last_reward_idx] = 0
-                            rew = 1
+                        self.last_reward_idx = len(self.transitions)
 
                     # Error handling.
                     if not info["obs_success"]:
@@ -476,8 +465,10 @@ class DataCollectorSpaceMouse:
                             "Getting observation failed, save trajectory."
                         )
                         # Pop the last reward and action so that obs has length plus 1 then those of actions and rewards.
-                        self.rews.pop()
-                        self.acts.pop()
+                        self.transitions["rewards"] = None
+                        self.transitions["actions"] = None
+                        self.transitions["skills"] = None
+
                         obs = self.save_and_reset(CollectEnum.FAIL, info)
                         continue
 
@@ -485,7 +476,7 @@ class DataCollectorSpaceMouse:
                     if action_taken:
                         # Store a transition.
                         if info["action_success"]:
-                            self.store_observation(obs, action, rew, skill_complete)
+                            self.store_transition(obs, action, rew, skill_complete)
 
                             # Intrinsic rotation
                             translation, quat_xyzw = self.env.get_ee_pose()
@@ -683,9 +674,9 @@ class DataCollectorSpaceMouse:
         # Save transitions with resized images.
         data = {}
         data["observations"] = [t["observations"] for t in self.transitions]
-        data["actions"] = [t["actions"] for t in self.transitions]
-        data["rewards"] = [t["rewards"] for t in self.transitions]
-        data["skills"] = [t["skills"] for t in self.transitions]
+        data["actions"] = [t["actions"] for t in self.transitions][:-1]
+        data["rewards"] = [t["rewards"] for t in self.transitions][:-1]
+        data["skills"] = [t["skills"] for t in self.transitions][:-1]
         data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
         data["furniture"] = self.furniture
 
