@@ -1,4 +1,5 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
+from ast import Dict
 import time
 import pickle
 from datetime import datetime
@@ -146,7 +147,6 @@ class DataCollectorSpaceMouse:
                 randomness=randomness,
             )
 
-        self.is_sim = is_sim
         self.data_path = Path(data_path)
         self.device_interface = device_interface
         self.headless = headless
@@ -180,11 +180,34 @@ class DataCollectorSpaceMouse:
 
         self._reset_collector_buffer()
 
-    def _squeeze_and_numpy(self, v: Union[torch.Tensor, np.ndarray]):
-        if isinstance(v, torch.Tensor):
-            v = v.cpu().numpy()
-        v = v.squeeze()
-        return v
+    def _squeeze_and_numpy(
+        self, d: Dict[str, Union[torch.Tensor, float, int, None, dict]]
+    ):
+        """
+        Recursively squeeze and convert tensors to numpy arrays
+        Convert scalars to floats
+        Leave NoneTypes alone
+        """
+        for k, v in d.items():
+            if isinstance(v, dict):
+                d[k] = self._squeeze_and_numpy(v)
+            elif isinstance(v, (torch.Tensor, np.ndarray)):
+                if v.ndim == 0:
+                    d[k] = v.item()
+                else:
+                    if isinstance(v, torch.Tensor):
+                        v = v.cpu().numpy()
+                    d[k] = v.squeeze()
+
+            elif isinstance(v, (int, float)):
+                d[k] = float(v)
+
+            elif v is None:
+                continue
+            else:
+                raise ValueError(f"Unsupported type: {type(v)}")
+
+        return d
 
     def collect(self):
         self.verbose_print("[data collection] Start collecting the data!")
@@ -515,51 +538,58 @@ class DataCollectorSpaceMouse:
 
     def undo_actions(self):
         self.verbose_print("Undo the last 10 actions.")
-        self.obs = self.obs[:-10]
+
+        # Remove the last 10 transitions from the buffer but keep at least one
+        self.transitions = self.transitions[1:-10]
 
         # Set the environment to the state before the last 10 actions.
-        self.env.reset_env_to(env_idx=0, state=self.obs[-1])
+        self.env.reset_env_to(env_idx=0, state=self.transitions[-1]["observations"])
         self.env.refresh()
 
-    def store_observation(
+    def store_transition(
         self, obs, action=None, rew=None, skill_complete=None, setup_phase=False
     ):
         """Store the observation, action, and reward."""
         if (not setup_phase) and (not self.robot_settled):
+            # Don't store anything until the robot has settled
+            # Without this, we get ~8 useless actions at the start of every trajectory
             return
 
-        if self.is_sim:
-            # Convert it to numpy.
-            for k, v in obs.items():
-                if isinstance(v, dict):
-                    for k1, v1 in v.items():
-                        v[k1] = self._squeeze_and_numpy(v1)
-                else:
-                    obs[k] = self._squeeze_and_numpy(v)
-
+        # We want to resize the images while tensors for maximum compatibility with the rest of the code
         n_ob = {}
         n_ob["color_image1"] = resize(obs["color_image1"])
         n_ob["color_image2"] = resize_crop(obs["color_image2"])
         n_ob["robot_state"] = obs["robot_state"]
         n_ob["parts_poses"] = obs["parts_poses"]
 
-        self.obs.append(n_ob)
-
         if action is not None:
-            if self.is_sim:
-                if isinstance(action, torch.Tensor):
-                    action = action.squeeze().cpu().numpy()
-                else:
-                    action = action.squeeze()
-            self.acts.append(action)
+            if isinstance(action, torch.Tensor):
+                action = action.squeeze().cpu().numpy()
+            elif isinstance(action, np.ndarray):
+                action = action.squeeze()
+            else:
+                raise ValueError(f"Unsupported action type: {type(action)}")
 
         if rew is not None:
             if isinstance(rew, torch.Tensor):
                 rew = rew.item()
-            self.rews.append(rew)
+            elif isinstance(rew, np.ndarray):
+                rew = rew.item()
+            elif isinstance(rew, float):
+                rew = rew
+            elif isinstance(rew, int):
+                rew = float(rew)
 
-        if skill_complete is not None:
-            self.skills.append(skill_complete)
+        transition = {
+            "observations": n_ob,
+            "actions": action,
+            "rewards": rew,
+            "skills": skill_complete,
+        }
+
+        # Treat the whole transition as a dictionary, and squeeze all the tensors and make scalars into floats
+        transition = self._squeeze_and_numpy(transition)
+        self.transitions.append(transition)
 
         # We'll update the steps counter whenever we store an observation
         if not setup_phase:
@@ -571,7 +601,7 @@ class DataCollectorSpaceMouse:
 
     @property
     def step_counter(self):
-        return len(self.obs)
+        return len(self.transitions)
 
     def save_and_reset(self, collect_enum: CollectEnum, info):
         """Saves the collected data and reset the environment."""
@@ -604,10 +634,9 @@ class DataCollectorSpaceMouse:
         return obs
 
     def _reset_collector_buffer(self):
-        self.obs = []
-        self.acts = []
-        self.rews = []
-        self.skills = []
+        # Now, observations, actions, rewards, and skall_complete flags are stored as transition "tuples"
+        self.transitions = []
+
         self.last_reward_idx = -1
         self.skill_set = []
 
@@ -633,7 +662,7 @@ class DataCollectorSpaceMouse:
 
         # Add all the data so far in the trajectory to the collect buffer
         for i in trange(len(state["observations"]), desc="Hydrating state"):
-            self.store_observation(
+            self.store_transition(
                 obs={
                     "color_image1": np.array(state["observations"][i]["color_image1"]),
                     "color_image2": np.array(state["observations"][i]["color_image2"]),
@@ -646,17 +675,17 @@ class DataCollectorSpaceMouse:
                 setup_phase=True,
             )
 
-        return self.obs.pop()
+        return self.transitions.pop()["observations"]
 
     def save(self, collect_enum: CollectEnum, info):
-        print(f"Length of trajectory: {len(self.obs)}")
+        print(f"Length of trajectory: {len(self.transitions)}")
 
         # Save transitions with resized images.
         data = {}
-        data["observations"] = self.obs
-        data["actions"] = self.acts
-        data["rewards"] = self.rews
-        data["skills"] = self.skills
+        data["observations"] = [t["observations"] for t in self.transitions]
+        data["actions"] = [t["actions"] for t in self.transitions]
+        data["rewards"] = [t["rewards"] for t in self.transitions]
+        data["skills"] = [t["skills"] for t in self.transitions]
         data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
         data["furniture"] = self.furniture
 
