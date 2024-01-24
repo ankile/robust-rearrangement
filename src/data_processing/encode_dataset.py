@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+from typing import List, Union
 import numpy as np
 import zarr
 from tqdm import trange
@@ -8,17 +9,44 @@ import torch
 from datetime import datetime
 from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
 from ipdb import set_trace as bp
+from torchvision import transforms
+
+camera1_transform = transforms.Resize((224, 224), antialias=True)
+camera2_transform = transforms.CenterCrop((224, 224))
 
 
 # === Image Zarr to feature Zarr ===
 @torch.no_grad()
-def encode_numpy_batch(encoder, buffer, lang=None):
+def encode_numpy_batch(
+    encoder,
+    img_buffer1: np.ndarray,
+    img_buffer2: np.ndarray,
+    lang: Union[List[str], None] = None,
+):
     # Move buffer to same device as encoder
-    tensor = torch.from_numpy(buffer).to(device)
-    if lang is not None:
-        return encoder(tensor, lang=lang).cpu().numpy()
+    img_buffer1 = torch.from_numpy(img_buffer1).to(device)
+    img_buffer2 = torch.from_numpy(img_buffer2).to(device)
 
-    return encoder(tensor).cpu().numpy()
+    # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+    image1 = image1.permute(0, 3, 1, 2)
+    image2 = image2.permute(0, 3, 1, 2)
+
+    # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+    image1 = camera1_transform(image1)
+    image2 = camera2_transform(image2)
+
+    # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+    image1 = image1.permute(0, 2, 3, 1)
+    image2 = image2.permute(0, 2, 3, 1)
+
+    if lang is not None:
+        image1 = encoder(image1, lang=lang).cpu().numpy()
+        image2 = encoder(image2, lang=lang).cpu().numpy()
+    else:
+        image1 = encoder(image1).cpu().numpy()
+        image2 = encoder(image2).cpu().numpy()
+
+    return image1, image2
 
 
 def process_zarr_to_feature(

@@ -82,9 +82,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             B * self.obs_horizon, *img_size
         )
 
-        # Resize the images to 224x224
-        img1 = self.camera1_transform(img1.transpose(1, 3)).transpose(1, 3)
-        img2 = self.camera2_transform(img2.transpose(1, 3)).transpose(1, 3)
+        # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+        image1 = image1.permute(0, 3, 1, 2)
+        image2 = image2.permute(0, 3, 1, 2)
+
+        # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+        image1 = self.camera1_transform(image1)
+        image2 = self.camera2_transform(image2)
+
+        # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+        image1 = image1.permute(0, 2, 3, 1)
+        image2 = image2.permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
         feature1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
