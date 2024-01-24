@@ -32,8 +32,11 @@ if __name__ == "__main__":
     config.save_rollouts = False
     # config.rollout.every = 10
     config.batch_size = 128
+    config.dataloader_workers = 4
+    config.num_envs = 8
     # config.data_path = "/data/scratch/ankile/furniture-data/processed/sim/one_leg/scripted/success.zarr"
     config.actor_lr = 9e-5
+    config.rollout.loss_threshold = 1
 
     print("Using data", config.data_path)
 

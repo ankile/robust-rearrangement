@@ -326,14 +326,14 @@ if __name__ == "__main__":
     dryrun = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = dryrun(8, fb=2)
+    num_envs = dryrun(4, fb=2)
 
     config = ConfigDict()
 
     config.wandb = ConfigDict()
     config.wandb.project = "new-controller-test"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Run with proper normalization and 6D control"
+    config.wandb.notes = ""
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
@@ -424,8 +424,8 @@ if __name__ == "__main__":
     config.feature_dropout = False
     # config.feature_dropout = 0.1
 
-    config.feature_noise = False
-    # config.feature_noise = 0.01
+    # config.feature_noise = False
+    config.feature_noise = 0.01
 
     # config.feature_layernorm = False
     config.feature_layernorm = True

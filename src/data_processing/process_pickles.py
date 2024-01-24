@@ -59,14 +59,14 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     data: Trajectory = unpickle_data(pickle_path)
     obs = data["observations"]
 
-    bp()
-
     # Extract the observations from the pickle file and convert to 6D rotation
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]
     color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)[:-1]
     all_robot_state = np.array(
-        [filter_and_concat_robot_state(o["robot_state"]) for o in obs], dtype=np.float32
+        [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
+        dtype=np.float32,
     )
+
     all_robot_state = np_proprioceptive_to_6d_rotation(all_robot_state)
     robot_state = all_robot_state[:-1]
     parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
-    )
+    )[:10]
 
     print(f"Found {len(pickle_paths)} pickle files")
 
@@ -250,7 +250,8 @@ if __name__ == "__main__":
     # Process all pickle files
     chunksize = 1_000
     noop_threshold = 0.0
-    n_cpus = min(os.cpu_count(), 64)
+    # n_cpus = min(os.cpu_count(), 64)
+    n_cpus = 1
 
     print(
         f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"

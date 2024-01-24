@@ -220,20 +220,7 @@ class DataCollectorSpaceMouse:
         obs = self.reset()
         done = False
 
-        translation, quat_xyzw = self.env.get_ee_pose()
-
-        env_device = self.env.device
-        translation, quat_xyzw = (
-            translation.cpu().numpy().squeeze(),
-            quat_xyzw.cpu().numpy().squeeze(),
-        )
-        gripper_width = self.env.gripper_width()
-        rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
-        target_pose_rv = np.array([*translation, *rotvec])
-        gripper_open = gripper_width >= 0.06
-        grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
-            env_device
-        )
+        target_pose_rv, gripper_width, gripper_open, grasp_flag = self.set_target_pose()
 
         def pose_rv2mat(pose_rv):
             pose_mat = np.eye(4)
@@ -302,27 +289,16 @@ class DataCollectorSpaceMouse:
 
                     # If undo action is taken, undo the last 10 actions.
                     if collect_enum == CollectEnum.UNDO:
-                        self.verbose_print("Undo the last 10 actions.")
-                        self.obs = self.obs[:-10]
+                        # Go back in time by removing transitions from the buffer and setting simulator state
+                        self.undo_actions()
 
-                        # Set the environment to the state before the last 10 actions.
-                        self.env.reset_env_to(env_idx=0, state=self.obs[-1])
-                        self.env.refresh()
-
-                        translation, quat_xyzw = self.env.get_ee_pose()
-
-                        translation, quat_xyzw = (
-                            translation.cpu().numpy().squeeze(),
-                            quat_xyzw.cpu().numpy().squeeze(),
-                        )
-                        gripper_width = self.env.gripper_width()
-                        rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
-                        target_pose_rv = np.array([*translation, *rotvec])
-                        gripper_open = gripper_width >= 0.06
-                        grasp_flag = torch.from_numpy(
-                            np.array([-1 if gripper_open else 1])
-                        ).to(env_device)
-
+                        # Set the right target poses for the state after undoing actions
+                        (
+                            target_pose_rv,
+                            gripper_width,
+                            gripper_open,
+                            grasp_flag,
+                        ) = self.set_target_pose()
                         target_pose_last_action_rv = None
 
                         continue
@@ -380,7 +356,7 @@ class DataCollectorSpaceMouse:
                         current_pose_mat=target_pose_mat,
                         goal_pose_mat=new_target_pose_mat,
                         grasp_flag=grasp_flag,
-                        device=env_device,
+                        device=self.env.device,
                         rm=self.right_multiply_rot,
                     )
 
@@ -451,7 +427,7 @@ class DataCollectorSpaceMouse:
                         gripper_open = gripper_width >= 0.95
                         grasp_flag = torch.from_numpy(
                             np.array([-1 if gripper_open else 1])
-                        ).to(env_device)
+                        ).to(self.env.device)
 
                         continue
 
@@ -521,6 +497,30 @@ class DataCollectorSpaceMouse:
                     f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
                 )
 
+    def set_target_pose(self):
+        translation, quat_xyzw = self.env.get_ee_pose()
+        translation, quat_xyzw = (
+            translation.cpu().numpy().squeeze(),
+            quat_xyzw.cpu().numpy().squeeze(),
+        )
+        gripper_width = self.env.gripper_width()
+        rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
+        target_pose_rv = np.array([*translation, *rotvec])
+        gripper_open = gripper_width >= 0.06
+        grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
+            self.env.device
+        )
+
+        return target_pose_rv, gripper_width, gripper_open, grasp_flag
+
+    def undo_actions(self):
+        self.verbose_print("Undo the last 10 actions.")
+        self.obs = self.obs[:-10]
+
+        # Set the environment to the state before the last 10 actions.
+        self.env.reset_env_to(env_idx=0, state=self.obs[-1])
+        self.env.refresh()
+
     def store_observation(
         self, obs, action=None, rew=None, skill_complete=None, setup_phase=False
     ):
@@ -554,6 +554,8 @@ class DataCollectorSpaceMouse:
             self.acts.append(action)
 
         if rew is not None:
+            if isinstance(rew, torch.Tensor):
+                rew = rew.item()
             self.rews.append(rew)
 
         if skill_complete is not None:
@@ -635,7 +637,7 @@ class DataCollectorSpaceMouse:
                 obs={
                     "color_image1": np.array(state["observations"][i]["color_image1"]),
                     "color_image2": np.array(state["observations"][i]["color_image2"]),
-                    "robot_state": np.array(state["observations"][i]["robot_state"]),
+                    "robot_state": state["observations"][i]["robot_state"],
                     "parts_poses": np.array(state["observations"][i]["parts_poses"]),
                 },
                 action=state["actions"][i] if i < len(state["actions"]) else None,
