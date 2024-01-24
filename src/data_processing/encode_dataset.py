@@ -1,7 +1,5 @@
 from pathlib import Path
 import argparse
-import os
-from turtle import color
 import numpy as np
 import zarr
 from tqdm import trange

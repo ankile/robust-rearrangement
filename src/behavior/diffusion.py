@@ -146,10 +146,6 @@ class DiffusionPolicy(Actor):
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch)
 
-        # Apply Dropout to the observation conditioning if specified
-        if self.feature_dropout:
-            obs_cond = self.dropout(obs_cond)
-
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
         naction = batch["action"]
@@ -291,7 +287,7 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
 
         # Get the task embedding
         success = batch["success"]
-        success_embedding = self.task_encoder(success)
+        success_embedding = self.success_embedding(success)
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, success_embedding), dim=-1)
@@ -304,7 +300,9 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
         B = nobs.shape[0]
 
         # Set the success embedding to true and repeat it for the batch size
-        success_embedding = self.task_encoder(torch.tensor(1).to(self.device).repeat(B))
+        success_embedding = self.success_embedding(
+            torch.tensor(1).to(self.device).repeat(B)
+        )
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, success_embedding), dim=-1)

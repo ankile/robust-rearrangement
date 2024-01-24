@@ -191,9 +191,7 @@ class VIPEncoder(torch.nn.Module):
         from vip import load_vip
 
         self.device = device
-
         self.model = load_vip().module.to(device)
-
         self.encoding_dim = self.model.convnet.fc.out_features
 
         if freeze:

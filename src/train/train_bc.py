@@ -331,9 +331,11 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.wandb = ConfigDict()
-    config.wandb.project = "new-controller-test"
+    config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = ""
+    config.wandb.notes = (
+        "Finetune simple model trained on `one_leg` on teleop demos for two legs."
+    )
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
@@ -364,7 +366,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.save_rollouts = False
-    config.actor_lr = 1e-4
+    config.actor_lr = 1e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(args.data_subset, 10)
@@ -375,6 +377,7 @@ if __name__ == "__main__":
     config.furniture = args.furniture
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/fiery-dust-15/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -384,10 +387,12 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.025, fb=float("inf"))
+    config.rollout.every = dryrun(1, fb=1) if not args.no_rollout else -1
+    config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
     config.rollout.max_steps = dryrun(
-        sim_config["scripted_timeout"][config.furniture], fb=100
+        # sim_config["scripted_timeout"][config.furniture], fb=100
+        1_400,
+        fb=100,
     )
     config.rollout.count = num_envs * 1
     config.rollout.save_failures = True
@@ -424,8 +429,8 @@ if __name__ == "__main__":
     config.feature_dropout = False
     # config.feature_dropout = 0.1
 
-    # config.feature_noise = False
-    config.feature_noise = 0.01
+    config.feature_noise = False
+    # config.feature_noise = 0.01
 
     # config.feature_layernorm = False
     config.feature_layernorm = True
@@ -449,7 +454,7 @@ if __name__ == "__main__":
     config.data_path = get_processed_path(
         environment="sim",
         task=config.furniture,
-        demo_source="scripted",
+        demo_source="teleop",
         randomness=None,
         demo_outcome="success",
     )

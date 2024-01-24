@@ -228,7 +228,7 @@ if __name__ == "__main__":
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
-    )[:10]
+    )
 
     print(f"Found {len(pickle_paths)} pickle files")
 

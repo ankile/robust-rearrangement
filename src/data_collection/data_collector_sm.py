@@ -531,7 +531,7 @@ class DataCollectorSpaceMouse:
         self.verbose_print("Undo the last 10 actions.")
 
         # Remove the last 10 transitions from the buffer but keep at least one
-        self.transitions = self.transitions[1:-10]
+        self.transitions = self.transitions[:1] + self.transitions[1:-10]
 
         # Set the environment to the state before the last 10 actions.
         self.env.reset_env_to(env_idx=0, state=self.transitions[-1]["observations"])
