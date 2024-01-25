@@ -19,13 +19,13 @@ camera2_transform = transforms.CenterCrop((224, 224))
 @torch.no_grad()
 def encode_numpy_batch(
     encoder,
-    img_buffer1: np.ndarray,
-    img_buffer2: np.ndarray,
+    image1: np.ndarray,
+    image2: np.ndarray,
     lang: Union[List[str], None] = None,
 ):
-    # Move buffer to same device as encoder
-    img_buffer1 = torch.from_numpy(img_buffer1).to(device)
-    img_buffer2 = torch.from_numpy(img_buffer2).to(device)
+    # Move images to same device as encoder
+    image1 = torch.from_numpy(image1).to(device)
+    image2 = torch.from_numpy(image2).to(device)
 
     # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
     image1 = image1.permute(0, 3, 1, 2)
@@ -103,11 +103,11 @@ def process_zarr_to_feature(
                 for f in furniture_idxs[i:slice_end]
             ]
 
-        features1[i:slice_end] = encode_numpy_batch(
-            encoder, color_image1[i:slice_end], lang=language
-        )
-        features2[i:slice_end] = encode_numpy_batch(
-            encoder, color_image2[i:slice_end], lang=language
+        features1[i:slice_end], features2[i:slice_end] = encode_numpy_batch(
+            encoder,
+            color_image1[i:slice_end],
+            color_image2[i:slice_end],
+            lang=language,
         )
 
     # Add a new group to the Zarr store all features should be stored under the key "feature"

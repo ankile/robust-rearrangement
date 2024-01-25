@@ -7,7 +7,48 @@ furniture2idx = {
     "cabinet": 4,
     "stool": 5,
     "chair": 6,
+    "drawer": 7,
 }
+
+
+timesteps_per_phase = 200
+
+task_phases = {
+    "one_leg": 5,
+    "square_table": 16,
+    "lamp": 7,
+    "round_table": 8,
+    "desk": 16,
+    "cabinet": 11,
+    "stool": 11,
+    "chair": 17,
+    "drawer": 8,
+}
+
+
+timesteps_per_part = 1_000
+
+task_parts = {
+    "one_leg": 1,
+    "square_table": 4,
+    "lamp": 2,
+    "round_table": 2,
+    "desk": 4,
+    "cabinet": 3,
+    "stool": 3,
+    "chair": 5,
+    "drawer": 2,
+}
+
+
+def task_timeout(task, n_parts=None):
+    assert task in task_parts, f"Task {task} not found"
+    n_parts = task_parts[task] if n_parts is None else n_parts
+
+    assert n_parts <= task_parts[task], f"Task {task} only has {task_parts[task]} parts"
+
+    return n_parts * timesteps_per_part
+
 
 idx2furniture = {v: k for k, v in furniture2idx.items()}
 

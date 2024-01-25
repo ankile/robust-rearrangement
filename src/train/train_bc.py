@@ -14,7 +14,7 @@ from src.dataset.dataset import (
 )
 from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.common.tasks import furniture2idx
+from src.common.tasks import furniture2idx, task_timeout
 from src.gym import get_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
@@ -320,21 +320,23 @@ if __name__ == "__main__":
     parser.add_argument("--furniture", "-f", type=str, default="one_leg")
     parser.add_argument("--no-rollout", action="store_true")
     parser.add_argument("--data-subset", type=int, default=None)
+    parser.add_argument("--n-parts-assemble", type=int, default=None)
 
     args = parser.parse_args()
 
     dryrun = lambda x, fb=1: x if args.dryrun is False else fb
 
     n_workers = min(args.cpus, os.cpu_count())
-    num_envs = dryrun(4, fb=2)
+    num_envs = dryrun(8, fb=2)
 
     config = ConfigDict()
 
     config.wandb = ConfigDict()
-    config.wandb.project = "teleop-finetune"
+    config.wandb.project = "new-controller-test"
+    # config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
     config.wandb.notes = (
-        "Finetune simple model trained on `one_leg` on teleop demos for two legs."
+        "Finetune end-to-end trained spatial softmax policy pretrained on one_leg."
     )
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
@@ -343,7 +345,7 @@ if __name__ == "__main__":
     config.action_horizon = 8
     config.pred_horizon = 16
     config.first_action_index = 0
-    config.obs_horizon = 2
+    config.obs_horizon = 1
 
     config.actor = "diffusion"
 
@@ -366,7 +368,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.save_rollouts = False
-    config.actor_lr = 1e-5
+    config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(args.data_subset, 10)
@@ -374,10 +376,14 @@ if __name__ == "__main__":
     config.clip_sample = True
     config.demo_source = "sim"
     config.dryrun = args.dryrun
+
+    # TODO: Change this to "task"
     config.furniture = args.furniture
+    config.n_parts_assemble = args.n_parts_assemble
+
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/fiery-dust-15/actor_chkpt_best_test_loss.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/ruby-butterfly-17/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -387,11 +393,10 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(1, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.1, fb=float("inf"))
+    config.rollout.every = dryrun(2, fb=1) if not args.no_rollout else -1
+    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
     config.rollout.max_steps = dryrun(
-        # sim_config["scripted_timeout"][config.furniture], fb=100
-        1_400,
+        task_timeout(config.furniture, n_parts=args.n_parts_assemble),
         fb=100,
     )
     config.rollout.count = num_envs * 1
@@ -415,7 +420,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = True
+    config.multi_task = False
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
     config.language_conditioning = False
@@ -454,7 +459,7 @@ if __name__ == "__main__":
     config.data_path = get_processed_path(
         environment="sim",
         task=config.furniture,
-        demo_source="teleop",
+        demo_source="scripted",
         randomness=None,
         demo_outcome="success",
     )

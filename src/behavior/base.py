@@ -75,12 +75,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         img_size = obs[0]["color_image1"].shape[-3:]
 
         # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
-        img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
-        img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
+        image1 = torch.cat(
+            [o["color_image1"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
+        image2 = torch.cat(
+            [o["color_image2"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
 
         # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
         image1 = image1.permute(0, 3, 1, 2)
@@ -95,8 +95,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         image2 = image2.permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        feature1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
-        feature2 = self.encoder2(img2).reshape(B, self.obs_horizon, -1)
+        feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+        feature2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
 
         # Apply the regularization to the features
         feature1, feature2 = self.regularize_features(feature1, feature2)

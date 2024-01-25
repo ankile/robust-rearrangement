@@ -126,6 +126,7 @@ def calculate_success_rate(
     gamma: float = 0.99,
     rollout_save_dir: Union[str, None] = None,
     save_failures: bool = False,
+    n_parts_assemble: Union[int, None] = None,
 ):
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
@@ -134,6 +135,9 @@ def calculate_success_rate(
         self.set_description(
             f"Performing rollouts: round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
         )
+
+    if n_parts_assemble is None:
+        n_parts_assemble = len(env.furniture.should_be_assembled)
 
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -168,7 +172,7 @@ def calculate_success_rate(
         )
 
         # Calculate the success rate
-        success = rewards.sum(dim=1) == len(env.furniture.should_be_assembled)
+        success = rewards.sum(dim=1) == n_parts_assemble
         n_success += success.sum().item()
 
         # Save the results from the rollout

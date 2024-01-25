@@ -28,15 +28,15 @@ if __name__ == "__main__":
 
     # Change any parameters here
     config.num_epochs = 200
-    # config.augment_image = False
+    config.augment_image = True
     config.save_rollouts = False
-    # config.rollout.every = 10
-    config.batch_size = 128
-    config.dataloader_workers = 4
+    config.rollout.every = -1
+    # config.batch_size = 128
+    # config.dataloader_workers = 4
     config.num_envs = 8
     # config.data_path = "/data/scratch/ankile/furniture-data/processed/sim/one_leg/scripted/success.zarr"
-    config.actor_lr = 9e-5
-    config.rollout.loss_threshold = 1
+    config.actor_lr = 1e-5
+    # config.rollout.loss_threshold = 1
 
     print("Using data", config.data_path)
 
