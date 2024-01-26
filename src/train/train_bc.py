@@ -337,7 +337,7 @@ if __name__ == "__main__":
     config.wandb.project = "multi-task"
     # config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Train on precomputed VIP features on multiple tasks with a mix of scripted and teleop data."
+    config.wandb.notes = "Train on precomputed VIP features on multiple tasks with a mix of scripted and teleop data, and separate indices for one_leg and square_table."
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 

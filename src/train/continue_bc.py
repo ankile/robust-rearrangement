@@ -31,13 +31,13 @@ if __name__ == "__main__":
     # config.augment_image = True
     # config.save_rollouts = False
     # config.rollout.every = -1
-    config.batch_size = 256
-    # config.dataloader_workers = 4
+    config.batch_size = 64
+    config.dataloader_workers = 4
     # config.num_envs = 8
     # config.data_path = "/data/scratch/ankile/furniture-data/processed/sim/one_leg/scripted/success.zarr"
     # config.actor_lr = 5e-5
     # config.rollout.loss_threshold = 1
-    config.data_subset = 100
+    config.data_subset = 50
 
     print("Using data", config.data_path)
 

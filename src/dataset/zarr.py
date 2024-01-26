@@ -6,6 +6,8 @@ import zarr
 from tqdm import tqdm
 from ipdb import set_trace as bp
 
+from src.common.files import get_processed_paths
+
 
 class ZarrSubsetView:
     def __init__(self, zarr_group, include_keys):
@@ -31,60 +33,6 @@ class ZarrSubsetView:
         Return items not excluded.
         """
         return [(key, self.zarr_group[key]) for key in self.observation_keys()]
-
-
-# def combine_zarr_datasets(zarr_paths: List[Path], keys: List[str]):
-#     # Initialize dictionary to hold total shapes
-#     total_shapes = {key: 0 for key in keys}
-#     last_episode_end = 0
-
-#     # First pass to calculate total shapes
-#     for path in zarr_paths:
-#         dataset = zarr.open(path, mode="r")
-#         for key in keys:
-#             data_shape = dataset[key].shape[0]
-#             if key == "episode_ends":
-#                 total_shapes[key] += data_shape
-#             else:
-#                 total_shapes[key] += data_shape
-
-#     # Preallocate numpy arrays
-#     combined_data = {}
-#     for path in zarr_paths:
-#         dataset = zarr.open(path, mode="r")
-#         for key in keys:
-#             dtype = dataset[key].dtype
-#             if key not in combined_data:
-#                 if key == "episode_ends":
-#                     combined_data[key] = np.zeros(total_shapes[key], dtype=dtype)
-#                 else:
-#                     # Assuming other arrays are 2D, adjust if not
-#                     combined_data[key] = np.zeros(
-#                         (total_shapes[key], *dataset[key].shape[1:]), dtype=dtype
-#                     )
-
-#     # Current indices for insertion into preallocated arrays
-#     current_indices = {key: 0 for key in keys}
-
-#     # Second pass to populate arrays
-#     for path in tqdm(zarr_paths, desc="Loading zarr files"):
-#         dataset = zarr.open(path, mode="r")
-
-#         for key in tqdm(keys, desc="Loading data", position=1):
-#             data = dataset[key][...]
-#             data_length = data.shape[0]
-
-#             if key == "episode_ends":
-#                 if last_episode_end != 0:
-#                     data += last_episode_end
-#                 last_episode_end = data[-1]
-
-#             combined_data[key][
-#                 current_indices[key] : current_indices[key] + data_length
-#             ] = data
-#             current_indices[key] += data_length
-
-#     return combined_data
 
 
 def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=None):
@@ -124,6 +72,12 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
             (total_frames,) + dataset[key].shape[1:], dtype=dataset[key].dtype
         )
 
+    # Temporarily print out all the shapes and dtypes
+    print("Shapes:")
+    for key in keys:
+        gb_used = combined_data[key].size / 1e9
+        print(key, combined_data[key].shape, combined_data[key].dtype, gb_used)
+
     for path in tqdm(zarr_paths, desc="Loading zarr files"):
         dataset = zarr.open(path, mode="r")
         end_idxs = dataset["episode_ends"][:max_episodes]
@@ -160,14 +114,25 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
 
 if __name__ == "__main__":
     # Example usage
-    zarr_paths = [
-        "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/low/success.zarr",
-        "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/med/success.zarr",
-    ]
+    # zarr_paths = [
+    #     "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/low/success.zarr",
+    #     "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/med/success.zarr",
+    # ]
+
+    zarr_paths = get_processed_paths(
+        environment="sim",
+        task=None,
+        demo_source=["scripted", "teleop"],
+        randomness=None,
+        demo_outcome="success",
+    )
+    print(len(zarr_paths))
 
     keys = [
-        "robot_state",
         "color_image1",
+        "color_image2",
+        "robot_state",
+        "action/delta",
     ]
 
     combined_data = combine_zarr_datasets(zarr_paths, keys, max_episodes=None)

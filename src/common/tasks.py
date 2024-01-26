@@ -1,6 +1,6 @@
 furniture2idx = {
     "one_leg": 0,
-    "square_table": 0,
+    "square_table": 8,
     "lamp": 1,
     "round_table": 2,
     "desk": 3,
@@ -26,7 +26,7 @@ task_phases = {
 }
 
 
-timesteps_per_part = 1_000
+timesteps_per_part = 2_000
 
 task_parts = {
     "one_leg": 1,
