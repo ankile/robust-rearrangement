@@ -6,6 +6,7 @@ from src.dataset.normalizer import StateActionNormalizer
 from ipdb import set_trace as bp  # noqa
 from torchvision import transforms
 from src.common.geometry import proprioceptive_to_6d_rotation
+from src.common.vision import FrontCameraTransform, WristCameraTransform
 
 
 # Update the PostInitCaller to be compatible
@@ -15,40 +16,6 @@ class PostInitCaller(type(torch.nn.Module)):
         obj = super().__call__(*args, **kwargs)
         obj.__post_init__(*args, **kwargs)
         return obj
-
-
-class FrontCameraTransform(nn.Module):
-    def __init__(self, mode="train"):
-        super().__init__()
-        self.mode = mode
-
-        margin = 20
-        crop_size = (224, 224)
-        input_size = (240, 320)
-
-        self.transform_train = transforms.Compose(
-            [
-                transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
-                transforms.RandomCrop(crop_size),
-            ]
-        )
-        self.transform_eval = transforms.CenterCrop(crop_size)
-
-    def forward(self, x):
-        if self.mode == "train":
-            return self.transform_train(x)
-        elif self.mode == "eval":
-            return self.transform_eval(x)
-
-        raise ValueError(f"Invalid mode: {self.mode}")
-
-    def train(self, mode=True):
-        self.mode = "train"
-        super().train(mode)
-
-    def eval(self):
-        self.mode = "eval"
-        super().eval()
 
 
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
@@ -61,11 +28,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoding_dim: int
     augment_image: bool = False
 
-    # Set image transforms
-    margin = 20
-    crop_size = (224, 224)
-    input_size = (240, 320)
-    camera1_transform = transforms.Resize((224, 224), antialias=True)
+    camera1_transform: FrontCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
 
     def __post_init__(self, *args, **kwargs):
@@ -218,8 +181,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         """
         self.train()
         if self.augment_image:
+            self.camera1_transform.train()
             self.camera2_transform.train()
         else:
+            self.camera1_transform.eval()
             self.camera2_transform.eval()
 
     def eval_mode(self):

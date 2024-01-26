@@ -7,12 +7,16 @@ from tqdm import trange
 from src.models.vision import get_encoder
 import torch
 from datetime import datetime
-from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
 from ipdb import set_trace as bp
-from torchvision import transforms
 
-camera1_transform = transforms.Resize((224, 224), antialias=True)
-camera2_transform = transforms.CenterCrop((224, 224))
+from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
+from src.common.files import get_processed_paths
+from src.common.vision import FrontCameraTransform, WristCameraTransform
+
+
+# Create the transforms
+camera1_transform = FrontCameraTransform(mode="eval")
+camera2_transform = WristCameraTransform(mode="eval")
 
 
 # === Image Zarr to feature Zarr ===
@@ -129,7 +133,6 @@ if __name__ == "__main__":
     parser.add_argument("--encoder", "-c", default=None, type=str)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--zarr-path", "-z", type=str, required=True)
     parser.add_argument("--use-language", "-l", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
 
@@ -145,14 +148,18 @@ if __name__ == "__main__":
         not args.use_language or args.encoder == "voltron"
     ), "Only voltron supports language"
 
-    input_path = Path(args.zarr_path)
-    print(f"Raw data path: {input_path}")
-
     encoder = get_encoder(args.encoder, freeze=True, device=device)
     encoder.eval()
 
-    input_group = zarr.open(input_path, mode="a")
     new_group_name = f"feature/{args.encoder}"
+
+    paths = get_processed_paths(
+        environment="sim",
+        task=None,
+        demo_source=["scripted", "teleop"],
+        randomness=None,
+        demo_outcome="success",
+    )
 
     # Check if the group already exists
     if new_group_name in input_group and not args.overwrite:

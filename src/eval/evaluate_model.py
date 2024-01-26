@@ -65,12 +65,16 @@ if __name__ == "__main__":
     actor.load_state_dict(torch.load(model_path))
     actor.eval()
 
+    # Set the timeout
+    rollout_max_steps = task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+
     # Get the environment
     env = get_env(
         gpu_id=args.gpu,
         furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
+        max_env_steps=rollout_max_steps,
         resize_img=False,
         act_rot_repr=config.act_rot_repr,
         ctrl_mode="osc",
@@ -111,7 +115,7 @@ if __name__ == "__main__":
         actor=actor,
         env=env,
         n_rollouts=args.n_rollouts,
-        rollout_max_steps=task_timeout(args.furniture, n_parts=args.n_parts_assemble),
+        rollout_max_steps=rollout_max_steps,
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,

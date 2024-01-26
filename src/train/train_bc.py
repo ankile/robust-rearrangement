@@ -342,10 +342,10 @@ if __name__ == "__main__":
     config.wandb.continue_run_id = None
 
     # defaults
-    config.action_horizon = 8
-    config.pred_horizon = 16
+    config.action_horizon = 16
+    config.pred_horizon = 32
     config.first_action_index = 0
-    config.obs_horizon = 2
+    config.obs_horizon = 3
 
     config.actor = "diffusion"
 
@@ -362,7 +362,8 @@ if __name__ == "__main__":
     # Diffusion options
     config.beta_schedule = "squaredcos_cap_v2"
     # config.down_dims = [128, 256, 512]
-    config.down_dims = [256, 512, 1024]
+    # config.down_dims = [256, 512, 1024]
+    config.down_dims = [512, 1024, 2048]
     config.inference_steps = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100

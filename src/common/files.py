@@ -184,8 +184,7 @@ def trajectory_save_dir(
 
 if __name__ == "__main__":
     paths = get_processed_paths(
-        environment="sim",gst
-        
+        environment="sim",
         task=None,
         demo_source=["scripted", "teleop"],
         randomness=None,
