@@ -1,6 +1,6 @@
 furniture2idx = {
     "one_leg": 0,
-    "square_table": 1,
+    "square_table": 0,
     "lamp": 1,
     "round_table": 2,
     "desk": 3,

@@ -32,7 +32,7 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
 
     # Define the compressor
     # compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
-    compressor = Blosc(cname="lz4")
+    compressor = Blosc(cname="lz4", clevel=5)
 
     # Initialize datasets with full shapes
     for name, shape, dtype in full_data_shapes:
@@ -152,16 +152,19 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
                     aggregated_data[key].append(data[key])
 
     # Convert lists to numpy arrays for numerical data
-    for key in [
-        "robot_state",
-        "color_image1",
-        "color_image2",
-        "action/delta",
-        "action/pos",
-        "reward",
-        "skill",
-        "parts_poses",
-    ]:
+    for key in tqdm(
+        [
+            "robot_state",
+            "color_image1",
+            "color_image2",
+            "action/delta",
+            "action/pos",
+            "reward",
+            "skill",
+            "parts_poses",
+        ],
+        desc="Converting lists to numpy arrays",
+    ):
         aggregated_data[key] = np.concatenate(aggregated_data[key])
 
     return aggregated_data
@@ -280,21 +283,24 @@ if __name__ == "__main__":
     # Initialize Zarr store with full dimensions
     z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
 
-    blosc.use_threads = True
-    blosc.set_nthreads(n_cpus)
-
     # Write the data to the Zarr store
     it = tqdm(all_data)
     for name in it:
         it.set_description(f"Writing data to zarr: {name}")
+        dataset = z[name]
+        data = all_data[name]
         for i in trange(
             0, len(all_data[name]), chunksize, desc="Writing chunks", leave=False
         ):
-            end_idx = min(i + chunksize, len(all_data[name]))
-            z[name][i : i + end_idx] = all_data[name][i : i + end_idx]
+            dataset[i : i + chunksize] = all_data[name][i : i + chunksize]
+
+        # Free memory
+        # del all_data[name]
 
     # Update final metadata
     z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
     z.attrs["noop_threshold"] = noop_threshold
     z.attrs["chunksize"] = chunksize
     z.attrs["rotation_mode"] = "rot_6d"
+    z.attrs["n_episodes"] = len(z["episode_ends"])
+    z.attrs["n_timesteps"] = len(z["action/delta"])

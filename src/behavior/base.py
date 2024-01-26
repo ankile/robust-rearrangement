@@ -17,6 +17,40 @@ class PostInitCaller(type(torch.nn.Module)):
         return obj
 
 
+class FrontCameraTransform(nn.Module):
+    def __init__(self, mode="train"):
+        super().__init__()
+        self.mode = mode
+
+        margin = 20
+        crop_size = (224, 224)
+        input_size = (240, 320)
+
+        self.transform_train = transforms.Compose(
+            [
+                transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
+                transforms.RandomCrop(crop_size),
+            ]
+        )
+        self.transform_eval = transforms.CenterCrop(crop_size)
+
+    def forward(self, x):
+        if self.mode == "train":
+            return self.transform_train(x)
+        elif self.mode == "eval":
+            return self.transform_eval(x)
+
+        raise ValueError(f"Invalid mode: {self.mode}")
+
+    def train(self, mode=True):
+        self.mode = "train"
+        super().train(mode)
+
+    def eval(self):
+        self.mode = "eval"
+        super().eval()
+
+
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
@@ -28,11 +62,11 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     augment_image: bool = False
 
     # Set image transforms
+    margin = 20
+    crop_size = (224, 224)
+    input_size = (240, 320)
     camera1_transform = transforms.Resize((224, 224), antialias=True)
-
-    camera2_transform_train = transforms.RandomCrop((224, 224))
-    camera2_transform_val = transforms.CenterCrop((224, 224))
-    camera2_transform = camera2_transform_val
+    camera2_transform = FrontCameraTransform(mode="eval")
 
     def __post_init__(self, *args, **kwargs):
         if self.feature_dropout:
@@ -184,14 +218,16 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         """
         self.train()
         if self.augment_image:
-            self.camera2_transform = self.camera2_transform_train
+            self.camera2_transform.train()
+        else:
+            self.camera2_transform.eval()
 
     def eval_mode(self):
         """
         Set models to eval mode
         """
         self.eval()
-        self.camera2_transform = self.camera2_transform_val
+        self.camera2_transform.eval()
 
     def action(self, obs: deque) -> torch.Tensor:
         """

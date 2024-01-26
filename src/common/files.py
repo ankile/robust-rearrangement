@@ -5,7 +5,6 @@ from glob import glob
 from ipdb import set_trace as bp
 
 from src.common.types import (
-    EncoderName,
     TaskName,
     Environments,
     DemoSources,
@@ -22,7 +21,7 @@ def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
     elif isinstance(parts, list):
         return path / "-".join(sorted(parts))
     else:
-        raise ValueError(f"Invalid part: {part}")
+        raise ValueError(f"Invalid part: {parts}")
 
 
 def get_processed_path(
@@ -53,6 +52,54 @@ def get_processed_path(
     path = path.with_suffix(".zarr")
 
     return path
+
+
+def get_processed_paths(
+    environment: Union[List[Environments], Environments, None] = "sim",
+    task: Union[List[TaskName], TaskName, None] = None,
+    demo_source: Union[List[DemoSources], DemoSources, None] = "scripted",
+    randomness: Union[List[Randomness], Randomness, None] = None,
+    demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
+) -> Path:
+    """
+    Takes in a set of parameters and returns a list of paths to
+    zarr files that should be combined into the final dataset.
+    """
+
+    path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
+
+    paths = [path]
+
+    # We can mix sim and real environments
+    paths = add_glob_part(paths, environment)
+
+    # Add the task pattern to all paths
+    paths = add_glob_part(paths, task)
+
+    # Add the demo source pattern to all paths
+    paths = add_glob_part(paths, demo_source)
+
+    # Add the randomness pattern to all paths
+    paths = add_glob_part(paths, randomness)
+
+    # Add the demo outcome pattern to all paths
+    paths = add_glob_part(paths, demo_outcome)
+
+    # Add ** if we are not using an explicit demo outcome
+    if demo_outcome is None and paths[0].parts[-1] != "**":
+        paths = add_glob_part(paths, "**")
+
+    # Add the extension pattern to all paths
+    paths = [path.with_suffix(".zarr") for path in paths]
+
+    print("Found the following paths:")
+    for p in paths:
+        print("   ", p)
+
+    # Use glob to find all the pickle files
+    pickle_paths = [Path(path) for p in paths for path in glob(str(p), recursive=True)]
+
+    return pickle_paths
 
 
 def add_glob_part(paths, part) -> List[Path]:
@@ -136,12 +183,14 @@ def trajectory_save_dir(
 
 
 if __name__ == "__main__":
-    print(
-        get_processed_path(
-            obs_type="feature",
-            encoder="resnet50",
-            environment=["sim", "real"],
-            # task=["square_table", "round_table"],
-            demo_source=["scripted", "rollout"],
-        )
+    paths = get_processed_paths(
+        environment="sim",
+        task=None,
+        demo_source=["scripted", "teleop"],
+        randomness=None,
+        demo_outcome="success",
     )
+
+    print("Found these zarr files:")
+    for path in paths:
+        print("   ", path)

@@ -111,7 +111,7 @@ if __name__ == "__main__":
         actor=actor,
         env=env,
         n_rollouts=args.n_rollouts,
-        rollout_max_steps=task_timeout(config.furniture, n_parts=args.n_parts_assemble),
+        rollout_max_steps=task_timeout(args.furniture, n_parts=args.n_parts_assemble),
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,

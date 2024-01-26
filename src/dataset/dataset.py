@@ -1,13 +1,13 @@
-from os import ST_APPEND
 import numpy as np
 import torch
 from tqdm import trange
 import zarr
+from typing import Union, List
 
 from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
-from src.dataset.zarr_mod import ZarrSubsetView
-from src.common.control import RotationMode, ControlMode
+from src.dataset.zarr import combine_zarr_datasets
+from src.common.control import ControlMode
 
 from src.common.tasks import furniture2idx
 
@@ -77,7 +77,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        dataset_path: str,
+        dataset_paths: Union[List[str], str],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
@@ -95,39 +95,29 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             control_mode=control_mode,
         ).cpu()
 
+        # Read from zarr dataset
+        combined_data = combine_zarr_datasets(
+            dataset_paths,
+            [
+                "color_image1",
+                "color_image2",
+                "robot_state",
+                f"action/{control_mode}",
+            ],
+            max_episodes=data_subset,
+        )
+
         # (N, D)
         # Get only the first data_subset episodes
-        store = zarr.open(dataset_path, "r")
-        self.episode_ends = store["episode_ends"][:data_subset]
+        self.episode_ends = combined_data["episode_ends"]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
         self.train_data = {
-            "color_image1": np.zeros(
-                (self.episode_ends[-1],) + store["color_image1"].shape[1:],
-                dtype=np.uint8,
-            ),
-            "color_image2": np.zeros(
-                (self.episode_ends[-1],) + store["color_image2"].shape[1:],
-                dtype=np.uint8,
-            ),
-            "robot_state": store["robot_state"][: self.episode_ends[-1]],
-            "action": store["action"][control_mode][: self.episode_ends[-1]],
+            "color_image1": combined_data["color_image1"],
+            "color_image2": combined_data["color_image2"],
+            "robot_state": combined_data["robot_state"],
+            "action": combined_data[f"action/{control_mode}"],
         }
-
-        # Load the image data into the arrays
-        for i in trange(
-            0,
-            self.train_data["color_image1"].shape[0],
-            store.attrs["chunksize"],
-            desc="Loading image data",
-        ):
-            end_idx = min(i + 10_000, self.train_data["color_image1"].shape[0])
-            self.train_data["color_image1"][i:end_idx] = store["color_image1"][
-                i:end_idx
-            ]
-            self.train_data["color_image2"][i:end_idx] = store["color_image2"][
-                i:end_idx
-            ]
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
@@ -154,9 +144,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in store["furniture"][:data_subset]]
+            [furniture2idx[f] for f in combined_data["furniture"]]
         )
-        # self.successes = store["success"][:data_subset].astype(np.uint8)
+        self.successes = combined_data["success"].astype(np.uint8)
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -214,7 +204,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
-        # nsample["success"] = self.successes[demo_idx]
+        nsample["success"] = self.successes[demo_idx]
 
         return nsample
 
@@ -226,7 +216,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        dataset_path: str,
+        dataset_paths: Union[List[str], str],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
@@ -236,23 +226,27 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         control_mode: ControlMode = ControlMode.delta,
     ):
         # Read from zarr dataset
-        store = zarr.open(dataset_path, "r")
+        combined_data = combine_zarr_datasets(
+            dataset_paths,
+            [
+                f"feature/{encoder_name}/feature1",
+                f"feature/{encoder_name}/feature2",
+                "robot_state",
+                f"action/{control_mode}",
+            ],
+            max_episodes=data_subset,
+        )
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = store["episode_ends"][:data_subset]
+        self.episode_ends = combined_data["episode_ends"]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
         train_data = {
-            # Load features in in one go as they are small
-            "feature1": store["feature"][encoder_name]["feature1"][
-                : self.episode_ends[-1]
-            ],
-            "feature2": store["feature"][encoder_name]["feature2"][
-                : self.episode_ends[-1]
-            ],
-            "robot_state": store["robot_state"][: self.episode_ends[-1]],
-            "action": store["action"][control_mode][: self.episode_ends[-1]],
+            "feature1": combined_data[f"feature/{encoder_name}/feature1"],
+            "feature2": combined_data[f"feature/{encoder_name}/feature2"],
+            "robot_state": combined_data["robot_state"],
+            "action": combined_data[f"action/{control_mode}"],
         }
 
         # compute start and end of each state-action sequence
@@ -265,9 +259,9 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         )
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in store["furniture"][:data_subset]]
+            [furniture2idx[f] for f in combined_data["furniture"]]
         )
-        self.successes = store["success"][:data_subset].astype(np.uint8)
+        self.successes = combined_data["success"].astype(np.uint8)
 
         normalizer = StateActionNormalizer(
             control_mode=control_mode,

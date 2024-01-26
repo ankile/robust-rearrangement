@@ -25,7 +25,7 @@ import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.control import RotationMode, ControlMode
-from src.common.files import get_processed_path
+from src.common.files import get_processed_paths
 
 
 from ml_collections import ConfigDict
@@ -43,7 +43,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
-            dataset_path=config.data_path,
+            dataset_paths=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
@@ -53,7 +53,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
-            dataset_path=config.data_path,
+            dataset_paths=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
@@ -164,7 +164,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
         config.num_epochs,
         initial=start_epoch,
         total=config.num_epochs,
-        desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
+        desc=f"Epoch ({config.furniture if 'furniture' in config else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -332,12 +332,12 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.wandb = ConfigDict()
-    config.wandb.project = "new-controller-test"
+    # config.wandb.project = "image-training"
+    # config.wandb.project = "new-controller-test"
+    config.wandb.project = "multi-task"
     # config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = (
-        "Finetune end-to-end trained spatial softmax policy pretrained on one_leg."
-    )
+    config.wandb.notes = "Train on precomputed VIP features on multiple tasks with a mix of scripted and teleop data."
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
@@ -345,7 +345,7 @@ if __name__ == "__main__":
     config.action_horizon = 8
     config.pred_horizon = 16
     config.first_action_index = 0
-    config.obs_horizon = 1
+    config.obs_horizon = 2
 
     config.actor = "diffusion"
 
@@ -371,15 +371,15 @@ if __name__ == "__main__":
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = dryrun(args.data_subset, 10)
+    config.data_subset = dryrun(args.data_subset, 5)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
     config.dryrun = args.dryrun
 
     # TODO: Change this to "task"
-    config.furniture = args.furniture
-    config.n_parts_assemble = args.n_parts_assemble
+    # config.furniture = args.furniture
+    # config.n_parts_assemble = args.n_parts_assemble
 
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
@@ -393,14 +393,14 @@ if __name__ == "__main__":
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(2, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
-    config.rollout.max_steps = dryrun(
-        task_timeout(config.furniture, n_parts=args.n_parts_assemble),
-        fb=100,
-    )
-    config.rollout.count = num_envs * 1
-    config.rollout.save_failures = True
+    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
+    # config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    # config.rollout.max_steps = dryrun(
+    #     task_timeout(config.furniture, n_parts=args.n_parts_assemble),
+    #     fb=100,
+    # )
+    # config.rollout.count = num_envs * 1
+    # config.rollout.save_failures = False
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -420,7 +420,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = False
+    config.multi_task = True
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
     config.language_conditioning = False
@@ -441,7 +441,7 @@ if __name__ == "__main__":
     config.feature_layernorm = True
 
     config.augment_image = False
-    config.augmentation = ConfigDict()
+    # config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False
 
@@ -453,13 +453,13 @@ if __name__ == "__main__":
     config.control_mode = ControlMode.delta
 
     assert (
-        config.rollout.count % config.num_envs == 0
+        config.rollout.every == -1 or config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    config.data_path = get_processed_path(
+    config.data_path = get_processed_paths(
         environment="sim",
-        task=config.furniture,
-        demo_source="scripted",
+        task=None,
+        demo_source=["scripted", "teleop"],
         randomness=None,
         demo_outcome="success",
     )
