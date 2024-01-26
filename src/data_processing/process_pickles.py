@@ -1,13 +1,25 @@
 import argparse
 import os
 from pathlib import Path
-import pickle
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from typing import List
+
 import numpy as np
 import zarr
-from numcodecs import Blosc
-from tqdm import tqdm
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
-from datetime import datetime
+from numcodecs import Blosc, blosc
+from tqdm import tqdm, trange
+from src.common.types import Trajectory
+from src.common.files import get_processed_path, get_raw_paths
+from src.visualization.render_mp4 import unpickle_data
+from src.common.geometry import (
+    np_proprioceptive_to_6d_rotation,
+    np_action_to_6d_rotation,
+    np_extract_ee_pose_6d,
+)
+
+from ipdb import set_trace as bp  # noqa
 
 
 # === Modified Function to Initialize Zarr Store with Full Dimensions ===
@@ -19,7 +31,8 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     z.attrs["time_created"] = datetime.now().astimezone().isoformat()
 
     # Define the compressor
-    compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
+    # compressor = Blosc(cname="zstd", clevel=9, shuffle=Blosc.BITSHUFFLE)
+    compressor = Blosc(cname="lz4", clevel=5)
 
     # Initialize datasets with full shapes
     for name, shape, dtype in full_data_shapes:
@@ -39,46 +52,60 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     return z
 
 
-def process_pickle_file(pickle_path, noop_threshold):
+def process_pickle_file(pickle_path: Path, noop_threshold: float):
     """
     Process a single pickle file and return processed data.
     """
-    with open(pickle_path, "rb") as f:
-        data = pickle.load(f)
+    data: Trajectory = unpickle_data(pickle_path)
+    obs = data["observations"]
 
-    obs = data["observations"][:-1]
-    assert len(obs) == len(
-        data["actions"]
-    ), f"Mismatch in {pickle_path}, lengths differ by {len(obs) - len(data['actions'])}"
-
-    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
-    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
-    robot_state = np.array(
-        [filter_and_concat_robot_state(o["robot_state"]) for o in obs], dtype=np.float32
+    # Extract the observations from the pickle file and convert to 6D rotation
+    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]
+    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)[:-1]
+    all_robot_state = np.array(
+        [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
+        dtype=np.float32,
     )
-    action = np.array(data["actions"], dtype=np.float32)
+
+    all_robot_state = np_proprioceptive_to_6d_rotation(all_robot_state)
+    robot_state = all_robot_state[:-1]
+    parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
+
+    # Extract the delta actions from the pickle file and convert to 6D rotation
+    action_delta = np.array(data["actions"], dtype=np.float32)
+    action_delta = np_action_to_6d_rotation(action_delta)
+
+    # Extract the position control actions from the pickle file
+    action_pos = np_extract_ee_pose_6d(all_robot_state[1:])
+
+    # Extract the rewards, skills, and parts_poses from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)
     skill = np.array(data["skills"], dtype=np.float32)
 
-    moving = np.linalg.norm(action[:, :6], axis=1) >= noop_threshold
+    # Sanity check that all arrays are the same length
+    assert len(robot_state) == len(
+        action_delta
+    ), f"Mismatch in {pickle_path}, lengths differ by {len(robot_state) - len(action_delta)}"
+
+    # Extract the pickle file name as the path after `raw` in the path
+    pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
     processed_data = {
-        "robot_state": robot_state[moving],
-        "color_image1": color_image1[moving],
-        "color_image2": color_image2[moving],
-        "action": action[moving],
-        "reward": reward[moving],
-        "skill": skill[moving],
-        "episode_length": len(action[moving]),
+        "robot_state": robot_state,
+        "color_image1": color_image1,
+        "color_image2": color_image2,
+        "action/delta": action_delta,
+        "action/pos": action_pos,
+        "reward": reward,
+        "skill": skill,
+        "parts_poses": parts_poses,
+        "episode_length": len(action_delta),
         "furniture": data["furniture"],
-        "pickle_file": pickle_path.name,
+        "success": data["success"],
+        "pickle_file": pickle_file,
     }
 
     return processed_data
-
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 
 
 def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
@@ -90,11 +117,14 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
         "robot_state": [],
         "color_image1": [],
         "color_image2": [],
-        "action": [],
+        "action/delta": [],
+        "action/pos": [],
         "reward": [],
         "skill": [],
+        "parts_poses": [],
         "episode_ends": [],
         "furniture": [],
+        "success": [],
         "pickle_file": [],
     }
 
@@ -122,21 +152,22 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
                     aggregated_data[key].append(data[key])
 
     # Convert lists to numpy arrays for numerical data
-    for key in [
-        "robot_state",
-        "color_image1",
-        "color_image2",
-        "action",
-        "reward",
-        "skill",
-    ]:
+    for key in tqdm(
+        [
+            "robot_state",
+            "color_image1",
+            "color_image2",
+            "action/delta",
+            "action/pos",
+            "reward",
+            "skill",
+            "parts_poses",
+        ],
+        desc="Converting lists to numpy arrays",
+    ):
         aggregated_data[key] = np.concatenate(aggregated_data[key])
 
     return aggregated_data
-
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from tqdm import tqdm
 
 
 def write_to_zarr_store(z, key, value):
@@ -164,90 +195,112 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 
 
 # === Entry Point of the Script ===
-# ... (Your argument parsing code remains the same) ...
-
 if __name__ == "__main__":
-    # ... (Your argument parsing code remains the same) ...
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", "-e", type=str)
+    parser.add_argument("--env", "-e", type=str, nargs="+", default=None)
+    parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
     parser.add_argument(
         "--source",
         "-s",
         type=str,
         choices=["scripted", "rollout", "teleop"],
-        default="scripted",
+        default=None,
         nargs="+",
     )
-    parser.add_argument("--furniture", "-f", type=str, default=None)
-    parser.add_argument("--randomness", "-r", type=str, default=None)
-
+    parser.add_argument(
+        "--randomness",
+        "-r",
+        type=str,
+        default=None,
+        nargs="+",
+    )
+    parser.add_argument(
+        "--demo-outcome",
+        "-d",
+        type=str,
+        choices=["success", "failure"],
+        default=None,
+        nargs="+",
+    )
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    data_base_path_in = Path(os.environ["DATA_DIR_RAW"])
-    data_base_path_out = Path(os.environ["DATA_DIR_PROCESSED"])
-
-    raw_data_paths = [data_base_path_in / "raw" / args.env / s for s in args.source]
-    output_path = data_base_path_out / "processed" / args.env / "image"
-
-    if args.furniture is not None:
-        raw_data_paths = [p / args.furniture for p in raw_data_paths]
-        output_path = output_path / args.furniture
-
-    if args.randomness is not None:
-        assert (
-            args.furniture is not None
-        ), "Must specify furniture when using randomness"
-        assert args.randomness in ["low", "med", "high"], "Invalid randomness level"
-        raw_data_paths = [p / args.randomness for p in raw_data_paths]
-        output_path = output_path / args.randomness
-
-    print(f"Raw data paths: {raw_data_paths}")
-
-    pickle_paths = []
-    for path in raw_data_paths:
-        pickle_paths += list(path.glob("**/*_success.pkl"))
+    pickle_paths: List[Path] = get_raw_paths(
+        environment=args.env,
+        task=args.furniture,
+        demo_source=args.source,
+        randomness=args.randomness,
+        demo_outcome=args.demo_outcome,
+    )
 
     print(f"Found {len(pickle_paths)} pickle files")
 
-    sources = "_".join(sorted(args.source))
-
-    chunksize = 10_000
-    noop_threshold = 0.0
-    output_path = output_path / f"{sources}.zarr"
+    output_path = get_processed_path(
+        environment=args.env,
+        task=args.furniture,
+        demo_source=args.source,
+        randomness=args.randomness,
+        demo_outcome=args.demo_outcome,
+    )
 
     print(f"Output path: {output_path}")
 
+    if output_path.exists() and not args.overwrite:
+        raise ValueError(
+            f"Output path already exists: {output_path}. Use --overwrite to overwrite."
+        )
+
     # Process all pickle files
-    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, 32)
+    chunksize = 1_000
+    noop_threshold = 0.0
+    # n_cpus = min(os.cpu_count(), 64)
+    n_cpus = 1
+
+    print(
+        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
+    )
+
+    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, n_cpus)
 
     # Define the full shapes for each dataset
     full_data_shapes = [
+        # These are of length: number of timesteps
         ("robot_state", all_data["robot_state"].shape, np.float32),
         ("color_image1", all_data["color_image1"].shape, np.uint8),
         ("color_image2", all_data["color_image2"].shape, np.uint8),
-        ("action", all_data["action"].shape, np.float32),
-        ("reward", all_data["reward"].shape, np.float32),
+        ("action/delta", all_data["action/delta"].shape, np.float32),
+        ("action/pos", all_data["action/pos"].shape, np.float32),
         ("skill", all_data["skill"].shape, np.float32),
+        ("reward", all_data["reward"].shape, np.float32),
+        ("parts_poses", all_data["parts_poses"].shape, np.float32),
+        # These are of length: number of episodes
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),
+        ("success", (len(all_data["success"]),), np.uint8),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 
     # Initialize Zarr store with full dimensions
     z = initialize_zarr_store(output_path, full_data_shapes, chunksize=chunksize)
 
-    from numcodecs import blosc
-
-    blosc.use_threads = True
-    blosc.set_nthreads(32)
-
     # Write the data to the Zarr store
     it = tqdm(all_data)
     for name in it:
         it.set_description(f"Writing data to zarr: {name}")
-        z[name][:] = all_data[name]
+        dataset = z[name]
+        data = all_data[name]
+        for i in trange(
+            0, len(all_data[name]), chunksize, desc="Writing chunks", leave=False
+        ):
+            dataset[i : i + chunksize] = all_data[name][i : i + chunksize]
+
+        # Free memory
+        # del all_data[name]
 
     # Update final metadata
     z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
     z.attrs["noop_threshold"] = noop_threshold
     z.attrs["chunksize"] = chunksize
+    z.attrs["rotation_mode"] = "rot_6d"
+    z.attrs["n_episodes"] = len(z["episode_ends"])
+    z.attrs["n_timesteps"] = len(z["action/delta"])

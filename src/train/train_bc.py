@@ -14,9 +14,9 @@ from src.dataset.dataset import (
 )
 from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.common.tasks import furniture2idx
+from src.common.tasks import furniture2idx, task_timeout
 from src.gym import get_env
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
@@ -24,7 +24,9 @@ from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
-from src.common.control import RotationMode
+from src.common.control import RotationMode, ControlMode
+from src.common.files import get_processed_paths
+
 
 from ml_collections import ConfigDict
 
@@ -33,7 +35,7 @@ from gym import logger
 logger.set_level(logger.DISABLED)
 
 
-def main(config: ConfigDict):
+def main(config: ConfigDict, start_epoch: int = 0):
     env = None
     device = torch.device(
         f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
@@ -41,25 +43,23 @@ def main(config: ConfigDict):
 
     if config.observation_type == "image":
         dataset = FurnitureImageDataset(
-            dataset_path=config.datasim_path,
+            dataset_paths=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
             augment_image=config.augment_image,
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
         )
     elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
-            dataset_path=config.datasim_path,
+            dataset_paths=config.data_path,
             pred_horizon=config.pred_horizon,
             obs_horizon=config.obs_horizon,
             action_horizon=config.action_horizon,
-            normalizer=StateActionNormalizer(act_rot_repr=config.act_rot_repr),
+            encoder_name=config.vision_encoder.model,
             data_subset=config.data_subset,
             first_action_idx=config.first_action_index,
-            act_rot_repr=config.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -129,6 +129,8 @@ def main(config: ConfigDict):
 
     # Init wandb
     wandb.init(
+        id=config.wandb.continue_run_id,
+        resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
         entity="robot-rearrangement",
         config=config.to_dict(),
@@ -143,7 +145,7 @@ def main(config: ConfigDict):
             "num_samples_test": len(test_dataset),
             "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
             "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
-            "stats": StateActionNormalizer(act_rot_repr=config.act_rot_repr).stats_dict,
+            "stats": StateActionNormalizer().stats_dict,
         }
     )
     wandb.config.update(config.to_dict())
@@ -157,9 +159,12 @@ def main(config: ConfigDict):
     test_loss_mean = float("inf")
     best_success_rate = 0
 
-    tglobal = tqdm(
-        range(config.num_epochs),
-        desc=f"Epoch ({config.furniture}, {config.observation_type}, {config.vision_encoder.model})",
+    tglobal = trange(
+        start_epoch,
+        config.num_epochs,
+        initial=start_epoch,
+        total=config.num_epochs,
+        desc=f"Epoch ({config.furniture if 'furniture' in config else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -282,9 +287,8 @@ def main(config: ConfigDict):
                     furniture=config.furniture,
                     num_envs=config.num_envs,
                     randomness=config.randomness,
-                    # resize_img=not config.augment_image,
-                    # Make sure the image is 224x224 out of the simulator for consistency
-                    resize_img=True,
+                    # Now using full size images in sim and resizing to be consistent
+                    resize_img=False,
                     act_rot_repr=config.act_rot_repr,
                     ctrl_mode="osc",
                 )
@@ -292,7 +296,7 @@ def main(config: ConfigDict):
             best_success_rate = do_rollout_evaluation(
                 config,
                 env,
-                config.rollout_base_dir,
+                config.save_rollouts,
                 actor,
                 best_success_rate,
                 epoch_idx,
@@ -300,16 +304,6 @@ def main(config: ConfigDict):
 
     tglobal.close()
     wandb.finish()
-
-
-def get_data_path(obs_type, encoder, task, suffix=None):
-    if obs_type == "image":
-        return f"image/{task}/data_batch_32{'_'+suffix if suffix else ''}.zarr"
-    elif obs_type == "feature":
-        # return f"feature_separate_small/{encoder}/one_leg/data.zarr"
-        return f"feature/{encoder}/{task}/data{'_'+suffix if suffix else ''}.zarr"
-
-    raise ValueError(f"Unknown obs_type: {obs_type}")
 
 
 if __name__ == "__main__":
@@ -326,6 +320,7 @@ if __name__ == "__main__":
     parser.add_argument("--furniture", "-f", type=str, default="one_leg")
     parser.add_argument("--no-rollout", action="store_true")
     parser.add_argument("--data-subset", type=int, default=None)
+    parser.add_argument("--n-parts-assemble", type=int, default=None)
 
     args = parser.parse_args()
 
@@ -337,10 +332,14 @@ if __name__ == "__main__":
     config = ConfigDict()
 
     config.wandb = ConfigDict()
+    # config.wandb.project = "image-training"
+    # config.wandb.project = "new-controller-test"
     config.wandb.project = "multi-task"
+    # config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Continue training end-to-end with spatial softmax."
+    config.wandb.notes = "Train on precomputed VIP features on multiple tasks with a mix of scripted and teleop data, and separate indices for one_leg and square_table."
     config.wandb.mode = args.wb_mode
+    config.wandb.continue_run_id = None
 
     # defaults
     config.action_horizon = 8
@@ -368,21 +367,23 @@ if __name__ == "__main__":
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
 
-    config.data_base_dir = Path(os.environ.get("DATA_DIR_PROCESSED", "data"))
-    # config.rollout_base_dir = Path(os.environ.get("DATA_DIR_RAW", "rollouts"))
-    config.rollout_base_dir = None
+    config.save_rollouts = False
     config.actor_lr = 1e-4
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
-    config.data_subset = dryrun(args.data_subset, 10)
+    config.data_subset = dryrun(args.data_subset, 5)
     config.dataloader_workers = n_workers
     config.clip_sample = True
     config.demo_source = "sim"
     config.dryrun = args.dryrun
-    config.furniture = args.furniture
+
+    # TODO: Change this to "task"
+    # config.furniture = args.furniture
+    # config.n_parts_assemble = args.n_parts_assemble
+
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/trim-wave-5/actor_chkpt_best_test_loss.pt"
+    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/ruby-butterfly-17/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
     config.num_epochs = 100
@@ -393,11 +394,13 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
-    config.rollout.max_steps = dryrun(
-        sim_config["scripted_timeout"][config.furniture], fb=100
-    )
-    config.rollout.count = num_envs * 1
+    # config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+    # config.rollout.max_steps = dryrun(
+    #     task_timeout(config.furniture, n_parts=args.n_parts_assemble),
+    #     fb=100,
+    # )
+    # config.rollout.count = num_envs * 1
+    # config.rollout.save_failures = False
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -405,8 +408,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = False
-    config.vision_encoder.pretrained = False
+    config.vision_encoder.freeze = True
+    config.vision_encoder.pretrained = True
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -420,6 +423,10 @@ if __name__ == "__main__":
     config.multi_task = True
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
+    config.language_conditioning = False
+
+    # Trajectory success conditioning options
+    config.trajectory_success_conditioning = False
 
     # Regularization
     config.weight_decay = 1e-6
@@ -430,11 +437,11 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    config.feature_layernorm = False
-    # config.feature_layernorm = True
+    # config.feature_layernorm = False
+    config.feature_layernorm = True
 
-    config.augment_image = True
-    config.augmentation = ConfigDict()
+    config.augment_image = False
+    # config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False
 
@@ -442,26 +449,21 @@ if __name__ == "__main__":
     config.checkpoint_model = True
 
     # Control mode
-    config.act_rot_repr = RotationMode.quat
+    config.act_rot_repr = RotationMode.rot_6d
+    config.control_mode = ControlMode.delta
 
     assert (
-        config.rollout.count % config.num_envs == 0
+        config.rollout.every == -1 or config.rollout.count % config.num_envs == 0
     ), "n_rollouts must be divisible by num_envs"
 
-    # config.remove_noop = True
-    config.datasim_path = (
-        "/data/scratch/ankile/furniture-data/processed/sim/image/one_leg/scripted.zarr"
+    config.data_path = get_processed_paths(
+        environment="sim",
+        task=None,
+        demo_source=["scripted", "teleop"],
+        randomness=None,
+        demo_outcome="success",
     )
-    # config.datasim_path = (
-    #     config.data_base_dir
-    #     / "processed/sim"
-    #     / get_data_path(
-    #         config.observation_type,
-    #         config.vision_encoder.model,
-    #         config.furniture,
-    #     )
-    # )
 
-    print(f"Using data from {config.datasim_path}")
+    print(f"Using data from {config.data_path}")
 
-    main(config)
+    main(config, start_epoch=0)

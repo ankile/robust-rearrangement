@@ -1,22 +1,21 @@
+import gzip
+import lzma
+import pickle
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Union
-import imageio
-from io import BytesIO
-import pickle
 
+import imageio
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from IPython.display import HTML, display
 from tqdm import tqdm
 
-import numpy as np
 
-
-from IPython.display import HTML
-
-
-def create_mp4_jupyter(np_images, filename, fps=10) -> HTML:
+def create_mp4_jupyter(np_images, filename, fps=10):
     with imageio.get_writer(filename, fps=fps) as writer:
         for img in np_images:
             writer.append_data(img)
@@ -24,12 +23,17 @@ def create_mp4_jupyter(np_images, filename, fps=10) -> HTML:
     # Display the video in the Jupyter Notebook
     video_tag = f'<video controls src="{filename}" width="640" height="480"></video>'
 
-    return HTML(video_tag)
+    return display(HTML(video_tag))
 
 
-def mp4_from_pickle_jupyter(pickle_path: Union[str, Path], filename=None) -> HTML:
+def mp4_from_pickle_jupyter(pickle_path: Union[str, Path], filename=None, fps=10):
     ims = extract_numpy_frames(pickle_path)
-    return create_mp4_jupyter(ims, filename)
+    return create_mp4_jupyter(ims, filename, fps)
+
+
+def mp4_from_data_dict_jupyter(data_dict: dict, filename, fps=10):
+    ims = data_to_video(data_dict)
+    return create_mp4_jupyter(ims, filename, fps)
 
 
 def create_mp4(np_images: np.ndarray, filename: Union[str, Path], fps=10) -> None:
@@ -59,10 +63,34 @@ def data_to_video(data: dict) -> np.ndarray:
     return ims
 
 
-def unpickle_data(pickle_path):
-    with open(pickle_path, "rb") as f:
-        data = pickle.load(f)
-    return data
+def unpickle_data(pickle_path: Union[Path, str]):
+    pickle_path = Path(pickle_path)
+    if pickle_path.suffix == ".gz":
+        with gzip.open(pickle_path, "rb") as f:
+            return pickle.load(f)
+    elif pickle_path.suffix == ".pkl":
+        with open(pickle_path, "rb") as f:
+            return pickle.load(f)
+    elif pickle_path.suffix == ".xz":
+        with lzma.open(pickle_path, "rb") as f:
+            return pickle.load(f)
+
+    raise ValueError(f"Invalid file extension: {pickle_path.suffix}")
+
+
+def pickle_data(data, pickle_path: Union[Path, str]):
+    pickle_path = Path(pickle_path)
+    if pickle_path.suffix == ".gz":
+        with gzip.open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    elif pickle_path.suffix == ".pkl":
+        with open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    elif pickle_path.suffix == ".xz":
+        with lzma.open(pickle_path, "wb") as f:
+            pickle.dump(data, f)
+    else:
+        raise ValueError(f"Invalid file extension: {pickle_path.suffix}")
 
 
 def create_in_memory_mp4(np_images, fps=10):

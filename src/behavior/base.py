@@ -4,6 +4,8 @@ import torch.nn as nn
 from src.dataset.normalizer import StateActionNormalizer
 
 from ipdb import set_trace as bp  # noqa
+from torchvision import transforms
+from src.common.geometry import proprioceptive_to_6d_rotation
 
 
 # Update the PostInitCaller to be compatible
@@ -15,6 +17,40 @@ class PostInitCaller(type(torch.nn.Module)):
         return obj
 
 
+class FrontCameraTransform(nn.Module):
+    def __init__(self, mode="train"):
+        super().__init__()
+        self.mode = mode
+
+        margin = 20
+        crop_size = (224, 224)
+        input_size = (240, 320)
+
+        self.transform_train = transforms.Compose(
+            [
+                transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
+                transforms.RandomCrop(crop_size),
+            ]
+        )
+        self.transform_eval = transforms.CenterCrop(crop_size)
+
+    def forward(self, x):
+        if self.mode == "train":
+            return self.transform_train(x)
+        elif self.mode == "eval":
+            return self.transform_eval(x)
+
+        raise ValueError(f"Invalid mode: {self.mode}")
+
+    def train(self, mode=True):
+        self.mode = "train"
+        super().train(mode)
+
+    def eval(self):
+        self.mode = "eval"
+        super().eval()
+
+
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
@@ -23,6 +59,14 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     feature_dropout: bool = False
     feature_layernorm: bool = False
     encoding_dim: int
+    augment_image: bool = False
+
+    # Set image transforms
+    margin = 20
+    crop_size = (224, 224)
+    input_size = (240, 320)
+    camera1_transform = transforms.Resize((224, 224), antialias=True)
+    camera2_transform = FrontCameraTransform(mode="eval")
 
     def __post_init__(self, *args, **kwargs):
         if self.feature_dropout:
@@ -51,24 +95,42 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         """
         # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
+
+        # Convert the robot_state to use rot_6d instead of quaternion
+        robot_state = proprioceptive_to_6d_rotation(robot_state)
+
+        # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
         B = nrobot_state.shape[0]
 
+        # from furniture_bench.perception.image_utils import resize, resize_crop
         # Get size of the image
         img_size = obs[0]["color_image1"].shape[-3:]
 
         # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
-        img1 = torch.cat([o["color_image1"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
-        img2 = torch.cat([o["color_image2"].unsqueeze(1) for o in obs], dim=1).reshape(
-            B * self.obs_horizon, *img_size
-        )
+        image1 = torch.cat(
+            [o["color_image1"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
+        image2 = torch.cat(
+            [o["color_image2"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
+
+        # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+        image1 = image1.permute(0, 3, 1, 2)
+        image2 = image2.permute(0, 3, 1, 2)
+
+        # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+        image1 = self.camera1_transform(image1)
+        image2 = self.camera2_transform(image2)
+
+        # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+        image1 = image1.permute(0, 2, 3, 1)
+        image2 = image2.permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        feature1 = self.encoder1(img1).reshape(B, self.obs_horizon, -1)
-        feature2 = self.encoder2(img2).reshape(B, self.obs_horizon, -1)
+        feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+        feature2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
 
         # Apply the regularization to the features
         feature1, feature2 = self.regularize_features(feature1, feature2)
@@ -104,10 +166,24 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         B = nrobot_state.shape[0]
 
         if self.observation_type == "image":
-            # Convert images from (batch_size, obs_horizon, 224, 224, 3) -> (batch_size * obs_horizon, 224, 224, 3)
-            # so that it's compatible with the encoder
-            image1 = batch["color_image1"].reshape(B * self.obs_horizon, 224, 224, 3)
-            image2 = batch["color_image2"].reshape(B * self.obs_horizon, 224, 224, 3)
+            image1 = batch["color_image1"]
+            image2 = batch["color_image2"]
+
+            # Reshape the images to (B * obs_horizon, H, W, C) for the encoder
+            image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])
+            image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
+
+            # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+            image1 = image1.permute(0, 3, 1, 2)
+            image2 = image2.permute(0, 3, 1, 2)
+
+            # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+            image1 = self.camera1_transform(image1)
+            image2 = self.camera2_transform(image2)
+
+            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+            image1 = image1.permute(0, 2, 3, 1)
+            image2 = image2.permute(0, 2, 3, 1)
 
             # Encode images and reshape back to (B, obs_horizon, encoding_dim)
             feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
@@ -141,12 +217,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         Set models to train mode
         """
         self.train()
+        if self.augment_image:
+            self.camera2_transform.train()
+        else:
+            self.camera2_transform.eval()
 
     def eval_mode(self):
         """
         Set models to eval mode
         """
         self.eval()
+        self.camera2_transform.eval()
 
     def action(self, obs: deque) -> torch.Tensor:
         """

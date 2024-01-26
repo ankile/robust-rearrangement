@@ -18,7 +18,6 @@ class DiffusionPolicy(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
         config,
     ) -> None:
         super().__init__()
@@ -57,7 +56,7 @@ class DiffusionPolicy(Actor):
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = normalizer.to(device)
+        self.normalizer = StateActionNormalizer(config.control_mode).to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
@@ -147,10 +146,6 @@ class DiffusionPolicy(Actor):
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch)
 
-        # Apply Dropout to the observation conditioning if specified
-        if self.feature_dropout:
-            obs_cond = self.dropout(obs_cond)
-
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
         naction = batch["action"]
@@ -184,14 +179,12 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
         config,
     ) -> None:
         super().__init__(
             device=device,
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
-            normalizer=normalizer,
             config=config,
         )
 
@@ -214,6 +207,8 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             global_cond_dim=self.obs_dim,
             down_dims=config.down_dims,
         ).to(device)
+
+        self.augment_image = config.augment_image
 
     def _training_obs(self, batch):
         # Get the standard observation data
@@ -245,5 +240,71 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, task_embedding), dim=-1)
+
+        return obs_cond
+
+
+class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
+    def __init__(
+        self,
+        device: Union[str, torch.device],
+        encoder_name: str,
+        freeze_encoder: bool,
+        normalizer: StateActionNormalizer,
+        config,
+    ) -> None:
+        super().__init__(
+            device=device,
+            encoder_name=encoder_name,
+            freeze_encoder=freeze_encoder,
+            normalizer=normalizer,
+            config=config,
+        )
+
+        self.success_cond_dim = 10
+        self.success_embedding = nn.Embedding(
+            num_embeddings=2,
+            embedding_dim=self.success_cond_dim,
+            padding_idx=None,
+            max_norm=None,
+            norm_type=2.0,
+            scale_grad_by_freq=False,
+            sparse=False,
+            _weight=None,
+        ).to(device)
+
+        self.obs_dim = self.obs_dim + self.success_cond_dim
+
+        self.model = ConditionalUnet1D(
+            input_dim=config.action_dim,
+            global_cond_dim=self.obs_dim,
+            down_dims=config.down_dims,
+        ).to(device)
+
+    def _training_obs(self, batch):
+        # Get the standard observation data
+        nobs = super()._training_obs(batch, flatten=True)
+
+        # Get the task embedding
+        success = batch["success"]
+        success_embedding = self.success_embedding(success)
+
+        # Concatenate the task embedding to the observation
+        obs_cond = torch.cat((nobs, success_embedding), dim=-1)
+
+        return obs_cond
+
+    def _normalized_obs(self, obs: deque):
+        # Get the standard observation data
+        nobs = super()._normalized_obs(obs, flatten=True)
+        B = nobs.shape[0]
+
+        # Set the success embedding to true and repeat it for the batch size
+        success_embedding = self.success_embedding(
+            torch.tensor(1).to(self.device).repeat(B)
+        )
+
+        # Concatenate the task embedding to the observation
+        obs_cond = torch.cat((nobs, success_embedding), dim=-1)
 
         return obs_cond

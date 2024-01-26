@@ -2,10 +2,13 @@ import numpy as np
 import torch
 from tqdm import trange
 import zarr
+from typing import Union, List
 
 from src.dataset.normalizer import StateActionNormalizer
 from src.dataset.augmentation import ImageAugmentation
-from src.dataset.zarr_mod import ZarrSubsetView
+from src.dataset.zarr import combine_zarr_datasets
+from src.common.control import ControlMode
+
 from src.common.tasks import furniture2idx
 
 
@@ -74,53 +77,47 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        dataset_path: str,
+        dataset_paths: Union[List[str], str],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: StateActionNormalizer,
         augment_image: bool = False,
         data_subset: int = None,
         first_action_idx: int = 0,
+        control_mode: ControlMode = ControlMode.delta,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
-        self.normalizer = normalizer.cpu()
+        self.control_mode = control_mode
+
+        normalizer = StateActionNormalizer(
+            control_mode=control_mode,
+        ).cpu()
+
+        # Read from zarr dataset
+        combined_data = combine_zarr_datasets(
+            dataset_paths,
+            [
+                "color_image1",
+                "color_image2",
+                "robot_state",
+                f"action/{control_mode}",
+            ],
+            max_episodes=data_subset,
+        )
 
         # (N, D)
         # Get only the first data_subset episodes
-        store = zarr.open(dataset_path, "r")
-        self.episode_ends = store["episode_ends"][:data_subset]
+        self.episode_ends = combined_data["episode_ends"]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
         self.train_data = {
-            "color_image1": np.zeros(
-                (self.episode_ends[-1],) + store["color_image1"].shape[1:],
-                dtype=np.uint8,
-            ),
-            "color_image2": np.zeros(
-                (self.episode_ends[-1],) + store["color_image2"].shape[1:],
-                dtype=np.uint8,
-            ),
-            "robot_state": store["robot_state"][: self.episode_ends[-1]],
-            "action": store["action"][: self.episode_ends[-1]],
+            "color_image1": combined_data["color_image1"],
+            "color_image2": combined_data["color_image2"],
+            "robot_state": combined_data["robot_state"],
+            "action": combined_data[f"action/{control_mode}"],
         }
-
-        # Load the image data into the arrays
-        for i in trange(
-            0,
-            self.train_data["color_image1"].shape[0],
-            store.zattrs["chunksize"],
-            desc="Loading image data",
-        ):
-            end_idx = min(i + 10_000, self.train_data["color_image1"].shape[0])
-            self.train_data["color_image1"][i:end_idx] = store["color_image1"][
-                i:end_idx
-            ]
-            self.train_data["color_image2"][i:end_idx] = store["color_image2"][
-                i:end_idx
-            ]
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
@@ -147,8 +144,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in store["furniture"][:data_subset]]
+            [furniture2idx[f] for f in combined_data["furniture"]]
         )
+        self.successes = combined_data["success"].astype(np.uint8)
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -204,8 +202,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 [self.image_augmentation2(sample) for sample in nsample["color_image2"]]
             )
 
-        # Add the task index to the sample
+        # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
+        nsample["success"] = self.successes[demo_idx]
 
         return nsample
 
@@ -217,28 +216,37 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
     def __init__(
         self,
-        dataset_path: str,
+        dataset_paths: Union[List[str], str],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: StateActionNormalizer,
+        encoder_name: str,
         data_subset: int = None,
         first_action_idx: int = 0,
-        act_rot_repr: str = "quat",
+        control_mode: ControlMode = ControlMode.delta,
     ):
         # Read from zarr dataset
-        dataset = zarr.open(dataset_path, "r")
+        combined_data = combine_zarr_datasets(
+            dataset_paths,
+            [
+                f"feature/{encoder_name}/feature1",
+                f"feature/{encoder_name}/feature2",
+                "robot_state",
+                f"action/{control_mode}",
+            ],
+            max_episodes=data_subset,
+        )
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = dataset["episode_ends"][:data_subset]
+        self.episode_ends = combined_data["episode_ends"]
         print(f"Loading dataset of {len(self.episode_ends)} episodes")
 
-        action_key = "action" if act_rot_repr == "quat" else "action_6d"
         train_data = {
-            # first two dims of state vector are agent (i.e. gripper) locations
-            "robot_state": dataset["robot_state"][: self.episode_ends[-1]],
-            "action": dataset[action_key][: self.episode_ends[-1]],
+            "feature1": combined_data[f"feature/{encoder_name}/feature1"],
+            "feature2": combined_data[f"feature/{encoder_name}/feature2"],
+            "robot_state": combined_data["robot_state"],
+            "action": combined_data[f"action/{control_mode}"],
         }
 
         # compute start and end of each state-action sequence
@@ -250,19 +258,18 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1,
         )
 
-        # float32, (N, embed_dim)
-        train_data["feature1"] = dataset["feature1"][: self.episode_ends[-1]]
-        train_data["feature2"] = dataset["feature2"][: self.episode_ends[-1]]
-
         self.task_idxs = np.array(
-            [furniture2idx[f] for f in dataset["furniture"][:data_subset]]
+            [furniture2idx[f] for f in combined_data["furniture"]]
         )
+        self.successes = combined_data["success"].astype(np.uint8)
+
+        normalizer = StateActionNormalizer(
+            control_mode=control_mode,
+        ).cpu()
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():
-            train_data[key] = normalizer(
-                torch.from_numpy(train_data[key]), key, forward=True
-            ).numpy()
+            train_data[key] = normalizer(train_data[key], key, forward=True)
 
         self.indices = indices
         self.train_data = train_data
@@ -315,8 +322,9 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        # Add the task index to the sample
+        # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
+        nsample["success"] = self.successes[demo_idx]
 
         # for diffusion policy version (self.first_action_offset = 0)
         # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx

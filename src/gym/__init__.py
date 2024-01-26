@@ -1,5 +1,6 @@
 import furniture_bench  # noqa: F401
-from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_OBS
+from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 import gym
 
@@ -15,7 +16,7 @@ def get_env(
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
     verbose=False,
-):
+) -> FurnitureSimEnv:
     with suppress_all_output(True):
         env = gym.make(
             "FurnitureSim-v0",
@@ -24,7 +25,8 @@ def get_env(
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=True,  # If true, robot state is concatenated to the observation.
             headless=True,  # If true, simulation runs without GUI.
-            obs_keys=DEFAULT_VISUAL_OBS,
+            # Includes the parts poses in the observation for resetting
+            obs_keys=DEFAULT_VISUAL_OBS + ["parts_poses"],
             compute_device_id=gpu_id,
             graphics_device_id=gpu_id,
             init_assembled=False,  # If true, the environment is initialized with assembled furniture.

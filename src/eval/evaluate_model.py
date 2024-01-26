@@ -9,12 +9,14 @@ import wandb
 from ml_collections import ConfigDict
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
-from src.common.tasks import furniture2idx
+from src.common.tasks import furniture2idx, task_timeout
 from src.gym import get_env
 
 from ipdb import set_trace as bp  # noqa
+from wandb import Api
+from wandb.sdk.wandb_run import Run
 
-api = wandb.Api()
+api = Api()
 
 
 if __name__ == "__main__":
@@ -34,11 +36,12 @@ if __name__ == "__main__":
     args.add_argument("--save-rollouts", action="store_true")
     args.add_argument("--save-failures", action="store_true")
     args.add_argument("--wandb", action="store_true")
+    args.add_argument("--n-parts-assemble", type=int, default=None)
 
     # Parse the arguments
     args = args.parse_args()
     # Get the model file and config
-    run = api.run(f"robot-rearrangement/{args.run_id}")
+    run: Run = api.run(f"robot-rearrangement/{args.run_id}")
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(exist_ok=True).name
 
@@ -68,7 +71,7 @@ if __name__ == "__main__":
         furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
-        resize_img=True,
+        resize_img=False,
         act_rot_repr=config.act_rot_repr,
         ctrl_mode="osc",
         verbose=False,
@@ -99,13 +102,8 @@ if __name__ == "__main__":
         job_type="eval",
         config=config.to_dict(),
         mode="online" if args.wandb else "disabled",
+        name=f"{run.name}-{run.id}",
     )
-
-    timeouts = {
-        **sim_config["scripted_timeout"],
-        "desk": 1_000,
-        "square_table": 2_000,
-    }
 
     # Perform the rollouts
     actor.set_task(furniture2idx[args.furniture])
@@ -113,11 +111,16 @@ if __name__ == "__main__":
         actor=actor,
         env=env,
         n_rollouts=args.n_rollouts,
-        rollout_max_steps=timeouts[args.furniture],
+        rollout_max_steps=task_timeout(args.furniture, n_parts=args.n_parts_assemble),
         epoch_idx=0,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
         save_failures=args.save_failures,
+        n_parts_assemble=args.n_parts_assemble,
+    )
+
+    print(
+        f"Success rate: {success_rate:.2%} ({int(round(success_rate * args.n_rollouts))}/{args.n_rollouts})"
     )
 
     # Log the success rate to wandb
