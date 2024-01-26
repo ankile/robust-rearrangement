@@ -1,13 +1,12 @@
-from pathlib import Path
 import argparse
 from typing import List, Union
 import numpy as np
-import zarr
-from tqdm import trange
+from tqdm import trange, tqdm
 from src.models.vision import get_encoder
 import torch
 from datetime import datetime
 from ipdb import set_trace as bp
+import zarr
 
 from src.common.tasks import simple_task_descriptions, furniture2idx, idx2furniture
 from src.common.files import get_processed_paths
@@ -130,23 +129,33 @@ def process_zarr_to_feature(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--encoder", "-c", default=None, type=str)
+    parser.add_argument("--encoder", "-c", type=str, required=True)
     parser.add_argument("--batch-size", "-b", type=int, default=256)
     parser.add_argument("--gpu-id", "-g", type=int, default=0)
-    parser.add_argument("--use-language", "-l", action="store_true")
-    parser.add_argument("--overwrite", action="store_true")
 
+    parser.add_argument("--environment", "-e", default="sim", type=str, nargs="+")
+    parser.add_argument("--task", "-t", default=None, type=str, nargs="+")
+    parser.add_argument("--randomness", "-r", type=str, default=None, nargs="+")
+    parser.add_argument("--demo-source", "-s", type=str, default=None, nargs="+")
+    parser.add_argument("--demo-outcome", "-o", type=str, default="success", nargs="+")
+
+    parser.add_argument("--use-language", "-l", action="store_true")
+
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true")
     args = parser.parse_args()
 
     global device
     device = torch.device(f"cuda:{args.gpu_id}")
 
     assert args.use_language is False, "Language not supported yet"
-
     assert args.encoder is not None, "Must specify encoder when using feature obs"
     assert (
         not args.use_language or args.encoder == "voltron"
     ), "Only voltron supports language"
+    assert (not args.overwrite) and (
+        not args.skip_existing
+    ), "Ambiguous to both skip and overwrite"
 
     encoder = get_encoder(args.encoder, freeze=True, device=device)
     encoder.eval()
@@ -154,25 +163,37 @@ if __name__ == "__main__":
     new_group_name = f"feature/{args.encoder}"
 
     paths = get_processed_paths(
-        environment="sim",
-        task=None,
-        demo_source=["scripted", "teleop"],
-        randomness=None,
-        demo_outcome="success",
+        environment=args.environment,
+        task=args.task,
+        demo_source=args.demo_source,
+        randomness=args.randomness,
+        demo_outcome=args.demo_outcome,
     )
 
-    # Check if the group already exists
-    if new_group_name in input_group and not args.overwrite:
-        raise ValueError(
-            f"Group {new_group_name} already exists. Use --overwrite to overwrite."
+    for path in tqdm(paths):
+        input_group = zarr.open(path, mode="a")
+
+        # Check if the group already exists
+        exists = new_group_name in input_group
+        if exists:
+            # If it exists, we skip it if that flag is set
+            if args.skip_existing:
+                print(f"Skipping {new_group_name} because it already exists.")
+                continue
+            # Otherwise we delete it if the overwrite flag is set
+            elif not args.overwrite:
+                raise ValueError(
+                    f"Group {new_group_name} already exists. Use --overwrite to overwrite."
+                )
+
+        output_group = input_group.create_group(
+            new_group_name, overwrite=args.overwrite
         )
 
-    output_group = input_group.create_group(new_group_name, overwrite=True)
-
-    process_zarr_to_feature(
-        input_group,
-        output_group,
-        encoder,
-        batch_size=args.batch_size,
-        use_language=args.use_language,
-    )
+        process_zarr_to_feature(
+            input_group,
+            output_group,
+            encoder,
+            batch_size=args.batch_size,
+            use_language=args.use_language,
+        )
