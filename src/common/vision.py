@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-from torchvision import transforms
+from torchvision.transforms import v2 as transforms
+from ipdb import set_trace as bp  # noqa
 
 
 # Set image transforms
-margin = 20
+margin = 15
 crop_size = (224, 224)
 input_size = (240, 320)
 
@@ -20,6 +21,10 @@ class FrontCameraTransform(nn.Module):
 
         self.transform_train = transforms.Compose(
             [
+                transforms.ColorJitter(
+                    brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3
+                ),
+                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
                 transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
                 transforms.RandomCrop(crop_size),
             ]
@@ -35,12 +40,12 @@ class FrontCameraTransform(nn.Module):
         raise ValueError(f"Invalid mode: {self.mode}")
 
     def train(self, mode=True):
-        self.mode = "train"
         super().train(mode)
+        self.mode = "train" if mode else "eval"
 
     def eval(self):
-        self.mode = "eval"
         super().eval()
+        self.mode = "eval"
 
 
 class WristCameraTransform(nn.Module):
@@ -48,7 +53,15 @@ class WristCameraTransform(nn.Module):
         super().__init__()
         self.mode = mode
 
-        self.transform_train = transforms.Resize((224, 224), antialias=True)
+        self.transform_train = transforms.Compose(
+            [
+                transforms.ColorJitter(
+                    brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3
+                ),
+                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
+                transforms.Resize((224, 224), antialias=True),
+            ]
+        )
         self.transform_eval = transforms.Resize((224, 224), antialias=True)
 
     def forward(self, x):
@@ -60,9 +73,9 @@ class WristCameraTransform(nn.Module):
         raise ValueError(f"Invalid mode: {self.mode}")
 
     def train(self, mode=True):
-        self.mode = "train"
         super().train(mode)
+        self.mode = "train" if mode else "eval"
 
     def eval(self):
-        self.mode = "eval"
         super().eval()
+        self.mode = "eval"

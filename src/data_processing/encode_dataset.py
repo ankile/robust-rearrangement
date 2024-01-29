@@ -75,7 +75,9 @@ def process_zarr_to_feature(
     color_image2 = np.zeros(input_group["color_image2"].shape, dtype=np.uint8)
 
     # Load images into memory
-    for i in trange(0, len(color_image1), chunksize, desc="Loading images"):
+    for i in trange(
+        0, len(color_image1), chunksize, desc="Loading images", leave=False
+    ):
         slice_end = min(i + chunksize, len(color_image1))
 
         color_image1[i:slice_end] = input_group["color_image1"][i:slice_end]
@@ -95,7 +97,9 @@ def process_zarr_to_feature(
     features1 = np.zeros((len(color_image1), encoding_dim), dtype=np.float32)
     features2 = np.zeros((len(color_image2), encoding_dim), dtype=np.float32)
 
-    for i in trange(0, len(color_image1), batch_size):
+    for i in trange(
+        0, len(color_image1), batch_size, desc="Encoding images", leave=False
+    ):
         slice_end = min(i + batch_size, len(color_image1))
 
         language = None
@@ -170,7 +174,7 @@ if __name__ == "__main__":
         demo_outcome=args.demo_outcome,
     )
 
-    for path in tqdm(paths):
+    for path in tqdm(paths, desc="Processing datasets"):
         input_group = zarr.open(path, mode="a")
 
         # Check if the group already exists

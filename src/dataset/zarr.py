@@ -72,12 +72,6 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
             (total_frames,) + dataset[key].shape[1:], dtype=dataset[key].dtype
         )
 
-    # Temporarily print out all the shapes and dtypes
-    print("Shapes:")
-    for key in keys:
-        gb_used = combined_data[key].size / 1e9
-        print(key, combined_data[key].shape, combined_data[key].dtype, gb_used)
-
     for path in tqdm(zarr_paths, desc="Loading zarr files"):
         dataset = zarr.open(path, mode="r")
         end_idxs = dataset["episode_ends"][:max_episodes]
@@ -113,12 +107,6 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
 
 
 if __name__ == "__main__":
-    # Example usage
-    # zarr_paths = [
-    #     "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/low/success.zarr",
-    #     "/data/scratch/ankile/furniture-data/processed/sim/round_table/scripted/med/success.zarr",
-    # ]
-
     zarr_paths = get_processed_paths(
         environment="sim",
         task=None,

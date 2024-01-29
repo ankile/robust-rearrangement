@@ -26,7 +26,7 @@ task_phases = {
 }
 
 
-timesteps_per_part = 2_000
+timesteps_per_part = 1_000
 
 task_parts = {
     "one_leg": 1,

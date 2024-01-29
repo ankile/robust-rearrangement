@@ -10,6 +10,7 @@ from ml_collections import ConfigDict
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
+from src.common.files import trajectory_save_dir
 from src.gym import get_env
 
 from ipdb import set_trace as bp  # noqa
@@ -81,24 +82,6 @@ if __name__ == "__main__":
         verbose=False,
     )
 
-    # Prepare the rollout save directory
-    if args.save_rollouts:
-        rollout_save_dir = (
-            Path(os.environ["DATA_DIR_RAW"])
-            / "raw"
-            / "sim"
-            / "rollout"
-            / args.furniture
-            / args.randomness
-            / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        )
-        rollout_save_dir.mkdir(parents=True, exist_ok=True)
-
-        print(f"Saving rollouts to {rollout_save_dir}")
-    else:
-        rollout_save_dir = None
-        print("Not saving rollouts")
-
     # Start a run to collect the results
     wandb.init(
         project="model-eval-test",
@@ -107,6 +90,14 @@ if __name__ == "__main__":
         config=config.to_dict(),
         mode="online" if args.wandb else "disabled",
         name=f"{run.name}-{run.id}",
+    )
+
+    save_dir = trajectory_save_dir(
+        environment="sim",
+        task=args.furniture,
+        demo_source="rollout",
+        randomness=args.randomness,
+        create=False,
     )
 
     # Perform the rollouts
@@ -118,7 +109,7 @@ if __name__ == "__main__":
         rollout_max_steps=rollout_max_steps,
         epoch_idx=0,
         gamma=config.discount,
-        rollout_save_dir=rollout_save_dir,
+        rollout_save_dir=save_dir,
         save_failures=args.save_failures,
         n_parts_assemble=args.n_parts_assemble,
     )
@@ -139,7 +130,3 @@ if __name__ == "__main__":
 
     # Close the run
     wandb.finish()
-
-    # Remove the folder if we didn't save any rollouts
-    if rollout_save_dir is not None and len(list(rollout_save_dir.iterdir())) == 0:
-        rollout_save_dir.rmdir()

@@ -10,6 +10,10 @@ from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
 from src.common.tasks import furniture2idx
+from src.common.vision import (
+    FrontCameraTransform,
+    WristCameraTransform,
+)
 
 
 from ipdb import set_trace as bp
@@ -134,14 +138,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add image augmentation
         self.augment_image = augment_image
-        self.image_augmentation1 = ImageAugmentation(
-            random_translate=False,
-            color_jitter=True,
-        )
-        self.image_augmentation2 = ImageAugmentation(
-            random_translate=True,
-            color_jitter=False,
-        )
+        self.image1_transform = WristCameraTransform(mode="train")
+        self.image2_transform = FrontCameraTransform(mode="train")
 
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
@@ -159,6 +157,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.first_action_idx = self.obs_horizon + first_action_idx
 
         self.final_action_idx = self.first_action_idx + self.pred_horizon
+
+        if self.augment_image:
+            self.train()
+        else:
+            self.eval()
 
     def __len__(self):
         return len(self.indices)
@@ -193,20 +196,36 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        if self.augment_image:
-            # Image augmentation function accepts one image at a time, need to loop over the batch
-            nsample["color_image1"] = np.stack(
-                [self.image_augmentation1(sample) for sample in nsample["color_image1"]]
-            )
-            nsample["color_image2"] = np.stack(
-                [self.image_augmentation2(sample) for sample in nsample["color_image2"]]
-            )
+        # Apply the image augmentation
+        nsample["color_image1"] = torch.stack(
+            [
+                self.image1_transform(img)
+                for img in torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
+            ]
+        ).permute(0, 2, 3, 1)
+        nsample["color_image2"] = torch.stack(
+            [
+                self.image2_transform(img)
+                for img in torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
+            ]
+        ).permute(0, 2, 3, 1)
 
         # Add the task index and success flag to the sample
         nsample["task_idx"] = self.task_idxs[demo_idx]
         nsample["success"] = self.successes[demo_idx]
 
         return nsample
+
+    def train(self):
+        if self.augment_image:
+            self.image1_transform.train()
+            self.image2_transform.train()
+        else:
+            self.eval()
+
+    def eval(self):
+        self.image1_transform.eval()
+        self.image2_transform.eval()
 
 
 class FurnitureFeatureDataset(torch.utils.data.Dataset):

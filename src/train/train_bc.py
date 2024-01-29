@@ -93,7 +93,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
         shuffle=True,
         pin_memory=True,
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=False,
     )
 
     testloader = DataLoader(
@@ -103,7 +103,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
         shuffle=False,
         pin_memory=True,
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=False,
     )
 
     # AdamW optimizer for noise_net
@@ -172,7 +172,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
         # batch loop
         actor.train_mode()
-        dataset.augment_image = config.augment_image
+        dataset.train()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -221,7 +221,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
 
         # Evaluation loop
         actor.eval_mode()
-        dataset.augment_image = False
+        dataset.eval()
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -334,18 +334,18 @@ if __name__ == "__main__":
     config.wandb = ConfigDict()
     # config.wandb.project = "image-training"
     # config.wandb.project = "new-controller-test"
-    config.wandb.project = "multi-task"
-    # config.wandb.project = "teleop-finetune"
+    # config.wandb.project = "encoder-comparison"
+    config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Train on precomputed VIP features on multiple tasks with a mix of scripted and teleop data, and separate indices for one_leg and square_table."
+    config.wandb.notes = "Train end-to-end with image augmentation on only teleop data."
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
     # defaults
-    config.action_horizon = 16
-    config.pred_horizon = 32
+    config.action_horizon = 8
+    config.pred_horizon = 16
     config.first_action_index = 0
-    config.obs_horizon = 3
+    config.obs_horizon = 2
 
     config.actor = "diffusion"
 
@@ -362,8 +362,8 @@ if __name__ == "__main__":
     # Diffusion options
     config.beta_schedule = "squaredcos_cap_v2"
     # config.down_dims = [128, 256, 512]
-    # config.down_dims = [256, 512, 1024]
-    config.down_dims = [512, 1024, 2048]
+    config.down_dims = [256, 512, 1024]
+    # config.down_dims = [512, 1024, 2048]
     config.inference_steps = 16
     config.prediction_type = "epsilon"
     config.num_diffusion_iters = 100
@@ -379,8 +379,8 @@ if __name__ == "__main__":
     config.dryrun = args.dryrun
 
     # TODO: Change this to "task"
-    # config.furniture = args.furniture
-    # config.n_parts_assemble = args.n_parts_assemble
+    config.furniture = args.furniture
+    config.n_parts_assemble = args.n_parts_assemble
 
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
@@ -409,8 +409,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.freeze = False
+    config.vision_encoder.pretrained = False
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -421,7 +421,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = True
+    config.multi_task = False
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
     config.language_conditioning = False
@@ -438,10 +438,10 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    # config.feature_layernorm = False
-    config.feature_layernorm = True
+    config.feature_layernorm = False
+    # config.feature_layernorm = True
 
-    config.augment_image = False
+    config.augment_image = True
     # config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False
@@ -459,8 +459,8 @@ if __name__ == "__main__":
 
     config.data_path = get_processed_paths(
         environment="sim",
-        task=None,
-        demo_source=["scripted", "teleop"],
+        task=[config.furniture],
+        demo_source=["teleop", "scripted"],
         randomness=None,
         demo_outcome="success",
     )

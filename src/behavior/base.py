@@ -4,7 +4,6 @@ import torch.nn as nn
 from src.dataset.normalizer import StateActionNormalizer
 
 from ipdb import set_trace as bp  # noqa
-from torchvision import transforms
 from src.common.geometry import proprioceptive_to_6d_rotation
 from src.common.vision import FrontCameraTransform, WristCameraTransform
 
@@ -28,7 +27,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoding_dim: int
     augment_image: bool = False
 
-    camera1_transform: FrontCameraTransform(mode="eval")
+    camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
 
     def __post_init__(self, *args, **kwargs):
