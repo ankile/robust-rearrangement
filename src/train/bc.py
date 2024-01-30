@@ -1,8 +1,10 @@
 import os
 from pathlib import Path
-import furniture_bench
-from furniture_bench.sim_config import sim_config
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from src.common.context import suppress_all_output, suppress_stdout
+
+
+with suppress_stdout():
+    import furniture_bench
 
 import numpy as np
 import torch
@@ -14,7 +16,7 @@ from src.dataset.dataset import (
 )
 from src.dataset.normalizer import StateActionNormalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.common.tasks import furniture2idx, task_timeout
+from src.common.tasks import furniture2idx
 from src.gym import get_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
@@ -24,7 +26,6 @@ from src.common.pytorch_util import dict_apply
 import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
-from src.common.control import RotationMode, ControlMode
 from src.common.files import get_processed_paths
 
 
@@ -38,8 +39,24 @@ from omegaconf import DictConfig, OmegaConf
 logger.set_level(logger.DISABLED)
 
 
+def set_dryrun_params(config: ConfigDict):
+    if config.dryrun:
+        OmegaConf.set_struct(config, False)
+        config.training.steps_per_epoch = 10
+        config.training.data_subset = 2
+
+        if config.rollout.rollouts:
+            config.rollout.every = 1
+            config.rollout.num_rollouts = 1
+
+        config.wandb.mode = "disabled"
+
+        OmegaConf.set_struct(config, True)
+
+
 @hydra.main(config_path="../config", config_name="base")
 def main(config: DictConfig):
+    set_dryrun_params(config)
     print(config)
     env = None
     device = torch.device(
@@ -108,9 +125,9 @@ def main(config: DictConfig):
     # Create dataloaders
     trainloader = FixedStepsDataloader(
         dataset=train_dataset,
-        n_batches=config.steps_per_epoch,
-        batch_size=config.batch_size,
-        num_workers=config.dataloader_workers,
+        n_batches=config.training.steps_per_epoch,
+        batch_size=config.training.batch_size,
+        num_workers=config.training.dataloader_workers,
         shuffle=True,
         pin_memory=True,
         drop_last=False,
@@ -119,8 +136,8 @@ def main(config: DictConfig):
 
     testloader = DataLoader(
         dataset=test_dataset,
-        batch_size=config.batch_size,
-        num_workers=config.dataloader_workers,
+        batch_size=config.training.batch_size,
+        num_workers=config.training.dataloader_workers,
         shuffle=False,
         pin_memory=True,
         drop_last=False,
@@ -130,8 +147,8 @@ def main(config: DictConfig):
     # AdamW optimizer for noise_net
     opt_noise = torch.optim.AdamW(
         params=actor.parameters(),
-        lr=config.actor_lr,
-        weight_decay=config.weight_decay,
+        lr=config.training.actor_lr,
+        weight_decay=config.regularization.weight_decay,
     )
 
     n_batches = len(trainloader)
@@ -140,22 +157,22 @@ def main(config: DictConfig):
         name=config.lr_scheduler.name,
         optimizer=opt_noise,
         num_warmup_steps=config.lr_scheduler.warmup_steps,
-        num_training_steps=len(trainloader) * config.num_epochs,
+        num_training_steps=len(trainloader) * config.training.num_epochs,
     )
 
     early_stopper = EarlyStopper(
         patience=config.early_stopper.patience,
         smooth_factor=config.early_stopper.smooth_factor,
     )
-
+    config_dict = OmegaConf.to_container(config, resolve=True)
     # Init wandb
     wandb.init(
         id=config.wandb.continue_run_id,
         resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
         entity="robot-rearrangement",
-        config=config.to_dict(),
-        mode=config.wandb.mode if not config.dryrun else "disabled",
+        config=config_dict,
+        mode=config.wandb.mode,
         notes=config.wandb.notes,
     )
 
@@ -164,15 +181,18 @@ def main(config: DictConfig):
         {
             "num_samples": len(train_dataset),
             "num_samples_test": len(test_dataset),
-            "num_episodes": int(len(dataset.episode_ends) * (1 - config.test_split)),
-            "num_episodes_test": int(len(dataset.episode_ends) * config.test_split),
+            "num_episodes": int(
+                len(dataset.episode_ends) * (1 - config.training.test_split)
+            ),
+            "num_episodes_test": int(
+                len(dataset.episode_ends) * config.training.test_split
+            ),
             "stats": StateActionNormalizer().stats_dict,
         }
     )
-    wandb.config.update(config.to_dict())
 
     # Create model save dir
-    model_save_dir = Path(config.model_save_dir) / wandb.run.name
+    model_save_dir = Path(config.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # Train loop
@@ -181,11 +201,11 @@ def main(config: DictConfig):
     best_success_rate = 0
 
     tglobal = trange(
-        config.start_epoch,
-        config.num_epochs,
-        initial=config.start_epoch,
-        total=config.num_epochs,
-        desc=f"Epoch ({config.furniture if 'furniture' in config else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
+        config.training.start_epoch,
+        config.training.num_epochs,
+        initial=config.training.start_epoch,
+        total=config.training.num_epochs,
+        desc=f"Epoch ({config.rollout.furniture if config.rollout.rollouts else 'multitask'}, {config.training.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -206,12 +226,6 @@ def main(config: DictConfig):
 
             # backward pass
             loss.backward()
-
-            # Gradient clipping
-            if config.clip_grad_norm:
-                torch.nn.utils.clip_grad_norm_(
-                    actor.parameters(), max_norm=config.clip_grad_norm
-                )
 
             # optimizer step
             opt_noise.step()
@@ -271,7 +285,7 @@ def main(config: DictConfig):
         wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
 
         # Save the model if the test loss is the best so far
-        if config.checkpoint_model and test_loss_mean < best_test_loss:
+        if config.training.checkpoint_model and test_loss_mean < best_test_loss:
             best_test_loss = test_loss_mean
             save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
             torch.save(
@@ -297,27 +311,29 @@ def main(config: DictConfig):
         )
 
         if (
-            config.rollout.every != -1
+            config.rollout.rollouts
             and (epoch_idx + 1) % config.rollout.every == 0
             and np.mean(test_loss_mean) < config.rollout.loss_threshold
         ):
             # Do not load the environment until we successfuly made it this far
             if env is None:
+                from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+
                 env: FurnitureSimEnv = get_env(
-                    config.gpu_id,
-                    furniture=config.furniture,
-                    num_envs=config.num_envs,
-                    randomness=config.randomness,
+                    config.training.gpu_id,
+                    furniture=config.rollout.furniture,
+                    num_envs=config.rollout.num_envs,
+                    randomness=config.rollout.randomness,
                     # Now using full size images in sim and resizing to be consistent
                     resize_img=False,
-                    act_rot_repr=config.act_rot_repr,
+                    act_rot_repr=config.training.act_rot_repr,
                     ctrl_mode="osc",
                 )
 
             best_success_rate = do_rollout_evaluation(
                 config,
                 env,
-                config.save_rollouts,
+                config.rollout.save_rollouts,
                 actor,
                 best_success_rate,
                 epoch_idx,

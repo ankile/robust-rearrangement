@@ -5,7 +5,8 @@ defaults:
 # Override the values for observation type, layernorm, and augmentation
 training:
   observation_type: image
-  data_subset: 2
+  batch_size: 128
+  data_subset: 100
 
 regularization:
   feature_layernorm: false

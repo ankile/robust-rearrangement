@@ -8,14 +8,15 @@ training:
   demo_source: sim
   dryrun: false
   gpu_id: 0
-  load_checkpoint_path: null
   mixed_precision: false
   num_epochs: 200
+  start_epoch: 0
   observation_type: image
   steps_per_epoch: 400
   test_split: 0.05
   model_save_dir: models
   checkpoint_model: true
+  load_checkpoint_path: null
   act_rot_repr: rot_6d
   control_mode: delta
-  multi_task: false
+  multi_task: false 

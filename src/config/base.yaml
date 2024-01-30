@@ -7,3 +7,5 @@ defaults:
   - wandb
   - training
   - regularization
+
+dryrun: false
