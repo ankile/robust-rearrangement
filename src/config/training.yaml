@@ -1,0 +1,21 @@
+training:
+  batch_size: 256
+  actor_lr: 1e-4
+  clip_grad_norm: false
+  data_subset: null
+  dataloader_workers: 4
+  clip_sample: true
+  demo_source: sim
+  dryrun: false
+  gpu_id: 0
+  load_checkpoint_path: null
+  mixed_precision: false
+  num_epochs: 200
+  observation_type: image
+  steps_per_epoch: 400
+  test_split: 0.05
+  model_save_dir: models
+  checkpoint_model: true
+  act_rot_repr: rot_6d
+  control_mode: delta
+  multi_task: false

@@ -1,0 +1,11 @@
+rollouts: true
+every: 5
+loss_threshold: 0.05
+max_steps: 2000
+count: ${num_envs} * 1
+save_failures: false
+randomness: low
+furniture: one_leg
+n_parts_assemble: null
+num_envs: 4
+

@@ -1,0 +1,7 @@
+vision_encoder:
+  model: vip  # or r3m_18, etc.
+  freeze: true
+  pretrained: true
+feature_layernorm: true
+augment_image: false
+observation_type: feature

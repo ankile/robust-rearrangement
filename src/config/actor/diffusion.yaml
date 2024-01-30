@@ -1,0 +1,11 @@
+name: diffusion
+action_horizon: 8
+pred_horizon: 24
+first_action_index: 0
+obs_horizon: 2
+beta_schedule: squaredcos_cap_v2
+down_dims: [256, 512, 1024]
+inference_steps: 16
+prediction_type: epsilon
+num_diffusion_iters: 100
+clip_sample: frue

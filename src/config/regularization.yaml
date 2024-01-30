@@ -1,0 +1,3 @@
+regularization:
+  feature_layernorm: false
+  augment_image: false

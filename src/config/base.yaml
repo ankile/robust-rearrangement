@@ -1,0 +1,9 @@
+defaults:
+  - actor: diffusion
+  - vision_encoder: vip
+  - early_stopper
+  - lr_scheduler
+  - rollout: default
+  - wandb
+  - training
+  - regularization

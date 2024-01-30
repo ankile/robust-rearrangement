@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: spatial_softmax
+  
+# Override the values for observation type, layernorm, and augmentation
+training:
+  observation_type: image
+  data_subset: 2
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+  augment_image: true
+
