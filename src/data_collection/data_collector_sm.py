@@ -11,13 +11,14 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 
 from furniture_bench.device.device_interface import DeviceInterface
-from furniture_bench.data.collect_enum import CollectEnum
 from furniture_bench.sim_config import sim_config
 from src.data_processing.utils import resize, resize_crop
 from furniture_bench.envs.initialization_mode import Randomness
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
 from src.visualization.render_mp4 import pickle_data, unpickle_data
 
+
+from src.data_collection.collect_enum import CollectEnum
 
 import os
 import sys
@@ -174,6 +175,9 @@ class DataCollectorSpaceMouse:
         self.robot_settled = False
         self.starttime = datetime.now()
 
+        # Variable controlling if we're currently in recording mode
+        self.recording = False
+
         # our flags
         self.right_multiply_rot = right_multiply_rot
 
@@ -308,6 +312,13 @@ class DataCollectorSpaceMouse:
                         keyboard_action,
                         collect_enum,
                     ) = self.device_interface.get_action()  # from the keyboard
+
+                    if collect_enum == CollectEnum.PAUSE:
+                        self.recording = False
+                        self.verbose_print("Paused recording")
+                    elif collect_enum == CollectEnum.CONTINUE:
+                        self.recording = True
+                        self.verbose_print("Continued recording")
 
                     # If undo action is taken, undo the last 10 actions.
                     if collect_enum == CollectEnum.UNDO:
@@ -541,7 +552,7 @@ class DataCollectorSpaceMouse:
         self, obs, action=None, rew=None, skill_complete=None, setup_phase=False
     ):
         """Store the observation, action, and reward."""
-        if (not setup_phase) and (not self.robot_settled):
+        if (not setup_phase) and (not self.robot_settled) or (not self.recording):
             # Don't store anything until the robot has settled
             # Without this, we get ~8 useless actions at the start of every trajectory
             return

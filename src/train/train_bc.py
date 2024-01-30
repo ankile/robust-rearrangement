@@ -73,6 +73,7 @@ def main(config: ConfigDict, start_epoch: int = 0):
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.robot_state_dim = dataset.robot_state_dim
+    config.n_episodes = len(dataset.episode_ends)
 
     # Create the policy network
     actor = get_actor(config, device)
@@ -317,7 +318,7 @@ if __name__ == "__main__":
         "--obs-type", type=str, default="image", choices=["image", "feature"]
     )
     parser.add_argument("--encoder", "-e", type=str, default="vip")
-    parser.add_argument("--furniture", "-f", type=str, default="one_leg")
+    parser.add_argument("--furniture", "-f", type=str, default=None)
     parser.add_argument("--no-rollout", action="store_true")
     parser.add_argument("--data-subset", type=int, default=None)
     parser.add_argument("--n-parts-assemble", type=int, default=None)
@@ -337,13 +338,13 @@ if __name__ == "__main__":
     # config.wandb.project = "encoder-comparison"
     config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Train end-to-end with image augmentation on only teleop data."
+    config.wandb.notes = "Train on precomputed data, all."
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
     # defaults
     config.action_horizon = 8
-    config.pred_horizon = 16
+    config.pred_horizon = 24
     config.first_action_index = 0
     config.obs_horizon = 2
 
@@ -387,7 +388,7 @@ if __name__ == "__main__":
     # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/ruby-butterfly-17/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 100
+    config.num_epochs = 200
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
@@ -395,13 +396,14 @@ if __name__ == "__main__":
 
     config.rollout = ConfigDict()
     config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
-    # config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
-    # config.rollout.max_steps = dryrun(
-    #     task_timeout(config.furniture, n_parts=args.n_parts_assemble),
-    #     fb=100,
-    # )
-    # config.rollout.count = num_envs * 1
-    # config.rollout.save_failures = False
+    if not args.no_rollout:
+        config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
+        config.rollout.max_steps = dryrun(
+            task_timeout(config.furniture, n_parts=args.n_parts_assemble),
+            fb=100,
+        )
+        config.rollout.count = num_envs * 1
+        config.rollout.save_failures = False
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
@@ -409,8 +411,8 @@ if __name__ == "__main__":
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
-    config.vision_encoder.freeze = False
-    config.vision_encoder.pretrained = False
+    config.vision_encoder.freeze = True
+    config.vision_encoder.pretrained = True
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -421,7 +423,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = False
+    config.multi_task = True
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
     config.language_conditioning = False
@@ -438,10 +440,10 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    config.feature_layernorm = False
-    # config.feature_layernorm = True
+    # config.feature_layernorm = False
+    config.feature_layernorm = True
 
-    config.augment_image = True
+    config.augment_image = False
     # config.augmentation = ConfigDict()
     # config.augmentation.translate = 10
     # config.augmentation.color_jitter = False
@@ -459,7 +461,8 @@ if __name__ == "__main__":
 
     config.data_path = get_processed_paths(
         environment="sim",
-        task=[config.furniture],
+        task=None,
+        # task=config.furniture,
         demo_source=["teleop", "scripted"],
         randomness=None,
         demo_outcome="success",

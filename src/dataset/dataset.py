@@ -5,7 +5,6 @@ import zarr
 from typing import Union, List
 
 from src.dataset.normalizer import StateActionNormalizer
-from src.dataset.augmentation import ImageAugmentation
 from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
@@ -77,8 +76,6 @@ def sample_sequence(
 
 
 class FurnitureImageDataset(torch.utils.data.Dataset):
-    image_augmentation = None
-
     def __init__(
         self,
         dataset_paths: Union[List[str], str],
@@ -138,8 +135,12 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add image augmentation
         self.augment_image = augment_image
-        self.image1_transform = WristCameraTransform(mode="train")
-        self.image2_transform = FrontCameraTransform(mode="train")
+        self.image1_transform = WristCameraTransform(
+            mode="train" if augment_image else "eval"
+        )
+        self.image2_transform = FrontCameraTransform(
+            mode="train" if augment_image else "eval"
+        )
 
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
@@ -358,6 +359,12 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         # |                 |a|             actions executed:   1
 
         return nsample
+
+    def train(self):
+        pass
+
+    def eval(self):
+        pass
 
 
 class OfflineRLFeatureDataset(FurnitureFeatureDataset):

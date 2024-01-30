@@ -6,6 +6,7 @@ from furniture_bench.device import make_device
 from furniture_bench.config import config
 
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
+from src.data_collection.keyboard_interface import KeyboardInterface
 from src.common.files import trajectory_save_dir
 
 
@@ -72,7 +73,8 @@ def main():
 
     args = parser.parse_args()
 
-    keyboard_device_interface = make_device("keyboard")
+    keyboard_device_interface = KeyboardInterface()
+    keyboard_device_interface.print_usage()
 
     data_path = trajectory_save_dir(
         environment="sim" if args.is_sim else "real",
@@ -91,7 +93,7 @@ def main():
 
     random.shuffle(pickle_paths)
 
-    pickle_paths = pickle_paths[:10]
+    pickle_paths = pickle_paths[:0]
 
     print("loaded num trajectories", len(pickle_paths))
 

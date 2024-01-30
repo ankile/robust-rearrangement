@@ -46,6 +46,10 @@ if __name__ == "__main__":
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(exist_ok=True).name
 
+    # Get the current `test_epoch_loss` from the run
+    test_epoch_loss = run.summary.get("test_epoch_loss", None)
+    print(f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}")
+
     config = ConfigDict(run.config)
 
     if "act_rot_repr" not in config:
@@ -125,6 +129,7 @@ if __name__ == "__main__":
             "n_rollouts": args.n_rollouts,
             "run_id": args.run_id,
             "n_success": round(success_rate * args.n_rollouts),
+            "test_epoch_loss_at_eval": test_epoch_loss,
         }
     )
 
