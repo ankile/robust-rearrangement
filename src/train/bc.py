@@ -66,8 +66,6 @@ def main(config: DictConfig):
         f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    print("config.rollout.count", config.rollout.count)
-
     data_path = get_processed_paths(
         environment=config.data.environment,
         task=config.data.furniture,
