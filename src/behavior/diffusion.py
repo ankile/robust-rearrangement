@@ -71,7 +71,7 @@ class DiffusionPolicy(Actor):
         )
         self.encoder2 = (
             self.encoder1
-            if freeze_encoder
+            if pretrained
             else get_encoder(
                 encoder_name,
                 freeze=freeze_encoder,

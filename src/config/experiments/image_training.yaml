@@ -6,7 +6,7 @@ defaults:
 training:
   observation_type: image
   batch_size: 128
-  data_subset: 100
+  data_subset: 75
 
 regularization:
   feature_layernorm: false

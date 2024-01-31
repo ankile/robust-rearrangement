@@ -338,13 +338,13 @@ if __name__ == "__main__":
     # config.wandb.project = "encoder-comparison"
     config.wandb.project = "teleop-finetune"
     # config.wandb.project = "simple-regularization"
-    config.wandb.notes = "Train on precomputed data, all."
+    config.wandb.notes = "Fine-tuning an end-to-end policy with ~50 percent success rate on one_leg on teleop data."
     config.wandb.mode = args.wb_mode
     config.wandb.continue_run_id = None
 
     # defaults
     config.action_horizon = 8
-    config.pred_horizon = 24
+    config.pred_horizon = 16
     config.first_action_index = 0
     config.obs_horizon = 2
 
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     config.num_diffusion_iters = 100
 
     config.save_rollouts = False
-    config.actor_lr = 1e-4
+    config.actor_lr = 1e-5
     config.batch_size = args.batch_size
     config.clip_grad_norm = False
     config.data_subset = dryrun(args.data_subset, 5)
@@ -385,17 +385,17 @@ if __name__ == "__main__":
 
     config.gpu_id = args.gpu_id
     config.load_checkpoint_path = None
-    # config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/ruby-butterfly-17/actor_chkpt_best_test_loss.pt"
+    config.load_checkpoint_path = "/data/scratch/ankile/furniture-diffusion/models/ruby-butterfly-17/actor_chkpt_best_test_loss.pt"
     config.mixed_precision = False
     config.num_envs = num_envs
-    config.num_epochs = 200
+    config.num_epochs = 20
     config.observation_type = args.obs_type
     config.randomness = "low"
     config.steps_per_epoch = dryrun(400, fb=10)
     config.test_split = 0.05
 
     config.rollout = ConfigDict()
-    config.rollout.every = dryrun(5, fb=1) if not args.no_rollout else -1
+    config.rollout.every = dryrun(1, fb=1) if not args.no_rollout else -1
     if not args.no_rollout:
         config.rollout.loss_threshold = dryrun(0.05, fb=float("inf"))
         config.rollout.max_steps = dryrun(
@@ -407,12 +407,12 @@ if __name__ == "__main__":
 
     config.lr_scheduler = ConfigDict()
     config.lr_scheduler.name = "cosine"
-    config.lr_scheduler.warmup_steps = 500
+    config.lr_scheduler.warmup_steps = 1_000
 
     config.vision_encoder = ConfigDict()
     config.vision_encoder.model = args.encoder
     config.vision_encoder.freeze = True
-    config.vision_encoder.pretrained = True
+    config.vision_encoder.pretrained = False
     # config.vision_encoder.encoding_dim = 256
     # config.vision_encoder.normalize_features = False
 
@@ -423,7 +423,7 @@ if __name__ == "__main__":
     config.discount = 0.999
 
     # Multi-task options
-    config.multi_task = True
+    config.multi_task = False
     config.task_dim = 16
     config.num_tasks = len(furniture2idx)
     config.language_conditioning = False
@@ -440,8 +440,8 @@ if __name__ == "__main__":
     config.feature_noise = False
     # config.feature_noise = 0.01
 
-    # config.feature_layernorm = False
-    config.feature_layernorm = True
+    config.feature_layernorm = False
+    # config.feature_layernorm = True
 
     config.augment_image = False
     # config.augmentation = ConfigDict()
@@ -462,7 +462,7 @@ if __name__ == "__main__":
     config.data_path = get_processed_paths(
         environment="sim",
         task=None,
-        # task=config.furniture,
+        task=config.furniture,
         demo_source=["teleop", "scripted"],
         randomness=None,
         demo_outcome="success",
