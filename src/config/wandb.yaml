@@ -1,5 +1,0 @@
-wandb:
-  project: hydra-test
-  notes: null
-  mode: online
-  continue_run_id: null

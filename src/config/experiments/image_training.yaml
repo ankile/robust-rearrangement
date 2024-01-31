@@ -1,16 +1,18 @@
 # @package _global_
 defaults:
   - override /vision_encoder: spatial_softmax
+
+observation_type: image
   
 # Override the values for observation type, layernorm, and augmentation
-training:
-  observation_type: image
-  batch_size: 128
-  data_subset: 75
+data:
+  batch_size: 256
+  data_subset: 50
+  augment_image: true
+  dataloader_workers: 64
 
 regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
-  augment_image: true
 

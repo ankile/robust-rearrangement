@@ -2,10 +2,35 @@ defaults:
   - actor: diffusion
   - vision_encoder: vip
   - early_stopper
-  - lr_scheduler
   - rollout: default
-  - wandb
   - training
   - regularization
+  - data
+  - multitask: default
+
+action_horizon: 8
+pred_horizon: 16
+obs_horizon: 2
+observation_type: image
+furniture: one_leg
+environment: sim
+demo_source: [scripted]
+randomness: low
+discount: 0.999
+
+
+control:
+  act_rot_repr: rot_6d
+  control_mode: delta
+
+lr_scheduler:
+  name: cosine
+  warmup_steps: 500
+
+wandb:
+  project: hydra-test
+  notes: null
+  mode: online
+  continue_run_id: null
 
 dryrun: false

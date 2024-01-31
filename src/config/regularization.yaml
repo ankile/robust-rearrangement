@@ -2,5 +2,4 @@ regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
-  augment_image: false
   weight_decay: 1e-6

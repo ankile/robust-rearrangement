@@ -1,0 +1,12 @@
+data:
+  test_split: 0.05
+  data_subset: null
+  dataloader_workers: 4
+  pred_horizon: ${pred_horizon}
+  obs_horizon: ${obs_horizon}
+  action_horizon: ${action_horizon}
+  augment_image: false
+  environment: ${environment}
+  furniture: ${furniture}
+  demo_source: ${demo_source}
+  randomness: low

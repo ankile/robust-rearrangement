@@ -1,8 +1,8 @@
 name: diffusion
-action_horizon: 8
-pred_horizon: 24
+action_horizon: ${action_horizon}
+pred_horizon: ${pred_horizon}
+obs_horizon: ${obs_horizon}
 first_action_index: 0
-obs_horizon: 2
 beta_schedule: squaredcos_cap_v2
 down_dims: [256, 512, 1024]
 inference_steps: 16

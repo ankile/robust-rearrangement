@@ -1,7 +1,18 @@
-vision_encoder:
-  model: vip  # or r3m_18, etc.
-  freeze: true
-  pretrained: true
-feature_layernorm: true
-augment_image: false
+# @package _global_
+defaults:
+  - override /vision_encoder: vip
+
 observation_type: feature
+  
+# Override the values for observation type, layernorm, and augmentation
+data:
+  batch_size: 2048
+  data_subset: 50
+  augment_image: false
+  dataloader_workers: 64
+
+regularization:
+  feature_layernorm: true
+  feature_noise: false
+  feature_dropout: false
+

@@ -1,3 +1,0 @@
-lr_scheduler:
-  name: cosine
-  warmup_steps: 500

@@ -43,11 +43,13 @@ def set_dryrun_params(config: ConfigDict):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
         config.training.steps_per_epoch = 10
-        config.training.data_subset = 2
+        config.data.data_subset = 1
 
         if config.rollout.rollouts:
             config.rollout.every = 1
             config.rollout.num_rollouts = 1
+            config.rollout.loss_threshold = float("inf")
+            config.rollout.max_steps = 10
 
         config.wandb.mode = "disabled"
 
@@ -57,48 +59,50 @@ def set_dryrun_params(config: ConfigDict):
 @hydra.main(config_path="../config", config_name="base")
 def main(config: DictConfig):
     set_dryrun_params(config)
-    print(config)
+    OmegaConf.resolve(config)
+    print(OmegaConf.to_yaml(config))
     env = None
     device = torch.device(
         f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
+    print("config.rollout.count", config.rollout.count)
+
     data_path = get_processed_paths(
-        environment="sim",
-        task=None,
-        # task=config.furniture,
-        demo_source=["teleop", "scripted"],
-        randomness=None,
+        environment=config.data.environment,
+        task=config.data.furniture,
+        demo_source=OmegaConf.to_object(config.data.demo_source),
+        randomness=config.data.randomness,
         demo_outcome="success",
     )
 
     print(f"Using data from {data_path}")
 
-    if config.training.observation_type == "image":
+    if config.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_paths=data_path,
-            pred_horizon=config.actor.pred_horizon,
-            obs_horizon=config.actor.obs_horizon,
-            action_horizon=config.actor.action_horizon,
-            augment_image=config.regularization.augment_image,
-            data_subset=config.training.data_subset,
+            pred_horizon=config.data.pred_horizon,
+            obs_horizon=config.data.obs_horizon,
+            action_horizon=config.data.action_horizon,
+            augment_image=config.data.augment_image,
+            data_subset=config.data.data_subset,
             first_action_idx=config.actor.first_action_index,
         )
-    elif config.training.observation_type == "feature":
+    elif config.observation_type == "feature":
         dataset = FurnitureFeatureDataset(
             dataset_paths=data_path,
-            pred_horizon=config.actor.pred_horizon,
-            obs_horizon=config.actor.obs_horizon,
-            action_horizon=config.actor.action_horizon,
+            pred_horizon=config.data.pred_horizon,
+            obs_horizon=config.data.obs_horizon,
+            action_horizon=config.data.action_horizon,
             encoder_name=config.vision_encoder.model,
-            data_subset=config.training.data_subset,
+            data_subset=config.data.data_subset,
             first_action_idx=config.actor.first_action_index,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
     # Split the dataset into train and test
-    train_size = int(len(dataset) * (1 - config.training.test_split))
+    train_size = int(len(dataset) * (1 - config.data.test_split))
     test_size = len(dataset) - train_size
     print(f"Splitting dataset into {train_size} train and {test_size} test samples.")
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
@@ -127,7 +131,7 @@ def main(config: DictConfig):
         dataset=train_dataset,
         n_batches=config.training.steps_per_epoch,
         batch_size=config.training.batch_size,
-        num_workers=config.training.dataloader_workers,
+        num_workers=config.data.dataloader_workers,
         shuffle=True,
         pin_memory=True,
         drop_last=False,
@@ -137,7 +141,7 @@ def main(config: DictConfig):
     testloader = DataLoader(
         dataset=test_dataset,
         batch_size=config.training.batch_size,
-        num_workers=config.training.dataloader_workers,
+        num_workers=config.data.dataloader_workers,
         shuffle=False,
         pin_memory=True,
         drop_last=False,
@@ -182,10 +186,10 @@ def main(config: DictConfig):
             "num_samples": len(train_dataset),
             "num_samples_test": len(test_dataset),
             "num_episodes": int(
-                len(dataset.episode_ends) * (1 - config.training.test_split)
+                len(dataset.episode_ends) * (1 - config.data.test_split)
             ),
             "num_episodes_test": int(
-                len(dataset.episode_ends) * config.training.test_split
+                len(dataset.episode_ends) * config.data.test_split
             ),
             "stats": StateActionNormalizer().stats_dict,
         }
@@ -205,7 +209,7 @@ def main(config: DictConfig):
         config.training.num_epochs,
         initial=config.training.start_epoch,
         total=config.training.num_epochs,
-        desc=f"Epoch ({config.rollout.furniture if config.rollout.rollouts else 'multitask'}, {config.training.observation_type}, {config.vision_encoder.model})",
+        desc=f"Epoch ({config.rollout.furniture if config.rollout.rollouts else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -326,7 +330,7 @@ def main(config: DictConfig):
                     randomness=config.rollout.randomness,
                     # Now using full size images in sim and resizing to be consistent
                     resize_img=False,
-                    act_rot_repr=config.training.act_rot_repr,
+                    act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode="osc",
                 )
 

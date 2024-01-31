@@ -1,0 +1,4 @@
+multi_task: True
+task_dim: 16
+num_tasks: 9
+language_conditioning: False

@@ -25,7 +25,7 @@ class DiffusionPolicy(Actor):
         actor_config = config.actor
         self.obs_horizon = actor_config.obs_horizon
         self.action_dim = (
-            10 if config.training.act_rot_repr == RotationMode.rot_6d else 8
+            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
         )
         self.pred_horizon = actor_config.pred_horizon
         self.action_horizon = actor_config.action_horizon
@@ -34,7 +34,7 @@ class DiffusionPolicy(Actor):
         self.actions = deque(maxlen=self.action_horizon)
 
         self.inference_steps = actor_config.inference_steps
-        self.observation_type = config.training.observation_type
+        self.observation_type = config.observation_type
         self.feature_noise = config.regularization.feature_noise
         self.feature_dropout = config.regularization.feature_dropout
         self.feature_layernorm = config.regularization.feature_layernorm
@@ -60,7 +60,7 @@ class DiffusionPolicy(Actor):
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = StateActionNormalizer(config.training.control_mode).to(device)
+        self.normalizer = StateActionNormalizer(config.control.control_mode).to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
