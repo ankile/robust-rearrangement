@@ -70,6 +70,7 @@ def main(config: DictConfig):
         environment=config.data.environment,
         task=config.data.furniture,
         demo_source=OmegaConf.to_object(config.data.demo_source),
+        # demo_source=config.data.demo_source,
         randomness=config.data.randomness,
         demo_outcome="success",
     )
