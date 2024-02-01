@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: vip
+
+observation_type: feature
+  
+# Override the values for observation type, layernorm, and augmentation
+data:
+  data_subset: 50
+  augment_image: false
+  dataloader_workers: 16
+
+training:
+  batch_size: 2048
+
+regularization:
+  feature_layernorm: true
+  feature_noise: false
+  feature_dropout: false
+

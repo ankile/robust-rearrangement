@@ -1,0 +1,4 @@
+model: vip
+freeze: true
+pretrained: true
+backbone: resnet34

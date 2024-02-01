@@ -57,7 +57,7 @@ def get_processed_path(
 def get_processed_paths(
     environment: Union[List[Environments], Environments, None] = "sim",
     task: Union[List[TaskName], TaskName, None] = None,
-    demo_source: Union[List[DemoSources], DemoSources, None] = "scripted",
+    demo_source: Union[List[DemoSources], DemoSources, None] = None,
     randomness: Union[List[Randomness], Randomness, None] = None,
     demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
 ) -> Path:

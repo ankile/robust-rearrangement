@@ -1,0 +1,13 @@
+training:
+  actor_lr: 1e-4
+  clip_grad_norm: false
+  clip_sample: true
+  gpu_id: 0
+  mixed_precision: false
+  num_epochs: 200
+  batch_size: 64
+  start_epoch: 0
+  steps_per_epoch: 400
+  load_checkpoint_path: null
+  checkpoint_model: true
+  model_save_dir: models

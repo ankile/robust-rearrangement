@@ -1,0 +1,5 @@
+model: spatial_softmax
+freeze: false
+pretrained: false
+backbone: resnet18
+encoding_dim: 256

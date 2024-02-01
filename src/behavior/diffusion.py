@@ -7,6 +7,7 @@ from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
+from src.common.control import RotationMode
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
@@ -21,42 +22,45 @@ class DiffusionPolicy(Actor):
         config,
     ) -> None:
         super().__init__()
-        self.obs_horizon = config.obs_horizon
-        self.action_dim = config.action_dim
-        self.pred_horizon = config.pred_horizon
-        self.action_horizon = config.action_horizon
+        actor_config = config.actor
+        self.obs_horizon = actor_config.obs_horizon
+        self.action_dim = (
+            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
+        )
+        self.pred_horizon = actor_config.pred_horizon
+        self.action_horizon = actor_config.action_horizon
 
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.inference_steps = config.inference_steps
+        self.inference_steps = actor_config.inference_steps
         self.observation_type = config.observation_type
-        self.feature_noise = config.feature_noise
-        self.feature_dropout = config.feature_dropout
-        self.feature_layernorm = config.feature_layernorm
+        self.feature_noise = config.regularization.feature_noise
+        self.feature_dropout = config.regularization.feature_dropout
+        self.feature_layernorm = config.regularization.feature_layernorm
         self.freeze_encoder = freeze_encoder
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config.num_diffusion_iters,
+            num_train_timesteps=config.actor.num_diffusion_iters,
             # the choise of beta schedule has big impact on performance
             # we found squared cosine works the best
-            beta_schedule=config.beta_schedule,
+            beta_schedule=config.actor.beta_schedule,
             # clip output to [-1,1] to improve stability
-            clip_sample=config.clip_sample,
+            clip_sample=config.actor.clip_sample,
             # our network predicts noise (instead of denoised action)
-            prediction_type=config.prediction_type,
+            prediction_type=config.actor.prediction_type,
         )
 
         self.inference_noise_scheduler = DDIMScheduler(
-            num_train_timesteps=config.num_diffusion_iters,
-            beta_schedule=config.beta_schedule,
-            clip_sample=config.clip_sample,
-            prediction_type=config.prediction_type,
+            num_train_timesteps=config.actor.num_diffusion_iters,
+            beta_schedule=config.actor.beta_schedule,
+            clip_sample=config.actor.clip_sample,
+            prediction_type=config.actor.prediction_type,
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = StateActionNormalizer(config.control_mode).to(device)
+        self.normalizer = StateActionNormalizer(config.control.control_mode).to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
@@ -67,7 +71,7 @@ class DiffusionPolicy(Actor):
         )
         self.encoder2 = (
             self.encoder1
-            if freeze_encoder
+            if pretrained
             else get_encoder(
                 encoder_name,
                 freeze=freeze_encoder,
@@ -81,9 +85,9 @@ class DiffusionPolicy(Actor):
         self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
         self.model = ConditionalUnet1D(
-            input_dim=config.action_dim,
+            input_dim=self.action_dim,
             global_cond_dim=self.obs_dim,
-            down_dims=config.down_dims,
+            down_dims=config.actor.down_dims,
         ).to(device)
 
     # === Inference ===

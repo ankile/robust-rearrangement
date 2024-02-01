@@ -6,7 +6,7 @@ import furniture_bench  # noqa
 from furniture_bench.sim_config import sim_config
 import torch
 import wandb
-from ml_collections import ConfigDict
+from omegaconf import OmegaConf, DictConfig
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
@@ -38,6 +38,7 @@ if __name__ == "__main__":
     args.add_argument("--save-failures", action="store_true")
     args.add_argument("--wandb", action="store_true")
     args.add_argument("--n-parts-assemble", type=int, default=None)
+    args.add_argument("--leaderboard", action="store_true")
 
     # Parse the arguments
     args = args.parse_args()
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     test_epoch_loss = run.summary.get("test_epoch_loss", None)
     print(f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}")
 
-    config = ConfigDict(run.config)
+    config: DictConfig = DictConfig(run.config)
 
     if "act_rot_repr" not in config:
         config.act_rot_repr = "quat"
@@ -60,7 +61,7 @@ if __name__ == "__main__":
 
     # Make the device
     device = torch.device(
-        f"cuda:{config.gpu_id}" if torch.cuda.is_available() else "cpu"
+        f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
     # Make the actor
@@ -81,20 +82,30 @@ if __name__ == "__main__":
         randomness=args.randomness,
         max_env_steps=rollout_max_steps,
         resize_img=False,
-        act_rot_repr=config.act_rot_repr,
+        act_rot_repr=config.control.act_rot_repr,
         ctrl_mode="osc",
         verbose=False,
     )
 
     # Start a run to collect the results
-    wandb.init(
-        project="model-eval-test",
-        entity="robot-rearrangement",
-        job_type="eval",
-        config=config.to_dict(),
-        mode="online" if args.wandb else "disabled",
-        name=f"{run.name}-{run.id}",
-    )
+    if args.leaderboard:
+        run = wandb.init(
+            project="model-eval-test",
+            entity="robot-rearrangement",
+            job_type="eval",
+            config=OmegaConf.to_container(config, resolve=True),
+            mode="online" if args.wandb else "disabled",
+            name=f"{run.name}-{run.id}",
+        )
+    else:
+        run = wandb.init(
+            project=run.project,
+            entity="robot-rearrangement",
+            config=OmegaConf.to_container(config, resolve=True),
+            mode="online" if args.wandb else "disabled",
+            id=run.id,
+            resume="allow",
+        )
 
     save_dir = trajectory_save_dir(
         environment="sim",
@@ -123,7 +134,7 @@ if __name__ == "__main__":
     )
 
     # Log the success rate to wandb
-    wandb.log(
+    run.log(
         {
             "success_rate": success_rate,
             "n_rollouts": args.n_rollouts,
@@ -132,6 +143,3 @@ if __name__ == "__main__":
             "test_epoch_loss_at_eval": test_epoch_loss,
         }
     )
-
-    # Close the run
-    wandb.finish()

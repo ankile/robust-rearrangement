@@ -1,0 +1,5 @@
+# new_experiment.yaml
+_extends_: image_training.yaml
+
+training:
+- actor_lr: 1e-5

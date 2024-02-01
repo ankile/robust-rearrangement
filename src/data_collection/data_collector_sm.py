@@ -43,26 +43,6 @@ def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monoton
     return
 
 
-@contextmanager
-def suppress_stdout():
-    fd = sys.stdout.fileno()
-
-    def _redirect_stdout(to):
-        sys.stdout.close()  # + implicit flush()
-        os.dup2(to.fileno(), fd)  # fd writes to 'to' file
-        sys.stdout = os.fdopen(fd, "w")  # Python writes to fd
-
-    with os.fdopen(os.dup(fd), "w") as old_stdout:
-        with open(os.devnull, "w") as file:
-            _redirect_stdout(to=file)
-        try:
-            yield  # allow code to be run with the redirected stdout
-        finally:
-            _redirect_stdout(to=old_stdout)  # restore stdout.
-            # buffering and flags such as
-            # CLOEXEC may be different
-
-
 class DataCollectorSpaceMouse:
     """Demonstration collection class.
     `pkl` files have resized images while `mp4` / `png` files save raw camera inputs.
