@@ -24,7 +24,7 @@ def get_actor(config: DictConfig, device) -> Actor:
             config=config,
         )
     elif actor_name == "diffusion":
-        if "multi_task" in config.training and config.training.multi_task:
+        if config.multitask.multitask:
             return MultiTaskDiffusionPolicy(
                 device=device,
                 encoder_name=config.vision_encoder.model,
