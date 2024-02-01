@@ -14,7 +14,7 @@ obs_horizon: 2
 observation_type: image
 furniture: one_leg
 environment: sim
-demo_source: [scripted]
+demo_source: scripted
 randomness: low
 discount: 0.999
 
@@ -32,5 +32,6 @@ wandb:
   notes: null
   mode: online
   continue_run_id: null
+  name: null
 
 dryrun: false

@@ -39,6 +39,13 @@ from omegaconf import DictConfig, OmegaConf
 logger.set_level(logger.DISABLED)
 
 
+def to_native(obj):
+    try:
+        return OmegaConf.to_object(obj)
+    except ValueError:
+        return obj
+
+
 def set_dryrun_params(config: ConfigDict):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
@@ -69,7 +76,7 @@ def main(config: DictConfig):
     data_path = get_processed_paths(
         environment=config.data.environment,
         task=config.data.furniture,
-        demo_source=OmegaConf.to_object(config.data.demo_source),
+        demo_source=to_native(config.data.demo_source),
         # demo_source=config.data.demo_source,
         randomness=config.data.randomness,
         demo_outcome="success",
@@ -171,6 +178,7 @@ def main(config: DictConfig):
     # Init wandb
     wandb.init(
         id=config.wandb.continue_run_id,
+        name=config.wandb.name,
         resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
         entity="robot-rearrangement",

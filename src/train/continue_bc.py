@@ -4,7 +4,7 @@ from ml_collections import ConfigDict
 from wandb import Api
 
 
-from src.train.train_bc import main as train_bc_main
+from src.train.bc import main as train_bc_main
 
 
 if __name__ == "__main__":
