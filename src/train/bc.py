@@ -14,7 +14,7 @@ from src.dataset.dataset import (
     FurnitureImageDataset,
     FurnitureFeatureDataset,
 )
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset import get_normalizer_cls
 from src.eval.rollout import do_rollout_evaluation
 from src.common.tasks import furniture2idx
 from src.gym import get_env

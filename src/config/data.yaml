@@ -10,3 +10,4 @@ data:
   furniture: ${furniture}
   demo_source: ${demo_source}
   randomness: low
+  normalization: min_max # min_max, mean_std
