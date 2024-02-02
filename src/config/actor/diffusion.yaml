@@ -9,3 +9,7 @@ inference_steps: 16
 prediction_type: epsilon
 num_diffusion_iters: 100
 clip_sample: frue
+loss_fn: MSELoss  # MSELoss | L1Loss
+
+defaults:
+  - diffusion_model: unet

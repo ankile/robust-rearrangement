@@ -1,6 +1,7 @@
 from collections import deque
 import torch
 import torch.nn as nn
+
 from src.dataset.normalizer import StateActionNormalizer
 from src.models.vision import get_encoder
 from src.models.unet import ConditionalUnet1D
@@ -90,6 +91,11 @@ class DiffusionPolicy(Actor):
             down_dims=config.actor.down_dims,
         ).to(device)
 
+        loss_fn_name = (
+            config.actor.loss_fn if hasattr(config.actor, "loss_fn") else "MSELoss"
+        )
+        self.loss_fn = getattr(nn, loss_fn_name)()
+
     # === Inference ===
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
@@ -170,7 +176,7 @@ class DiffusionPolicy(Actor):
 
         # forward pass
         noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
-        loss = nn.functional.mse_loss(noise_pred, noise)
+        loss = self.loss_fn(noise_pred, noise)
 
         return loss
 
