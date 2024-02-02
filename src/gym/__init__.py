@@ -16,6 +16,7 @@ def get_env(
     resize_img=True,
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
+    action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
     verbose=False,
 ) -> FurnitureSimEnv:
     with suppress_all_output(True):
@@ -40,6 +41,7 @@ def get_env(
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
             ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
+            action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
             verbose=verbose,  # If true, prints debug information.
         )
 

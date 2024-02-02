@@ -5,7 +5,6 @@ These values are then written to a json file for use in the normalizer.
 """
 
 from typing import Dict, List
-from requests import get
 import zarr
 import os
 import json
@@ -20,7 +19,7 @@ def get_stats_json_path() -> Path:
     )
 
 
-def get_data_stats(data) -> Dict[str, List]:
+def get_stats_for_field(data) -> Dict[str, List]:
     data = data.reshape(-1, data.shape[-1])
     stats = {
         "min": np.min(data, axis=0).tolist(),
@@ -64,7 +63,7 @@ def accumulate_values(zarr_files: List[str], keys: List[str]):
 def stats_for_keys(data: Dict[str, np.ndarray], keys: List[str]):
     stats = {}
     for key in keys:
-        stats[key] = get_data_stats(data[key])
+        stats[key] = get_stats_for_field(data[key])
     return stats
 
 

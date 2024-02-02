@@ -16,7 +16,6 @@ from src.dataset.dataset import (
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.common.tasks import furniture2idx
 from src.gym import get_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
@@ -96,6 +95,7 @@ def main(config: DictConfig):
             normalizer=normalizer.get_copy(),
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
+            control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
         )
     elif config.observation_type == "feature":
@@ -107,6 +107,7 @@ def main(config: DictConfig):
             normalizer=normalizer.get_copy(),
             encoder_name=config.vision_encoder.model,
             data_subset=config.data.data_subset,
+            control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
         )
     else:
@@ -348,6 +349,7 @@ def main(config: DictConfig):
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode="osc",
+                    action_type=config.control.control_mode,
                 )
 
             best_success_rate = do_rollout_evaluation(
