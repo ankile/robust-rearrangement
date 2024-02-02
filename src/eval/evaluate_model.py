@@ -66,7 +66,9 @@ if __name__ == "__main__":
 
     # Get the normalizer
     # TODO: Add in the normalizer type from the config
-    normalizer = get_normalizer(normalizer_type="min_max", control_mode="delta")
+
+    normalizer_type = config.get("data", {}).get("normalization", "min_max")
+    normalizer = get_normalizer(normalizer_type=normalizer_type, control_mode="delta")
 
     # Make the actor
     actor = get_actor(config=config, normalizer=normalizer, device=device)
