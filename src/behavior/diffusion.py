@@ -3,12 +3,13 @@ import torch
 import torch.nn as nn
 
 from src.dataset.normalizer import StateActionNormalizer
-from src.models.vision import get_encoder
+from src.models import get_encoder
 from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
 from src.common.control import RotationMode
+from src.models import get_diffusion_backbone
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
@@ -45,7 +46,7 @@ class DiffusionPolicy(Actor):
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=config.actor.num_diffusion_iters,
             # the choise of beta schedule has big impact on performance
-            # we found squared cosine works the best
+            # squared cosine is found to work the best
             beta_schedule=config.actor.beta_schedule,
             # clip output to [-1,1] to improve stability
             clip_sample=config.actor.clip_sample,
@@ -81,14 +82,19 @@ class DiffusionPolicy(Actor):
             )
         )
 
+        self.flatten_obs = config.actor.diffusion_model.flatten_obs
         self.encoding_dim = self.encoder1.encoding_dim
         self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
-        self.obs_dim = self.timestep_obs_dim * self.obs_horizon
+        self.obs_dim = (
+            self.timestep_obs_dim * self.obs_horizon
+            if self.flatten_obs
+            else self.timestep_obs_dim
+        )
 
-        self.model = ConditionalUnet1D(
-            input_dim=self.action_dim,
-            global_cond_dim=self.obs_dim,
-            down_dims=config.actor.down_dims,
+        self.model = get_diffusion_backbone(
+            action_dim=self.action_dim,
+            obs_dim=self.obs_dim,
+            actor_config=config.actor,
         ).to(device)
 
         loss_fn_name = (
@@ -142,7 +148,7 @@ class DiffusionPolicy(Actor):
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations
-        nobs = self._normalized_obs(obs)
+        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
@@ -154,7 +160,7 @@ class DiffusionPolicy(Actor):
     # === Training ===
     def compute_loss(self, batch):
         # State already normalized in the dataset
-        obs_cond = self._training_obs(batch)
+        obs_cond = self._training_obs(batch, flatten=self.flatten_obs)
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])

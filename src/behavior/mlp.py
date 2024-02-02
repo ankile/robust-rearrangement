@@ -6,7 +6,7 @@ from ipdb import set_trace as bp  # noqa
 
 from src.behavior.base import Actor
 from src.models.mlp import MLP
-from src.models.vision import get_encoder
+from src.models import get_encoder
 from src.dataset.normalizer import StateActionNormalizer
 
 

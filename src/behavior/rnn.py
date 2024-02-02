@@ -9,7 +9,7 @@ from robomimic.algo.algo import PolicyAlgo
 import robomimic.utils.obs_utils as ObsUtils
 
 from src.behavior.base import Actor
-from src.models.vision import get_encoder
+from src.models import get_encoder
 from src.dataset.normalizer import StateActionNormalizer
 from src.baseline.robomimic_config_util import get_rm_config
 

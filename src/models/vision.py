@@ -10,32 +10,6 @@ from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
 
 
-def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
-    if encoder_name.startswith("dinov2"):
-        return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
-    if encoder_name.startswith("r3m"):
-        return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
-    if encoder_name == "vip":
-        return VIPEncoder(freeze=freeze, device=device)
-    if encoder_name.startswith("resnet"):
-        return ResnetEncoder(
-            model_name=encoder_name,
-            freeze=freeze,
-            device=device,
-            use_groupnorm=True,
-            pretrained=pretrained,
-        )
-    if encoder_name == "spatial_softmax":
-        return SpatialSoftmaxEncoder(freeze=False, device=device)
-    if encoder_name == "dino":
-        return DinoEncoder(freeze=freeze, device=device)
-    if encoder_name == "mae":
-        return MAEEncoder(freeze=freeze, device=device)
-    if encoder_name == "voltron":
-        return VoltronEncoder(freeze=freeze, device=device)
-    raise ValueError(f"Unknown encoder name: {encoder_name}")
-
-
 # Function borrowed from
 # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/model/vision/model_getter.py
 def get_resnet(model_name, weights=None, **kwargs):
