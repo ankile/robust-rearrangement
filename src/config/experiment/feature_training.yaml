@@ -6,9 +6,10 @@ observation_type: feature
   
 # Override the values for observation type, layernorm, and augmentation
 data:
-  data_subset: 50
+  data_subset: 200
   augment_image: false
   dataloader_workers: 16
+  randomness: [low, med]
 
 training:
   batch_size: 2048

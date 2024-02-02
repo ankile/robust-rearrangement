@@ -14,7 +14,7 @@ from src.dataset.dataset import (
     FurnitureImageDataset,
     FurnitureFeatureDataset,
 )
-from src.dataset import get_normalizer_cls
+from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
 from src.common.tasks import furniture2idx
 from src.gym import get_env
@@ -22,8 +22,8 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
+from src.dataset.normalizer import Normalizer
 from src.common.pytorch_util import dict_apply
-import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
@@ -77,9 +77,12 @@ def main(config: DictConfig):
         environment=config.data.environment,
         task=config.data.furniture,
         demo_source=to_native(config.data.demo_source),
-        # demo_source=config.data.demo_source,
-        randomness=config.data.randomness,
+        randomness=to_native(config.data.randomness),
         demo_outcome="success",
+    )
+
+    normalizer: Normalizer = get_normalizer(
+        config.data.normalization, config.control.control_mode
     )
 
     print(f"Using data from {data_path}")
@@ -90,6 +93,7 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
+            normalizer=normalizer.get_copy(),
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
             first_action_idx=config.actor.first_action_index,
@@ -100,6 +104,7 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
+            normalizer=normalizer.get_copy(),
             encoder_name=config.vision_encoder.model,
             data_subset=config.data.data_subset,
             first_action_idx=config.actor.first_action_index,
@@ -117,7 +122,11 @@ def main(config: DictConfig):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
-    actor = get_actor(config, device)
+    actor = get_actor(
+        config,
+        normalizer.get_copy(),
+        device,
+    )
 
     # Set the data path in the config object
     config.data_path = [str(f) for f in data_path]
@@ -198,7 +207,7 @@ def main(config: DictConfig):
             "num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
-            "stats": StateActionNormalizer().stats_dict,
+            "stats": normalizer.stats_dict,
         }
     )
 

@@ -3,7 +3,6 @@ from datetime import datetime
 import os
 from pathlib import Path
 import furniture_bench  # noqa
-from furniture_bench.sim_config import sim_config
 import torch
 import wandb
 from omegaconf import OmegaConf, DictConfig
@@ -12,6 +11,7 @@ from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env
+from src.dataset import get_normalizer
 
 from ipdb import set_trace as bp  # noqa
 from wandb import Api
@@ -64,8 +64,12 @@ if __name__ == "__main__":
         f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
+    # Get the normalizer
+    # TODO: Add in the normalizer type from the config
+    normalizer = get_normalizer(normalizer_type="min_max", control_mode="delta")
+
     # Make the actor
-    actor = get_actor(config=config, device=device)
+    actor = get_actor(config=config, normalizer=normalizer, device=device)
 
     # Load the model weights
     actor.load_state_dict(torch.load(model_path))

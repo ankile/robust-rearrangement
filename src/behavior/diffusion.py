@@ -2,7 +2,7 @@ from collections import deque
 import torch
 import torch.nn as nn
 
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset.normalizer import Normalizer
 from src.models import get_encoder
 from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
@@ -21,6 +21,7 @@ class DiffusionPolicy(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__()
@@ -62,7 +63,7 @@ class DiffusionPolicy(Actor):
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = StateActionNormalizer(config.control.control_mode).to(device)
+        self.normalizer = normalizer.to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
@@ -266,7 +267,7 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__(

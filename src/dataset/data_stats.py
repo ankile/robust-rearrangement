@@ -15,7 +15,9 @@ import numpy as np
 
 
 def get_stats_json_path() -> Path:
-    return Path(".").resolve() / "src" / "dataset" / "data_stats.json"
+    return (
+        Path(os.environ["DATA_DIR_PROCESSED"]) / "processed" / "sim" / "data_stats.json"
+    )
 
 
 def get_data_stats(data) -> Dict[str, List]:

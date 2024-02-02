@@ -111,6 +111,10 @@ class Normalizer(nn.Module):
             for stat in self.stats[key].keys():
                 self.stats[key][stat].requires_grad = False
 
+    # Make a method that let's you get a copy of the class instance
+    def get_copy(self):
+        return self.__class__(control_mode=self.control_mode)
+
 
 class LinearNormalizer(Normalizer):
     def __init__(self, control_mode="delta"):

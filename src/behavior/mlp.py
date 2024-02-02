@@ -7,7 +7,7 @@ from ipdb import set_trace as bp  # noqa
 from src.behavior.base import Actor
 from src.models.mlp import MLP
 from src.models import get_encoder
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset.normalizer import Normalizer
 
 
 class MLPActor(Actor):
@@ -16,7 +16,7 @@ class MLPActor(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__()

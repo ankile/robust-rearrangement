@@ -10,7 +10,7 @@ import robomimic.utils.obs_utils as ObsUtils
 
 from src.behavior.base import Actor
 from src.models import get_encoder
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset.normalizer import Normalizer
 from src.baseline.robomimic_config_util import get_rm_config
 
 
@@ -20,7 +20,7 @@ class RNNActor(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__()

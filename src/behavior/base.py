@@ -1,7 +1,7 @@
 from collections import deque
 import torch
 import torch.nn as nn
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset.normalizer import Normalizer
 
 from ipdb import set_trace as bp  # noqa
 from src.common.geometry import proprioceptive_to_6d_rotation
@@ -20,7 +20,7 @@ class PostInitCaller(type(torch.nn.Module)):
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
-    normalizer: StateActionNormalizer
+    normalizer: Normalizer
     feature_noise: bool = False
     feature_dropout: bool = False
     feature_layernorm: bool = False
