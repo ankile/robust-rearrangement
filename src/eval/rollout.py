@@ -3,14 +3,11 @@ from ml_collections import ConfigDict
 import torch
 
 import collections
-from datetime import datetime
-from pathlib import Path
 
 import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
-import pickle
 
 from typing import Union
 
@@ -23,6 +20,18 @@ from src.data_collection.io import save_raw_rollout
 from src.data_processing.utils import resize, resize_crop
 
 import wandb
+
+
+RolloutStats = collections.namedtuple(
+    "RolloutStats",
+    [
+        "success_rate",
+        "n_success",
+        "n_rollouts",
+        "epoch_idx",
+        "rollout_max_steps",
+    ],
+)
 
 
 def rollout(
@@ -127,7 +136,7 @@ def calculate_success_rate(
     rollout_save_dir: Union[str, None] = None,
     save_failures: bool = False,
     n_parts_assemble: Union[int, None] = None,
-):
+) -> RolloutStats:
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
         total = rnd * env.num_envs
@@ -254,7 +263,13 @@ def calculate_success_rate(
 
     pbar.close()
 
-    return n_success / n_rollouts
+    return RolloutStats(
+        success_rate=n_success / n_rollouts,
+        n_success=n_success,
+        n_rollouts=n_rollouts,
+        epoch_idx=epoch_idx,
+        rollout_max_steps=rollout_max_steps,
+    )
 
 
 def do_rollout_evaluation(
@@ -279,7 +294,7 @@ def do_rollout_evaluation(
 
     actor.set_task(furniture2idx[config.furniture])
 
-    success_rate = calculate_success_rate(
+    rollout_stats = calculate_success_rate(
         env,
         actor,
         n_rollouts=config.rollout.count,
@@ -289,7 +304,7 @@ def do_rollout_evaluation(
         rollout_save_dir=rollout_save_dir,
         save_failures=config.rollout.save_failures,
     )
-
+    success_rate = rollout_stats.success_rate
     best_success_rate = max(best_success_rate, success_rate)
 
     # Log the success rate to wandb
@@ -297,6 +312,8 @@ def do_rollout_evaluation(
         {
             "success_rate": success_rate,
             "best_success_rate": best_success_rate,
+            "n_success": rollout_stats.n_success,
+            "n_rollouts": rollout_stats.n_rollouts,
             "epoch": epoch_idx,
         }
     )

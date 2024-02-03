@@ -197,6 +197,10 @@ def main(config: DictConfig):
         notes=config.wandb.notes,
     )
 
+    # In sweeps, the init is ignored, so to make sure that the config is saved correctly
+    # to wandb we need to log it manually
+    wandb.config.update(config_dict)
+
     # save stats to wandb and update the config object
     wandb.log(
         {
