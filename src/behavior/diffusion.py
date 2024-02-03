@@ -3,13 +3,12 @@ import torch
 import torch.nn as nn
 
 from src.dataset.normalizer import Normalizer
-from src.models import get_encoder
-from src.models.unet import ConditionalUnet1D
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
 from src.common.control import RotationMode
-from src.models import get_diffusion_backbone
+from src.models import get_diffusion_backbone, get_encoder
+from src.models.unet import ConditionalUnet1D
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
@@ -25,18 +24,18 @@ class DiffusionPolicy(Actor):
         config,
     ) -> None:
         super().__init__()
-        actor_config = config.actor
-        self.obs_horizon = actor_config.obs_horizon
+        actor_cfg = config.actor
+        self.obs_horizon = actor_cfg.obs_horizon
         self.action_dim = (
             10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
         )
-        self.pred_horizon = actor_config.pred_horizon
-        self.action_horizon = actor_config.action_horizon
+        self.pred_horizon = actor_cfg.pred_horizon
+        self.action_horizon = actor_cfg.action_horizon
 
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.inference_steps = actor_config.inference_steps
+        self.inference_steps = actor_cfg.inference_steps
         self.observation_type = config.observation_type
         self.feature_noise = config.regularization.feature_noise
         self.feature_dropout = config.regularization.feature_dropout
@@ -45,21 +44,21 @@ class DiffusionPolicy(Actor):
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config.actor.num_diffusion_iters,
+            num_train_timesteps=actor_cfg.num_diffusion_iters,
             # the choise of beta schedule has big impact on performance
             # squared cosine is found to work the best
-            beta_schedule=config.actor.beta_schedule,
+            beta_schedule=actor_cfg.beta_schedule,
             # clip output to [-1,1] to improve stability
-            clip_sample=config.actor.clip_sample,
+            clip_sample=actor_cfg.clip_sample,
             # our network predicts noise (instead of denoised action)
-            prediction_type=config.actor.prediction_type,
+            prediction_type=actor_cfg.prediction_type,
         )
 
         self.inference_noise_scheduler = DDIMScheduler(
-            num_train_timesteps=config.actor.num_diffusion_iters,
-            beta_schedule=config.actor.beta_schedule,
-            clip_sample=config.actor.clip_sample,
-            prediction_type=config.actor.prediction_type,
+            num_train_timesteps=actor_cfg.num_diffusion_iters,
+            beta_schedule=actor_cfg.beta_schedule,
+            clip_sample=actor_cfg.clip_sample,
+            prediction_type=actor_cfg.prediction_type,
         )
 
         # Convert the stats to tensors on the device
@@ -82,9 +81,20 @@ class DiffusionPolicy(Actor):
                 pretrained=pretrained,
             )
         )
+        self.encoding_dim = self.encoder1.encoding_dim
+
+        if actor_cfg.projection_dim:
+            self.encoder1 = nn.Sequential(
+                self.encoder1,
+                nn.Linear(self.encoding_dim, actor_cfg.projection_dim),
+            ).to(device)
+            self.encoder2 = nn.Sequential(
+                self.encoder2,
+                nn.Linear(self.encoding_dim, actor_cfg.projection_dim),
+            ).to(device)
+            self.encoding_dim = actor_cfg.projection_dim
 
         self.flatten_obs = config.actor.diffusion_model.flatten_obs
-        self.encoding_dim = self.encoder1.encoding_dim
         self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
         self.obs_dim = (
             self.timestep_obs_dim * self.obs_horizon

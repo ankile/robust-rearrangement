@@ -35,7 +35,7 @@ class FrontCameraTransform(nn.Module):
         )
         self.transform_eval = transforms.CenterCrop(crop_size)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.mode == "train":
             return self.transform_train(x)
         elif self.mode == "eval":
@@ -68,7 +68,7 @@ class WristCameraTransform(nn.Module):
         )
         self.transform_eval = transforms.Resize((224, 224), antialias=True)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.mode == "train":
             return self.transform_train(x)
         elif self.mode == "eval":

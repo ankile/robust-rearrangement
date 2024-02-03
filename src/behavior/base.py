@@ -1,3 +1,4 @@
+from typing import Tuple
 from collections import deque
 import torch
 import torch.nn as nn
@@ -30,7 +31,13 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
 
+    encoder1: nn.Module
+    encoder2: nn.Module
+
     def __post_init__(self, *args, **kwargs):
+        assert self.encoder1 is not None, "encoder1 is not defined"
+        assert self.encoder2 is not None, "encoder2 is not defined"
+
         if self.feature_dropout:
             self.dropout = nn.Dropout(p=self.feature_dropout)
 
@@ -83,16 +90,16 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         image2 = image2.permute(0, 3, 1, 2)
 
         # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
-        image1 = self.camera1_transform(image1)
-        image2 = self.camera2_transform(image2)
+        image1: torch.Tensor = self.camera1_transform(image1)
+        image2: torch.Tensor = self.camera2_transform(image2)
 
         # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
         image1 = image1.permute(0, 2, 3, 1)
         image2 = image2.permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-        feature2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+        feature1: torch.Tensor = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
+        feature2: torch.Tensor = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
 
         # Apply the regularization to the features
         feature1, feature2 = self.regularize_features(feature1, feature2)
@@ -106,7 +113,9 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         return nobs
 
-    def regularize_features(self, feature1, feature2):
+    def regularize_features(
+        self, feature1: torch.Tensor, feature2: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.feature_layernorm:
             feature1 = self.layernorm1(feature1)
             feature2 = self.layernorm2(feature2)
@@ -128,8 +137,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         B = nrobot_state.shape[0]
 
         if self.observation_type == "image":
-            image1 = batch["color_image1"]
-            image2 = batch["color_image2"]
+            image1: torch.Tensor = batch["color_image1"]
+            image2: torch.Tensor = batch["color_image2"]
 
             # Reshape the images to (B * obs_horizon, H, W, C) for the encoder
             image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])

@@ -40,7 +40,6 @@ class VisionEncoder(ModuleAttrMixin):
 class SpatialSoftmaxEncoder(VisionEncoder):
     def __init__(
         self,
-        model_name="ResNet18Conv",
         freeze=True,
         device="cuda",
         use_groupnorm=True,
@@ -51,16 +50,18 @@ class SpatialSoftmaxEncoder(VisionEncoder):
 
         from robomimic.models.obs_core import VisualCore
 
-        self.encoding_dim = 256
+        self.input_shape = [3, 224, 224]
 
         self.model = VisualCore(
-            input_shape=[3, 224, 224],
-            backbone_class=model_name,
+            input_shape=self.input_shape,
+            backbone_class="ResNet18Conv",
             pool_class="SpatialSoftmax",
             pool_kwargs={"num_kp": 32},
             flatten=True,
-            feature_dimension=self.encoding_dim,
+            feature_dimension=None,
         )
+
+        self.encoding_dim = self.model.output_shape(self.input_shape)[0]
 
         if use_groupnorm:
             self.model = replace_submodules(
@@ -100,6 +101,7 @@ class ResnetEncoder(VisionEncoder):
     ) -> None:
         super().__init__(*args, **kwargs)
         assert model_name in ["resnet18", "resnet34", "resnet50"]
+        assert not freeze or pretrained, "If not pretrained, then freeze must be False"
 
         weights = "IMAGENET1K_V1" if pretrained else None
 
@@ -116,6 +118,9 @@ class ResnetEncoder(VisionEncoder):
             )
 
         self.model = self.model.to(device)
+
+        if freeze:
+            self.freeze()
 
     # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
     def forward(self, x):
