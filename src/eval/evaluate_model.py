@@ -51,13 +51,10 @@ if __name__ == "__main__":
     test_epoch_loss = run.summary.get("test_epoch_loss", None)
     print(f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}")
 
-    config: DictConfig = DictConfig(run.config)
-
-    if "act_rot_repr" not in config:
-        config.act_rot_repr = "quat"
-
-    # Add the original project name to the config
-    config.project_name = run.project
+    # Create the config object with the project name and make it read-only
+    config: DictConfig = OmegaConf.create(
+        {**run.config, "project_name": run.project}, flags={"readonly": True}
+    )
 
     # Make the device
     device = torch.device(
@@ -65,8 +62,6 @@ if __name__ == "__main__":
     )
 
     # Get the normalizer
-    # TODO: Add in the normalizer type from the config
-
     normalizer_type = config.get("data", {}).get("normalization", "min_max")
     normalizer = get_normalizer(normalizer_type=normalizer_type, control_mode="delta")
 
@@ -90,6 +85,7 @@ if __name__ == "__main__":
         resize_img=False,
         act_rot_repr=config.control.act_rot_repr,
         ctrl_mode="osc",
+        action_type="delta",
         verbose=False,
     )
 
