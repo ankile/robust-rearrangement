@@ -27,7 +27,6 @@ command:
   - ${program}
   - +experiment=image_training
   - data.dataloader_workers=16
-  - vision_encoder.freeze=false
   - training.batch_size=256
   - demo_source=teleop
   - ${args_no_hyphens}
