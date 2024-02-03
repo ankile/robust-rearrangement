@@ -6,7 +6,7 @@ training:
   clip_sample: true
   mixed_precision: false
   
-  num_epochs: 200
+  num_epochs: 400
   batch_size: 64
   start_epoch: 0
   steps_per_epoch: 400
