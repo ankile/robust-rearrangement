@@ -1,7 +1,12 @@
+from typing import Literal
+
 from src.dataset.normalizer import LinearNormalizer, GaussianNormalizer, Normalizer
 
 
-def get_normalizer(normalizer_type, control_mode) -> Normalizer:
+def get_normalizer(
+    normalizer_type: Literal["min_max", "mean_std"],
+    control_mode: Literal["delta", "pos"],
+) -> Normalizer:
     assert normalizer_type in [
         "min_max",
         "mean_std",

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import pytorch3d.transforms as pt
 from ipdb import set_trace as bp
+from scipy.spatial.transform import Rotation as R
 
 
 def isaac_quat_to_pytorch3d_quat(quat):
@@ -39,6 +40,25 @@ def np_isaac_quat_to_rot_6d(quat: np.ndarray) -> np.ndarray:
     quat = torch.from_numpy(quat)
     rot_6d = isaac_quat_to_rot_6d(quat)
     return rot_6d.numpy()
+
+
+def rot_6d_to_isaac_quat(rot_6d: torch.Tensor) -> torch.Tensor:
+    # Convert 6D rotation back to a full rotation matrix
+    rot_mats = pt.rotation_6d_to_matrix(rot_6d)
+
+    # Convert rotation matrix to quaternion
+    quat = pt.matrix_to_quaternion(rot_mats)
+
+    # Convert quaternion from PyTorch3D format to IsaacGym format
+    quat = pytorch3d_quat_to_isaac_quat(quat)
+
+    return quat
+
+
+def np_rot_6d_to_isaac_quat(rot_6d: np.ndarray) -> np.ndarray:
+    rot_6d_tensor = torch.from_numpy(rot_6d)
+    quat = rot_6d_to_isaac_quat(rot_6d_tensor)
+    return quat.numpy()
 
 
 def action_to_6d_rotation(action: torch.tensor) -> torch.tensor:
@@ -87,6 +107,28 @@ def np_action_to_6d_rotation(action: np.ndarray) -> np.ndarray:
     action_6d = action_to_6d_rotation(action)
     action_6d = action_6d.numpy()
     return action_6d
+
+
+def np_rot_6d_to_rotvec(rot_6d: np.ndarray) -> np.ndarray:
+    # convert to isaac quat (which means that the real part is last)
+    quat = np_rot_6d_to_isaac_quat(rot_6d)
+
+    # convert to rot_vec using scipy (which also uses real part last)
+    r = R.from_quat(quat)
+    rot_vec = r.as_rotvec()
+
+    return rot_vec
+
+
+def np_rotvec_to_rot_6d(rot_vec: np.ndarray) -> np.ndarray:
+    # Convert rotation vector to quaternion using scipy
+    r = R.from_rotvec(rot_vec)
+    quat = r.as_quat()  # This will produce a quaternion with the real part last
+
+    # Convert this isaac quat back to 6D rotation
+    rot_6d = np_isaac_quat_to_rot_6d(quat)
+
+    return rot_6d
 
 
 def proprioceptive_to_6d_rotation(robot_state: torch.tensor) -> torch.tensor:
