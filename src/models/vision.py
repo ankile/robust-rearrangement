@@ -199,7 +199,7 @@ class R3MEncoder(torch.nn.Module):
         model_name = f"resnet{model_name.split('_')[1]}"
 
         self.device = device
-        self.model = load_r3m(modelid=model_name, device=device).module.to(device)
+        self.model = load_r3m(modelid=model_name).module.to(device)
         self.encoding_dim = dict(
             resnet18=512,
             resnet34=512,

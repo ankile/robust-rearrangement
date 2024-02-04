@@ -252,14 +252,15 @@ def calculate_success_rate(
     for row in table_rows:
         tbl.add_data(*row)
 
-    # Log the videos to wandb table
-    wandb.log(
-        {
-            "rollouts": tbl,
-            "epoch": epoch_idx,
-            "epoch_mean_return": total_return / n_rollouts,
-        }
-    )
+    # Log the videos to wandb table if a run is active
+    if wandb.run is not None:
+        wandb.log(
+            {
+                "rollouts": tbl,
+                "epoch": epoch_idx,
+                "epoch_mean_return": total_return / n_rollouts,
+            }
+        )
 
     pbar.close()
 
