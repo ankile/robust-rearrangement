@@ -32,7 +32,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     camera2_transform = FrontCameraTransform(mode="eval")
 
     encoder1: nn.Module
+    encoder1_proj: nn.Module
+
     encoder2: nn.Module
+    encoder2_proj: nn.Module
 
     def __post_init__(self, *args, **kwargs):
         assert self.encoder1 is not None, "encoder1 is not defined"
@@ -98,8 +101,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         image2 = image2.permute(0, 2, 3, 1)
 
         # Encode the images and reshape back to (B, obs_horizon, -1)
-        feature1: torch.Tensor = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-        feature2: torch.Tensor = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+        feature1: torch.Tensor = self.encoder1_proj(self.encoder1(image1)).reshape(
+            B, self.obs_horizon, -1
+        )
+        feature2: torch.Tensor = self.encoder2_proj(self.encoder2(image2)).reshape(
+            B, self.obs_horizon, -1
+        )
 
         # Apply the regularization to the features
         feature1, feature2 = self.regularize_features(feature1, feature2)
@@ -145,8 +152,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
 
             # Encode images and reshape back to (B, obs_horizon, encoding_dim)
-            feature1 = self.encoder1(image1).reshape(B, self.obs_horizon, -1)
-            feature2 = self.encoder2(image2).reshape(B, self.obs_horizon, -1)
+            feature1 = self.encoder1_proj(self.encoder1(image1)).reshape(
+                B, self.obs_horizon, -1
+            )
+            feature2 = self.encoder2_proj(self.encoder2(image2)).reshape(
+                B, self.obs_horizon, -1
+            )
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
@@ -154,8 +165,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
-            feature1 = batch["feature1"]
-            feature2 = batch["feature2"]
+            feature1 = self.encoder1_proj(batch["feature1"])
+            feature2 = self.encoder2_proj(batch["feature2"])
 
             # Apply the regularization to the features
             feature1, feature2 = self.regularize_features(feature1, feature2)

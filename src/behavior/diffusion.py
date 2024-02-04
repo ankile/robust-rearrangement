@@ -73,7 +73,7 @@ class DiffusionPolicy(Actor):
         )
         self.encoder2 = (
             self.encoder1
-            if pretrained
+            if freeze_encoder
             else get_encoder(
                 encoder_name,
                 freeze=freeze_encoder,
@@ -84,15 +84,16 @@ class DiffusionPolicy(Actor):
         self.encoding_dim = self.encoder1.encoding_dim
 
         if actor_cfg.get("projection_dim") is not None:
-            self.encoder1 = nn.Sequential(
-                self.encoder1,
-                nn.Linear(self.encoding_dim, actor_cfg.projection_dim),
+            self.encoder1_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
             ).to(device)
-            self.encoder2 = nn.Sequential(
-                self.encoder2,
-                nn.Linear(self.encoding_dim, actor_cfg.projection_dim),
+            self.encoder2_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
             ).to(device)
             self.encoding_dim = actor_cfg.projection_dim
+        else:
+            self.encoder1_proj = nn.Identity()
+            self.encoder2_proj = nn.Identity()
 
         self.flatten_obs = config.actor.diffusion_model.flatten_obs
         self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
