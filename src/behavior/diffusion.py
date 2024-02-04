@@ -83,7 +83,7 @@ class DiffusionPolicy(Actor):
         )
         self.encoding_dim = self.encoder1.encoding_dim
 
-        if actor_cfg.projection_dim:
+        if actor_cfg.get("projection_dim") is not None:
             self.encoder1 = nn.Sequential(
                 self.encoder1,
                 nn.Linear(self.encoding_dim, actor_cfg.projection_dim),

@@ -212,7 +212,6 @@ def main(config: DictConfig):
             "num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
-            "stats": normalizer.stats_dict,
         }
     )
 

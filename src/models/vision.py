@@ -58,7 +58,8 @@ class SpatialSoftmaxEncoder(VisionEncoder):
             pool_class="SpatialSoftmax",
             pool_kwargs={"num_kp": 32},
             flatten=True,
-            feature_dimension=None,
+            # feature_dimension=None,
+            feature_dimension=256,
         )
 
         self.encoding_dim = self.model.output_shape(self.input_shape)[0]

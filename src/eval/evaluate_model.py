@@ -18,6 +18,65 @@ from wandb.sdk.wandb_run import Run
 api = Api()
 
 
+def validate_args(args: argparse.Namespace):
+    assert (
+        sum(
+            [
+                args.run_id is not None,
+                args.sweep_id is not None,
+                args.project_id is not None,
+            ]
+        )
+        == 1
+    ), "Exactly one of run-id, sweep-id, project-id must be provided"
+    assert args.run_state is None or all(
+        [
+            state in ["running", "finished", "failed", "crashed"]
+            for state in args.run_state
+        ]
+    ), (
+        "Invalid run-state: "
+        f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
+    )
+    assert (
+        not args.continuous_mode
+        or args.sweep_id is not None
+        or args.project_id is not None
+    ), "Continuous mode is only supported when sweep_id is provided"
+
+    assert not args.leaderboard, "Leaderboard mode is not supported as of now"
+
+
+def get_runs(args: argparse.Namespace) -> List[Run]:
+    if args.sweep_id:
+        runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
+    elif args.run_id:
+        runs: List[Run] = [api.run(f"robot-rearrangement/{args.run_id}")]
+    elif args.project_id:
+        runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
+    else:
+        raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
+
+        # Filter out the runs based on the run state
+    if args.run_state:
+        runs = [run for run in runs if run.state in args.run_state]
+    return runs
+
+
+def vision_encoder_field_hotfix(run, config):
+    if isinstance(config.vision_encoder, str):
+        # Read in the vision encoder config from the `vision_encoder` config group and set it
+        OmegaConf.set_readonly(config, False)
+        config.vision_encoder = OmegaConf.load(
+            f"src/config/vision_encoder/{config.vision_encoder}.yaml"
+        )
+        OmegaConf.set_readonly(config, True)
+
+        # Write it back to the run
+        run.config = OmegaConf.to_container(config, resolve=True)
+        run.update()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", type=str, required=False)
@@ -55,8 +114,10 @@ if __name__ == "__main__":
         nargs="*",
     )
 
-    # For batch evaluating runs from a sweep
+    # For batch evaluating runs from a sweep or a project
     parser.add_argument("--sweep-id", type=str, default=None)
+    parser.add_argument("--project-id", type=str, default=None)
+
     parser.add_argument("--continuous-mode", action="store_true")
     parser.add_argument(
         "--continuous-interval",
@@ -64,205 +125,171 @@ if __name__ == "__main__":
         default=60,
         help="Pause interval before next evaluation",
     )
+    parser.add_argument("--ignore-currently-evaluating-flag", action="store_true")
 
     # Parse the arguments
     args = parser.parse_args()
 
     # Validate the arguments
-    assert not (
-        args.run_id and args.sweep_id
-    ), "Only one of run_id or evaluate_sweep_id should be provided"
-    assert args.run_state is None or all(
-        [
-            state in ["running", "finished", "failed", "crashed"]
-            for state in args.run_state
-        ]
-    ), (
-        "Invalid run-state: "
-        f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
-    )
-    assert (
-        not args.continuous_mode or args.sweep_id is not None
-    ), "Continuous mode is only supported when sweep_id is provided"
-
-    assert not args.leaderboard, "Leaderboard mode is not supported as of now"
+    validate_args(args)
 
     # Make the device
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
+    # Set the timeout
+    rollout_max_steps = task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+
+    # Get the environment
+    # TODO: This needs to be changed to enable recreation the env for each run
+    print(
+        "Creating the environment (this needs to be changed to enable recreation the env for each run)"
+    )
+    env = get_env(
+        gpu_id=args.gpu,
+        furniture=args.furniture,
+        num_envs=args.n_envs,
+        randomness=args.randomness,
+        max_env_steps=rollout_max_steps,
+        resize_img=False,
+        act_rot_repr="rot_6d",
+        ctrl_mode="osc",
+        action_type="delta",
+        verbose=False,
+    )
+
     # Start the evaluation loop
     print(f"Starting evaluation loop in continuous mode: {args.continuous_mode}")
-    while True:
-        # Get the run(s) to test
-        if args.sweep_id:
-            runs: List[Run] = list(
-                api.sweep(f"robot-rearrangement/{args.sweep_id}").runs
-            )
-        else:
-            runs: List[Run] = [api.run(f"robot-rearrangement/{args.run_id}")]
+    try:
+        while True:
+            # Get the run(s) to test
+            runs = get_runs(args)
 
-        # Filter out the runs based on the run state
-        if args.run_state:
-            runs = [run for run in runs if run.state in args.run_state]
-
-        print(f"Found {len(runs)} runs to evaluate")
-        for run in runs:
-            # Check if the run has already been evaluated
-            how_update = "overwrite"
-            if run.summary.get("success_rate", None) is not None:
-                if args.if_exists == "skip":
-                    print(f"Run: {run.name} has already been evaluated, skipping")
+            print(f"Found {len(runs)} runs to evaluate")
+            for run in runs:
+                # Check if the run is currently being evaluated
+                if (
+                    run.config.get("currently_evaluating", False)
+                    and not args.ignore_currently_evaluating_flag
+                ):
+                    print(f"Run: {run.name} is currently being evaluated, skipping")
                     continue
-                elif args.if_exists == "error":
-                    raise ValueError(f"Run: {run.name} has already been evaluated")
-                elif args.if_exists == "overwrite":
-                    print(f"Run: {run.name} has already been evaluated, overwriting")
-                    how_update = "overwrite"
-                elif args.if_exists == "append":
-                    print(f"Run: {run.name} has already been evaluated, appending")
-                    how_update = "append"
 
-            # If in overwrite set the success rate and the other fields to zero so other runs can cooperate better in skip mode
-            if how_update == "overwrite":
-                run.summary["success_rate"] = 0
-                run.summary["n_success"] = 0
-                run.summary["n_rollouts"] = 0
-                run.update()
+                # Check if the run has already been evaluated
+                how_update = "overwrite"
+                if run.summary.get("success_rate", None) is not None:
+                    if args.if_exists == "skip":
+                        print(f"Run: {run.name} has already been evaluated, skipping")
+                        continue
+                    elif args.if_exists == "error":
+                        raise ValueError(f"Run: {run.name} has already been evaluated")
+                    elif args.if_exists == "overwrite":
+                        print(
+                            f"Run: {run.name} has already been evaluated, overwriting"
+                        )
+                        how_update = "overwrite"
+                    elif args.if_exists == "append":
+                        print(f"Run: {run.name} has already been evaluated, appending")
+                        how_update = "append"
 
-            model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
-            model_path = model_file.download(exist_ok=True).name
-
-            # Get the current `test_epoch_loss` from the run
-            test_epoch_loss = run.summary.get("test_epoch_loss", None)
-            print(f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}")
-
-            # Create the config object with the project name and make it read-only
-            config: DictConfig = OmegaConf.create(
-                {**run.config, "project_name": run.project}, flags={"readonly": True}
-            )
-
-            # Get the normalizer
-            normalizer_type = config.get("data", {}).get("normalization", "min_max")
-            normalizer = get_normalizer(
-                normalizer_type=normalizer_type, control_mode="delta"
-            )
-
-            # TODO: Fix this properly, but for now have an ugly escape hatch
-            if isinstance(config.vision_encoder, str):
-                # Read in the vision encoder config from the `vision_encoder` config group and set it
-                OmegaConf.set_readonly(config, False)
-                config.vision_encoder = OmegaConf.load(
-                    f"src/config/vision_encoder/{config.vision_encoder}.yaml"
-                )
-                OmegaConf.set_readonly(config, True)
-
-                # Write it back to the run
-                run.config = OmegaConf.to_container(config, resolve=True)
-                run.update()
-
-            # Make the actor
-            actor = get_actor(config=config, normalizer=normalizer, device=device)
-
-            # Load the model weights
-            actor.load_state_dict(torch.load(model_path))
-            actor.eval()
-
-            # Set the timeout
-            rollout_max_steps = task_timeout(
-                args.furniture, n_parts=args.n_parts_assemble
-            )
-
-            # Get the environment
-            env = get_env(
-                gpu_id=args.gpu,
-                furniture=args.furniture,
-                num_envs=args.n_envs,
-                randomness=args.randomness,
-                max_env_steps=rollout_max_steps,
-                resize_img=False,
-                act_rot_repr=config.control.act_rot_repr,
-                ctrl_mode="osc",
-                action_type="delta",
-                verbose=False,
-            )
-
-            # # Start a run to collect the results
-            # if args.leaderboard:
-            #     run = wandb.init(
-            #         project="model-eval-test",
-            #         entity="robot-rearrangement",
-            #         job_type="eval",
-            #         config=OmegaConf.to_container(config, resolve=True),
-            #         mode="online" if args.wandb else "disabled",
-            #         name=f"{run.name}-{run.id}",
-            #     )
-            # else:
-            # run = wandb.init(
-            #     project=run.project,
-            #     entity="robot-rearrangement",
-            #     config=OmegaConf.to_container(config, resolve=True),
-            #     mode="online" if args.wandb else "disabled",
-            #     id=run.id,
-            #     resume="allow",
-            # )
-
-            save_dir = trajectory_save_dir(
-                environment="sim",
-                task=args.furniture,
-                demo_source="rollout",
-                randomness=args.randomness,
-                create=False,
-            )
-
-            # Perform the rollouts
-            actor.set_task(furniture2idx[args.furniture])
-            rollout_stats = calculate_success_rate(
-                actor=actor,
-                env=env,
-                n_rollouts=args.n_rollouts,
-                rollout_max_steps=rollout_max_steps,
-                epoch_idx=0,
-                gamma=config.discount,
-                rollout_save_dir=save_dir,
-                save_failures=args.save_failures,
-                n_parts_assemble=args.n_parts_assemble,
-            )
-            success_rate = rollout_stats.success_rate
-
-            print(
-                f"Success rate: {success_rate:.2%} ({rollout_stats.n_success}/{rollout_stats.n_rollouts})"
-            )
-
-            if args.wandb:
-                print("Writing to wandb...")
-
-                # Set the summary fields
+                # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if how_update == "overwrite":
-                    run.summary["success_rate"] = success_rate
-                    run.summary["n_success"] = rollout_stats.n_success
-                    run.summary["n_rollouts"] = rollout_stats.n_rollouts
-                elif how_update == "append":
-                    run.summary["n_success"] += rollout_stats.n_success
-                    run.summary["n_rollouts"] += rollout_stats.n_rollouts
-                    run.summary["success_rate"] = (
-                        run.summary["n_success"] / run.summary["n_rollouts"]
-                    )
+                    run.config["currently_evaluating"] = True
+                    run.update()
+
+                model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
+                model_path = model_file.download(exist_ok=True).name
+
+                # Get the current `test_epoch_loss` from the run
+                test_epoch_loss = run.summary.get("test_epoch_loss", None)
+                print(
+                    f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}"
+                )
+
+                # Create the config object with the project name and make it read-only
+                config: DictConfig = OmegaConf.create(
+                    {**run.config, "project_name": run.project},
+                    flags={"readonly": True},
+                )
+
+                # Get the normalizer
+                normalizer_type = config.get("data", {}).get("normalization", "min_max")
+                normalizer = get_normalizer(
+                    normalizer_type=normalizer_type, control_mode="delta"
+                )
+
+                # TODO: Fix this properly, but for now have an ugly escape hatch
+                vision_encoder_field_hotfix(run, config)
+
+                # Make the actor
+                actor = get_actor(config=config, normalizer=normalizer, device=device)
+
+                # Load the model weights
+                actor.load_state_dict(torch.load(model_path))
+                actor.eval()
+
+                save_dir = trajectory_save_dir(
+                    environment="sim",
+                    task=args.furniture,
+                    demo_source="rollout",
+                    randomness=args.randomness,
+                    create=False,
+                )
+
+                # Perform the rollouts
+                actor.set_task(furniture2idx[args.furniture])
+                rollout_stats = calculate_success_rate(
+                    actor=actor,
+                    env=env,
+                    n_rollouts=args.n_rollouts,
+                    rollout_max_steps=rollout_max_steps,
+                    epoch_idx=0,
+                    gamma=config.discount,
+                    rollout_save_dir=save_dir,
+                    save_failures=args.save_failures,
+                    n_parts_assemble=args.n_parts_assemble,
+                )
+                success_rate = rollout_stats.success_rate
+
+                print(
+                    f"Success rate: {success_rate:.2%} ({rollout_stats.n_success}/{rollout_stats.n_rollouts})"
+                )
+
+                if args.wandb:
+                    print("Writing to wandb...")
+
+                    # Set the summary fields
+                    if how_update == "overwrite":
+                        run.summary["success_rate"] = success_rate
+                        run.summary["n_success"] = rollout_stats.n_success
+                        run.summary["n_rollouts"] = rollout_stats.n_rollouts
+                    elif how_update == "append":
+                        run.summary["n_success"] += rollout_stats.n_success
+                        run.summary["n_rollouts"] += rollout_stats.n_rollouts
+                        run.summary["success_rate"] = (
+                            run.summary["n_success"] / run.summary["n_rollouts"]
+                        )
+                    else:
+                        raise ValueError(f"Invalid how_update: {how_update}")
+
+                    # Update the run to save the summary fields
+                    run.update()
+
                 else:
-                    raise ValueError(f"Invalid how_update: {how_update}")
+                    print("Not writing to wandb")
 
-                # Update the run to save the summary fields
-                run.update()
+            # If not in continuous mode, break
+            if not args.continuous_mode:
+                break
 
-            else:
-                print("Not writing to wandb")
-
-        # If not in continuous mode, break
-        if not args.continuous_mode:
-            break
-
-        # Sleep for the interval
-        print(
-            f"Sleeping for {args.continuous_interval} seconds before checking for new runs..."
-        )
-        del env
-        time.sleep(args.continuous_interval)
+            # Sleep for the interval
+            print(
+                f"Sleeping for {args.continuous_interval} seconds before checking for new runs..."
+            )
+            time.sleep(args.continuous_interval)
+    finally:
+        # Unset the "currently_evaluating" flag
+        print("Exiting the evaluation loop")
+        print("Unsetting the currently_evaluating flag")
+        for run in runs:
+            run.config["currently_evaluating"] = False
+            run.update()
