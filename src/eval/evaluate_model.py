@@ -192,7 +192,10 @@ if __name__ == "__main__":
                         how_update = "append"
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
-                if how_update == "overwrite":
+                if how_update == "overwrite" and args.wandb:
+                    print(
+                        f"Setting currently_evaluating flag to true for run: {run.name}"
+                    )
                     run.config["currently_evaluating"] = True
                     run.update()
 
@@ -271,6 +274,9 @@ if __name__ == "__main__":
                     else:
                         raise ValueError(f"Invalid how_update: {how_update}")
 
+                    # Set the currently_evaluating flag to false
+                    run.config["currently_evaluating"] = False
+
                     # Update the run to save the summary fields
                     run.update()
 
@@ -290,6 +296,5 @@ if __name__ == "__main__":
         # Unset the "currently_evaluating" flag
         print("Exiting the evaluation loop")
         print("Unsetting the currently_evaluating flag")
-        for run in runs:
-            run.config["currently_evaluating"] = False
-            run.update()
+        run.config["currently_evaluating"] = False
+        run.update()

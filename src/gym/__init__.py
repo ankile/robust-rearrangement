@@ -18,6 +18,7 @@ def get_env(
     ctrl_mode: str = "osc",
     action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
     verbose=False,
+    headless=True,
 ) -> FurnitureSimEnv:
     with suppress_all_output(True):
         env = gym.make(
@@ -26,7 +27,7 @@ def get_env(
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=True,  # If true, robot state is concatenated to the observation.
-            headless=True,  # If true, simulation runs without GUI.
+            headless=headless,  # If true, simulation runs without GUI.
             # Includes the parts poses in the observation for resetting
             obs_keys=DEFAULT_VISUAL_OBS + ["parts_poses"],
             compute_device_id=gpu_id,
