@@ -95,7 +95,7 @@ class DiffusionPolicy(Actor):
             self.encoder1_proj = nn.Identity()
             self.encoder2_proj = nn.Identity()
 
-        self.flatten_obs = config.actor.diffusion_model.flatten_obs
+        self.flatten_obs = config.actor.diffusion_model.get("flatten_obs", True)
         self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
         self.obs_dim = (
             self.timestep_obs_dim * self.obs_horizon
