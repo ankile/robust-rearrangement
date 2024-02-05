@@ -1,7 +1,8 @@
 import argparse
 import time
 from typing import List
-import furniture_bench  # noqa
+import furniture_bench
+from src.behavior.base import Actor  # noqa
 import torch
 from omegaconf import OmegaConf, DictConfig
 from src.eval.rollout import calculate_success_rate
@@ -51,7 +52,7 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     if args.sweep_id:
         runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
     elif args.run_id:
-        runs: List[Run] = [api.run(f"robot-rearrangement/{args.run_id}")]
+        runs: List[Run] = [api.run(f"{args.run_id}")]
     elif args.project_id:
         runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
     else:
@@ -75,6 +76,28 @@ def vision_encoder_field_hotfix(run, config):
         # Write it back to the run
         run.config = OmegaConf.to_container(config, resolve=True)
         run.update()
+
+
+def convert_state_dict(state_dict):
+    if not any(k.startswith("encoder1.0") for k in state_dict.keys()):
+        print("Dict already in the correct format")
+        return
+
+    # Change all instances of "encoder1.0" to "encoder1" and "encoder2.0" to "encoder2"
+    # and all instances of "encoder1.1" to encoder1_proj and "encoder2.1" to "encoder2_proj"
+    for k in list(state_dict.keys()):
+        if k.startswith("encoder1.0"):
+            new_k = k.replace("encoder1.0", "encoder1")
+            state_dict[new_k] = state_dict.pop(k)
+        elif k.startswith("encoder2.0"):
+            new_k = k.replace("encoder2.0", "encoder2")
+            state_dict[new_k] = state_dict.pop(k)
+        elif k.startswith("encoder1.1"):
+            new_k = k.replace("encoder1.1", "encoder1_proj")
+            state_dict[new_k] = state_dict.pop(k)
+        elif k.startswith("encoder2.1"):
+            new_k = k.replace("encoder2.1", "encoder2_proj")
+            state_dict[new_k] = state_dict.pop(k)
 
 
 if __name__ == "__main__":
@@ -166,6 +189,10 @@ if __name__ == "__main__":
 
             print(f"Found {len(runs)} runs to evaluate")
             for run in runs:
+                # First, we must flush the api and request the run again in case the information is stale
+                api.flush()
+                run = api.run("/".join([run.project, run.id]))
+
                 # Check if the run is currently being evaluated
                 if (
                     run.config.get("currently_evaluating", False)
@@ -223,12 +250,26 @@ if __name__ == "__main__":
                 # TODO: Fix this properly, but for now have an ugly escape hatch
                 vision_encoder_field_hotfix(run, config)
 
+                print(OmegaConf.to_yaml(config))
+
                 # Make the actor
-                actor = get_actor(config=config, normalizer=normalizer, device=device)
+                actor: Actor = get_actor(
+                    config=config, normalizer=normalizer, device=device
+                )
+
+                # TODO Super hacky, temprorarily set the action execution horizon to 4
+                print("====================================")
+                print("Setting the action horizon to 2")
+                print("====================================")
 
                 # Load the model weights
-                actor.load_state_dict(torch.load(model_path))
+                state_dict = torch.load(model_path)
+
+                convert_state_dict(state_dict)
+
+                actor.load_state_dict(state_dict)
                 actor.eval()
+                actor.action_horizon = 2
 
                 save_dir = trajectory_save_dir(
                     environment="sim",
@@ -294,7 +335,8 @@ if __name__ == "__main__":
             time.sleep(args.continuous_interval)
     finally:
         # Unset the "currently_evaluating" flag
-        print("Exiting the evaluation loop")
-        print("Unsetting the currently_evaluating flag")
-        run.config["currently_evaluating"] = False
-        run.update()
+        if args.wandb:
+            print("Exiting the evaluation loop")
+            print("Unsetting the currently_evaluating flag")
+            run.config["currently_evaluating"] = False
+            run.update()
