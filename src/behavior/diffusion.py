@@ -1,4 +1,5 @@
 from collections import deque
+from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
 
@@ -21,7 +22,7 @@ class DiffusionPolicy(Actor):
         encoder_name: str,
         freeze_encoder: bool,
         normalizer: Normalizer,
-        config,
+        config: DictConfig,
     ) -> None:
         super().__init__()
         actor_cfg = config.actor
@@ -68,18 +69,18 @@ class DiffusionPolicy(Actor):
             hasattr(config.vision_encoder, "pretrained")
             and config.vision_encoder.pretrained
         )
+
+        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+
         self.encoder1 = get_encoder(
-            encoder_name, freeze=freeze_encoder, device=device, pretrained=pretrained
+            encoder_name,
+            device=device,
+            **encoder_kwargs,
         )
         self.encoder2 = (
             self.encoder1
             if freeze_encoder
-            else get_encoder(
-                encoder_name,
-                freeze=freeze_encoder,
-                device=device,
-                pretrained=pretrained,
-            )
+            else get_encoder(encoder_name, device=device, **encoder_kwargs)
         )
         self.encoding_dim = self.encoder1.encoding_dim
 

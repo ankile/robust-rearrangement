@@ -17,7 +17,12 @@ from src.models.vision import (
 
 
 def get_encoder(
-    encoder_name, freeze=True, device="cuda", pretrained=True
+    encoder_name,
+    freeze=True,
+    device="cuda",
+    pretrained=True,
+    *args,
+    **kwargs,
 ) -> VisionEncoder:
     if encoder_name.startswith("dinov2"):
         return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
@@ -34,7 +39,7 @@ def get_encoder(
             pretrained=pretrained,
         )
     if encoder_name == "spatial_softmax":
-        return SpatialSoftmaxEncoder(freeze=False, device=device)
+        return SpatialSoftmaxEncoder(freeze=False, device=device, *args, **kwargs)
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":

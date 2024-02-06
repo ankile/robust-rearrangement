@@ -79,7 +79,9 @@ def vision_encoder_field_hotfix(run, config):
 
 
 def convert_state_dict(state_dict):
-    if not any(k.startswith("encoder1.0") for k in state_dict.keys()):
+    if not any(k.startswith("encoder1.0") for k in state_dict.keys()) and not any(
+        k.startswith("encoder1.model.nets.3") for k in state_dict.keys()
+    ):
         print("Dict already in the correct format")
         return
 
@@ -150,6 +152,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--ignore-currently-evaluating-flag", action="store_true")
 
+    parser.add_argument("--visualize", action="store_true")
+
     # Parse the arguments
     args = parser.parse_args()
 
@@ -178,6 +182,7 @@ if __name__ == "__main__":
         ctrl_mode="osc",
         action_type="delta",
         verbose=False,
+        headless=args.visualize,
     )
 
     # Start the evaluation loop
@@ -257,19 +262,12 @@ if __name__ == "__main__":
                     config=config, normalizer=normalizer, device=device
                 )
 
-                # TODO Super hacky, temprorarily set the action execution horizon to 4
-                print("====================================")
-                print("Setting the action horizon to 2")
-                print("====================================")
-
                 # Load the model weights
                 state_dict = torch.load(model_path)
-
                 convert_state_dict(state_dict)
 
                 actor.load_state_dict(state_dict)
                 actor.eval()
-                actor.action_horizon = 2
 
                 save_dir = trajectory_save_dir(
                     environment="sim",

@@ -43,10 +43,11 @@ class SpatialSoftmaxEncoder(VisionEncoder):
         freeze=True,
         device="cuda",
         use_groupnorm=True,
+        num_kp=32,
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
         from robomimic.models.obs_core import VisualCore
 
@@ -56,10 +57,9 @@ class SpatialSoftmaxEncoder(VisionEncoder):
             input_shape=self.input_shape,
             backbone_class="ResNet18Conv",
             pool_class="SpatialSoftmax",
-            pool_kwargs={"num_kp": 32},
+            pool_kwargs={"num_kp": num_kp},
             flatten=True,
             feature_dimension=None,
-            # feature_dimension=256,
         )
 
         self.encoding_dim = self.model.output_shape(self.input_shape)[0]
