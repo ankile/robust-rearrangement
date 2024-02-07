@@ -20,7 +20,7 @@ def get_env(
     verbose=False,
     headless=True,
 ) -> FurnitureSimEnv:
-    with suppress_all_output(True):
+    with suppress_all_output(not verbose):
         env = gym.make(
             "FurnitureSim-v0",
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].

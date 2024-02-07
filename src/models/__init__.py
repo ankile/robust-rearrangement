@@ -18,8 +18,8 @@ from src.models.vision import (
 
 def get_encoder(
     encoder_name,
-    freeze=True,
     device="cuda",
+    freeze=True,
     pretrained=True,
     *args,
     **kwargs,
@@ -33,13 +33,13 @@ def get_encoder(
     if encoder_name.startswith("resnet"):
         return ResnetEncoder(
             model_name=encoder_name,
-            freeze=freeze,
             device=device,
-            use_groupnorm=True,
-            pretrained=pretrained,
+            freeze=freeze,
+            *args,
+            **kwargs,
         )
     if encoder_name == "spatial_softmax":
-        return SpatialSoftmaxEncoder(freeze=False, device=device, *args, **kwargs)
+        return SpatialSoftmaxEncoder(device=device, *args, **kwargs)
     if encoder_name == "dino":
         return DinoEncoder(freeze=freeze, device=device)
     if encoder_name == "mae":

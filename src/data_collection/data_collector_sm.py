@@ -1,4 +1,5 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
+
 import time
 import pickle
 from datetime import datetime
@@ -96,9 +97,9 @@ class DataCollectorSpaceMouse:
             self.env = gym.make(
                 "FurnitureSimFull-v0",
                 furniture=furniture,
-                max_env_steps=sim_config["scripted_timeout"][furniture]
-                if scripted
-                else 3000,
+                max_env_steps=(
+                    sim_config["scripted_timeout"][furniture] if scripted else 3000
+                ),
                 headless=headless,
                 num_envs=1,  # Only support 1 for now.
                 manual_done=False if scripted else True,
@@ -151,7 +152,7 @@ class DataCollectorSpaceMouse:
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
 
         # Parameters for controlling the time it takes for the robot to settle at the start of a trajectory
-        self.start_delay = 5  # seconds
+        self.start_delay = 3  # seconds
         self.robot_settled = False
         self.starttime = datetime.now()
 

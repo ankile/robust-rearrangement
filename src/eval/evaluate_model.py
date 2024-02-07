@@ -13,6 +13,7 @@ from src.gym import get_env
 from src.dataset import get_normalizer
 
 from ipdb import set_trace as bp  # noqa
+import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
@@ -46,6 +47,8 @@ def validate_args(args: argparse.Namespace):
     ), "Continuous mode is only supported when sweep_id is provided"
 
     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
+
+    assert not args.store_video_wandb or args.wandb, "store-video-wandb requires wandb"
 
 
 def get_runs(args: argparse.Namespace) -> List[Run]:
@@ -153,6 +156,8 @@ if __name__ == "__main__":
     parser.add_argument("--ignore-currently-evaluating-flag", action="store_true")
 
     parser.add_argument("--visualize", action="store_true")
+    parser.add_argument("--store-video-wandb", action="store_true")
+    parser.add_argument("--eval-top-k", type=int, default=None)
 
     # Parse the arguments
     args = parser.parse_args()
@@ -182,7 +187,7 @@ if __name__ == "__main__":
         ctrl_mode="osc",
         action_type="delta",
         verbose=False,
-        headless=args.visualize,
+        headless=not args.visualize,
     )
 
     # Start the evaluation loop
@@ -191,6 +196,21 @@ if __name__ == "__main__":
         while True:
             # Get the run(s) to test
             runs = get_runs(args)
+
+            # For now, filter out only the runs with strictly positive success rates to add more runs to them to get a better estimate
+            if args.eval_top_k is not None:
+                # Get the top k runs
+                runs = sorted(
+                    [run for run in runs if run.summary.get("success_rate", 0) > 0],
+                    key=lambda run: run.summary["success_rate"],
+                    reverse=True,
+                )[: args.eval_top_k]
+
+                # Also, evaluate the ones with the fewest rollouts first (if they have any)
+                runs = sorted(
+                    runs,
+                    key=lambda run: run.summary.get("n_rollouts", 0),
+                )
 
             print(f"Found {len(runs)} runs to evaluate")
             for run in runs:
@@ -224,7 +244,7 @@ if __name__ == "__main__":
                         how_update = "append"
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
-                if how_update == "overwrite" and args.wandb:
+                if args.wandb:
                     print(
                         f"Setting currently_evaluating flag to true for run: {run.name}"
                     )
@@ -277,6 +297,16 @@ if __name__ == "__main__":
                     create=False,
                 )
 
+                if args.store_video_wandb:
+                    # For the run table with videos to be saved to wandb,
+                    # a run needs to be active, so we initialie run here
+                    wandb.init(
+                        project=run.project,
+                        entity=run.entity,
+                        id=run.id,
+                        resume="allow",
+                    )
+
                 # Perform the rollouts
                 actor.set_task(furniture2idx[args.furniture])
                 rollout_stats = calculate_success_rate(
@@ -290,6 +320,11 @@ if __name__ == "__main__":
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,
                 )
+
+                if args.store_video_wandb:
+                    # Close the run to save the videos
+                    wandb.finish()
+
                 success_rate = rollout_stats.success_rate
 
                 print(
