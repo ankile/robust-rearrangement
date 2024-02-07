@@ -92,14 +92,14 @@ def get_processed_paths(
     # Add the extension pattern to all paths
     paths = [path.with_suffix(".zarr") for path in paths]
 
+    # Use glob to find all the zarr paths
+    paths = [Path(path) for p in paths for path in glob(str(p), recursive=True)]
+
     print("Found the following paths:")
     for p in paths:
         print("   ", p)
 
-    # Use glob to find all the pickle files
-    pickle_paths = [Path(path) for p in paths for path in glob(str(p), recursive=True)]
-
-    return pickle_paths
+    return paths
 
 
 def add_glob_part(paths, part) -> List[Path]:
