@@ -21,7 +21,7 @@ discount: 0.999
 
 control:
   act_rot_repr: rot_6d
-  control_mode: delta
+  control_mode: delta # delta, pos
 
 lr_scheduler:
   name: cosine

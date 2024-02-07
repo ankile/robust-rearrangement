@@ -16,16 +16,18 @@ def get_env(
     resize_img=True,
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
+    action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
     verbose=False,
+    headless=True,
 ) -> FurnitureSimEnv:
-    with suppress_all_output(True):
+    with suppress_all_output(not verbose):
         env = gym.make(
             "FurnitureSim-v0",
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=True,  # If true, robot state is concatenated to the observation.
-            headless=True,  # If true, simulation runs without GUI.
+            headless=headless,  # If true, simulation runs without GUI.
             # Includes the parts poses in the observation for resetting
             obs_keys=DEFAULT_VISUAL_OBS + ["parts_poses"],
             compute_device_id=gpu_id,
@@ -40,6 +42,7 @@ def get_env(
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
             ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
+            action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
             verbose=verbose,  # If true, prints debug information.
         )
 

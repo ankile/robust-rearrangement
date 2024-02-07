@@ -7,7 +7,7 @@ import pandas as pd
 import zarr
 import numpy as np
 
-from src.models.vision import get_encoder
+from src.models import get_encoder
 from src.data_processing.process_pickles import encode_demo
 from src.visualization.render_mp4 import create_mp4
 

@@ -4,7 +4,7 @@ from tqdm import trange
 import zarr
 from typing import Union, List
 
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset.normalizer import Normalizer
 from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
@@ -82,6 +82,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
+        normalizer: Normalizer,
         augment_image: bool = False,
         data_subset: int = None,
         first_action_idx: int = 0,
@@ -92,9 +93,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.obs_horizon = obs_horizon
         self.control_mode = control_mode
 
-        normalizer = StateActionNormalizer(
-            control_mode=control_mode,
-        ).cpu()
+        normalizer = normalizer.cpu()
 
         # Read from zarr dataset
         combined_data = combine_zarr_datasets(
@@ -240,6 +239,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
+        normalizer: Normalizer,
         encoder_name: str,
         data_subset: int = None,
         first_action_idx: int = 0,
@@ -283,9 +283,7 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         )
         self.successes = combined_data["success"].astype(np.uint8)
 
-        normalizer = StateActionNormalizer(
-            control_mode=control_mode,
-        ).cpu()
+        normalizer: Normalizer = normalizer.cpu()
 
         # Normalize data to [-1,1]
         for key in normalizer.keys():

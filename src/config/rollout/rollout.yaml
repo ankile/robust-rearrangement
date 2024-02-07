@@ -1,12 +1,12 @@
 rollouts: true
 every: 5
-loss_threshold: 0.05
-max_steps: 1000
-num_envs: 4
+loss_threshold: 0.1
+max_steps: 2000
+num_envs: 8
 count: ${rollout.num_envs}
 save_rollouts: false
 save_failures: false
 randomness: low
-furniture: one_leg
+furniture: ${furniture}
 n_parts_assemble: null
 

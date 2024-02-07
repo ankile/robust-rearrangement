@@ -1,0 +1,32 @@
+program: src/train/bc.py
+entity: robot-rearrangement
+project: sweeps
+name: baseline-teleop-sweep
+method: random
+parameters:
+  vision_encoder:
+    values: [spatial_softmax, vip]
+  actor/diffusion_model:
+    values: [unet, unet_big, transformer, transformer_big]
+  pred_horizon:
+    values: [16, 32]
+  obs_horizon:
+    values: [1, 2, 3]
+  actor.loss_fn:
+    values: [MSELoss, L1Loss]
+  actor.projection_dim:
+    values: [256, 512]
+  data.augment_image:
+    values: [true, false]
+  regularization.weight_decay:
+    values: [1e-6, 1e-3]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_training
+  - data.dataloader_workers=16
+  - training.batch_size=256
+  - demo_source=teleop
+  - ${args_no_hyphens}

@@ -1,4 +1,4 @@
-model: vip
+model: dino
 freeze: true
 pretrained: true
-backbone: resnet50
+backbone: vits16

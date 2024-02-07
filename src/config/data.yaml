@@ -1,7 +1,7 @@
 data:
   test_split: 0.05
   data_subset: null
-  dataloader_workers: 4
+  dataloader_workers: 16
   pred_horizon: ${pred_horizon}
   obs_horizon: ${obs_horizon}
   action_horizon: ${action_horizon}
@@ -10,3 +10,4 @@ data:
   furniture: ${furniture}
   demo_source: ${demo_source}
   randomness: low
+  normalization: min_max # min_max, mean_std

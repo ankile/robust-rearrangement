@@ -1,0 +1,6 @@
+name: unet
+down_dims: [256, 512, 1024]
+diffusion_step_embed_dim: 256
+kernel_size: 5
+n_groups: 8
+flatten_obs: True

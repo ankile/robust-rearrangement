@@ -18,6 +18,7 @@ from src.common.geometry import (
     np_action_to_6d_rotation,
     np_extract_ee_pose_6d,
 )
+from src.data_processing.utils import clip_axis_rotation
 
 from ipdb import set_trace as bp  # noqa
 
@@ -75,8 +76,15 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     action_delta = np.array(data["actions"], dtype=np.float32)
     action_delta = np_action_to_6d_rotation(action_delta)
 
+    # TODO: Make sure this is rectified in the controller-end and
+    # figure out what to do with the corrupted raw data
+    # For now, clip the z-axis rotation to 0.35
+    action_delta = clip_axis_rotation(action_delta, clip_mag=0.35, axis="z")
+
     # Extract the position control actions from the pickle file
+    # and concat onto the position actions the gripper actions
     action_pos = np_extract_ee_pose_6d(all_robot_state[1:])
+    action_pos = np.concatenate([action_pos, action_delta[:, -1:]], axis=1)
 
     # Extract the rewards, skills, and parts_poses from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)

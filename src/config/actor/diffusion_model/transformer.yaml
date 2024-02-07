@@ -1,0 +1,11 @@
+name: transformer
+n_layer: 8
+n_head: 4
+n_emb: 256
+p_drop_emb: 0.0
+p_drop_attn: 0.3
+causal_attn: True
+time_as_cond: True
+obs_as_cond: True
+n_cond_layers: 0  # >0: use transformer encoder for cond, otherwise use MLP
+flatten_obs: False

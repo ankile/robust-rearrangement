@@ -6,6 +6,8 @@ import torch
 from torchvision.transforms import functional as F, InterpolationMode
 from PIL import Image
 
+from src.common.geometry import np_rot_6d_to_rotvec, np_rotvec_to_rot_6d
+
 
 def zipped_img_generator(filename, max_samples=1000):
     n_samples = 0
@@ -88,3 +90,33 @@ def resize_crop(img: Union[np.ndarray, torch.Tensor]):
         img = img.permute(0, 2, 3, 1)
 
     return img
+
+
+def clip_axis_rotation(delta_action: np.ndarray, clip_mag=0.35, axis="z") -> np.ndarray:
+    """
+    Clips the rotation magnitude of the given axis.
+
+    Args:
+        delta_action: The action to clip.
+        clip_mag: The magnitude to clip the rotation to.
+        axis: The axis to clip the rotation magnitude of.
+
+    Returns:
+        The clipped action.
+    """
+    assert axis in "xyz", "Axis must be one of 'x', 'y', or 'z'."
+    # Make a copy of the action
+    delta_action = np.copy(delta_action)
+
+    # Convert to rotation vectors
+    rot_vec = np_rot_6d_to_rotvec(delta_action[:, 3:9])
+
+    # Clip the axis specified of the magnitude of the rotation vectors
+    rot_vec[:, "xyz".index(axis)] = np.clip(
+        rot_vec[:, "xyz".index(axis)], -clip_mag, clip_mag
+    )
+
+    # Convert back to 6D
+    delta_action[:, 3:9] = np_rotvec_to_rot_6d(rot_vec)
+
+    return delta_action

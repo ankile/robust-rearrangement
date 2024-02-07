@@ -14,16 +14,15 @@ from src.dataset.dataset import (
     FurnitureImageDataset,
     FurnitureFeatureDataset,
 )
-from src.dataset.normalizer import StateActionNormalizer
+from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.common.tasks import furniture2idx
 from src.gym import get_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
+from src.dataset.normalizer import Normalizer
 from src.common.pytorch_util import dict_apply
-import argparse
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
@@ -77,9 +76,12 @@ def main(config: DictConfig):
         environment=config.data.environment,
         task=config.data.furniture,
         demo_source=to_native(config.data.demo_source),
-        # demo_source=config.data.demo_source,
-        randomness=config.data.randomness,
+        randomness=to_native(config.data.randomness),
         demo_outcome="success",
+    )
+
+    normalizer: Normalizer = get_normalizer(
+        config.data.normalization, config.control.control_mode
     )
 
     print(f"Using data from {data_path}")
@@ -90,8 +92,10 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
+            normalizer=normalizer.get_copy(),
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
+            control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
         )
     elif config.observation_type == "feature":
@@ -100,8 +104,10 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
+            normalizer=normalizer.get_copy(),
             encoder_name=config.vision_encoder.model,
             data_subset=config.data.data_subset,
+            control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
         )
     else:
@@ -117,7 +123,11 @@ def main(config: DictConfig):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
-    actor = get_actor(config, device)
+    actor = get_actor(
+        config,
+        normalizer.get_copy(),
+        device,
+    )
 
     # Set the data path in the config object
     config.data_path = [str(f) for f in data_path]
@@ -187,6 +197,10 @@ def main(config: DictConfig):
         notes=config.wandb.notes,
     )
 
+    # In sweeps, the init is ignored, so to make sure that the config is saved correctly
+    # to wandb we need to log it manually
+    wandb.config.update(config_dict)
+
     # save stats to wandb and update the config object
     wandb.log(
         {
@@ -198,7 +212,6 @@ def main(config: DictConfig):
             "num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
-            "stats": StateActionNormalizer().stats_dict,
         }
     )
 
@@ -339,6 +352,7 @@ def main(config: DictConfig):
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode="osc",
+                    action_type=config.control.control_mode,
                 )
 
             best_success_rate = do_rollout_evaluation(

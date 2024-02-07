@@ -1,13 +1,15 @@
 from collections import deque
+from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
-from src.dataset.normalizer import StateActionNormalizer
-from src.models.vision import get_encoder
-from src.models.unet import ConditionalUnet1D
+
+from src.dataset.normalizer import Normalizer
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
 from src.common.control import RotationMode
+from src.models import get_diffusion_backbone, get_encoder
+from src.models.unet import ConditionalUnet1D
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
@@ -19,21 +21,22 @@ class DiffusionPolicy(Actor):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        config,
+        normalizer: Normalizer,
+        config: DictConfig,
     ) -> None:
         super().__init__()
-        actor_config = config.actor
-        self.obs_horizon = actor_config.obs_horizon
+        actor_cfg = config.actor
+        self.obs_horizon = actor_cfg.obs_horizon
         self.action_dim = (
             10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
         )
-        self.pred_horizon = actor_config.pred_horizon
-        self.action_horizon = actor_config.action_horizon
+        self.pred_horizon = actor_cfg.pred_horizon
+        self.action_horizon = actor_cfg.action_horizon
 
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.inference_steps = actor_config.inference_steps
+        self.inference_steps = actor_cfg.inference_steps
         self.observation_type = config.observation_type
         self.feature_noise = config.regularization.feature_noise
         self.feature_dropout = config.regularization.feature_dropout
@@ -42,53 +45,75 @@ class DiffusionPolicy(Actor):
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
-            num_train_timesteps=config.actor.num_diffusion_iters,
+            num_train_timesteps=actor_cfg.num_diffusion_iters,
             # the choise of beta schedule has big impact on performance
-            # we found squared cosine works the best
-            beta_schedule=config.actor.beta_schedule,
+            # squared cosine is found to work the best
+            beta_schedule=actor_cfg.beta_schedule,
             # clip output to [-1,1] to improve stability
-            clip_sample=config.actor.clip_sample,
+            clip_sample=actor_cfg.clip_sample,
             # our network predicts noise (instead of denoised action)
-            prediction_type=config.actor.prediction_type,
+            prediction_type=actor_cfg.prediction_type,
         )
 
         self.inference_noise_scheduler = DDIMScheduler(
-            num_train_timesteps=config.actor.num_diffusion_iters,
-            beta_schedule=config.actor.beta_schedule,
-            clip_sample=config.actor.clip_sample,
-            prediction_type=config.actor.prediction_type,
+            num_train_timesteps=actor_cfg.num_diffusion_iters,
+            beta_schedule=actor_cfg.beta_schedule,
+            clip_sample=actor_cfg.clip_sample,
+            prediction_type=actor_cfg.prediction_type,
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = StateActionNormalizer(config.control.control_mode).to(device)
+        self.normalizer = normalizer.to(device)
 
         pretrained = (
             hasattr(config.vision_encoder, "pretrained")
             and config.vision_encoder.pretrained
         )
+
+        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+
         self.encoder1 = get_encoder(
-            encoder_name, freeze=freeze_encoder, device=device, pretrained=pretrained
+            encoder_name,
+            device=device,
+            **encoder_kwargs,
         )
         self.encoder2 = (
             self.encoder1
-            if pretrained
-            else get_encoder(
-                encoder_name,
-                freeze=freeze_encoder,
-                device=device,
-                pretrained=pretrained,
-            )
+            if freeze_encoder
+            else get_encoder(encoder_name, device=device, **encoder_kwargs)
+        )
+        self.encoding_dim = self.encoder1.encoding_dim
+
+        if actor_cfg.get("projection_dim") is not None:
+            self.encoder1_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
+            ).to(device)
+            self.encoder2_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
+            ).to(device)
+            self.encoding_dim = actor_cfg.projection_dim
+        else:
+            self.encoder1_proj = nn.Identity()
+            self.encoder2_proj = nn.Identity()
+
+        self.flatten_obs = config.actor.diffusion_model.get("flatten_obs", True)
+        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
+        self.obs_dim = (
+            self.timestep_obs_dim * self.obs_horizon
+            if self.flatten_obs
+            else self.timestep_obs_dim
         )
 
-        self.encoding_dim = self.encoder1.encoding_dim
-        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
-        self.obs_dim = self.timestep_obs_dim * self.obs_horizon
-
-        self.model = ConditionalUnet1D(
-            input_dim=self.action_dim,
-            global_cond_dim=self.obs_dim,
-            down_dims=config.actor.down_dims,
+        self.model = get_diffusion_backbone(
+            action_dim=self.action_dim,
+            obs_dim=self.obs_dim,
+            actor_config=config.actor,
         ).to(device)
+
+        loss_fn_name = (
+            config.actor.loss_fn if hasattr(config.actor, "loss_fn") else "MSELoss"
+        )
+        self.loss_fn = getattr(nn, loss_fn_name)()
 
     # === Inference ===
     def _normalized_action(self, nobs):
@@ -136,7 +161,7 @@ class DiffusionPolicy(Actor):
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations
-        nobs = self._normalized_obs(obs)
+        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
@@ -148,7 +173,7 @@ class DiffusionPolicy(Actor):
     # === Training ===
     def compute_loss(self, batch):
         # State already normalized in the dataset
-        obs_cond = self._training_obs(batch)
+        obs_cond = self._training_obs(batch, flatten=self.flatten_obs)
 
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
@@ -170,7 +195,7 @@ class DiffusionPolicy(Actor):
 
         # forward pass
         noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
-        loss = nn.functional.mse_loss(noise_pred, noise)
+        loss = self.loss_fn(noise_pred, noise)
 
         return loss
 
@@ -254,7 +279,7 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: StateActionNormalizer,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__(

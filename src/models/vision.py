@@ -10,32 +10,6 @@ from src.common.pytorch_util import replace_submodules
 from src.models.vit import vit_base_patch16
 
 
-def get_encoder(encoder_name, freeze=True, device="cuda", pretrained=True):
-    if encoder_name.startswith("dinov2"):
-        return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
-    if encoder_name.startswith("r3m"):
-        return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
-    if encoder_name == "vip":
-        return VIPEncoder(freeze=freeze, device=device)
-    if encoder_name.startswith("resnet"):
-        return ResnetEncoder(
-            model_name=encoder_name,
-            freeze=freeze,
-            device=device,
-            use_groupnorm=True,
-            pretrained=pretrained,
-        )
-    if encoder_name == "spatial_softmax":
-        return SpatialSoftmaxEncoder(freeze=False, device=device)
-    if encoder_name == "dino":
-        return DinoEncoder(freeze=freeze, device=device)
-    if encoder_name == "mae":
-        return MAEEncoder(freeze=freeze, device=device)
-    if encoder_name == "voltron":
-        return VoltronEncoder(freeze=freeze, device=device)
-    raise ValueError(f"Unknown encoder name: {encoder_name}")
-
-
 # Function borrowed from
 # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/model/vision/model_getter.py
 def get_resnet(model_name, weights=None, **kwargs):
@@ -66,27 +40,29 @@ class VisionEncoder(ModuleAttrMixin):
 class SpatialSoftmaxEncoder(VisionEncoder):
     def __init__(
         self,
-        model_name="ResNet18Conv",
         freeze=True,
         device="cuda",
         use_groupnorm=True,
+        num_kp=32,
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__()
 
         from robomimic.models.obs_core import VisualCore
 
-        self.encoding_dim = 256
+        self.input_shape = [3, 224, 224]
 
         self.model = VisualCore(
-            input_shape=[3, 224, 224],
-            backbone_class=model_name,
+            input_shape=self.input_shape,
+            backbone_class="ResNet18Conv",
             pool_class="SpatialSoftmax",
-            pool_kwargs={"num_kp": 32},
+            pool_kwargs={"num_kp": num_kp},
             flatten=True,
-            feature_dimension=self.encoding_dim,
+            feature_dimension=None,
         )
+
+        self.encoding_dim = self.model.output_shape(self.input_shape)[0]
 
         if use_groupnorm:
             self.model = replace_submodules(
@@ -126,6 +102,7 @@ class ResnetEncoder(VisionEncoder):
     ) -> None:
         super().__init__(*args, **kwargs)
         assert model_name in ["resnet18", "resnet34", "resnet50"]
+        assert not freeze or pretrained, "If not pretrained, then freeze must be False"
 
         weights = "IMAGENET1K_V1" if pretrained else None
 
@@ -142,6 +119,9 @@ class ResnetEncoder(VisionEncoder):
             )
 
         self.model = self.model.to(device)
+
+        if freeze:
+            self.freeze()
 
     # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
     def forward(self, x):
@@ -220,7 +200,7 @@ class R3MEncoder(torch.nn.Module):
         model_name = f"resnet{model_name.split('_')[1]}"
 
         self.device = device
-        self.model = load_r3m(modelid=model_name, device=device).module.to(device)
+        self.model = load_r3m(modelid=model_name).module.to(device)
         self.encoding_dim = dict(
             resnet18=512,
             resnet34=512,

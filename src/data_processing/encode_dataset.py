@@ -2,7 +2,7 @@ import argparse
 from typing import List, Union
 import numpy as np
 from tqdm import trange, tqdm
-from src.models.vision import get_encoder
+from src.models import get_encoder
 import torch
 from datetime import datetime
 from ipdb import set_trace as bp
