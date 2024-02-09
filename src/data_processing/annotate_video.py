@@ -10,12 +10,14 @@ from src.common.tasks import task_phases
 
 from ipdb import set_trace as bp
 
+annotate = "failure"
+
 
 # 1. Load the video
 pkl_paths = get_raw_paths(
     environment="sim",
-    demo_source="teleop",
-    demo_outcome="success",
+    demo_source="rollout",
+    demo_outcome=annotate,
     randomness="low",
     task="one_leg",
 )
@@ -26,8 +28,10 @@ for pkl_path in pkl_paths:
 
     # Check if this data has already been annotated
     # TODO make this be adapti
-    if ("skills" in data) and (
-        sum(data["skills"]) == (task_phases[data["furniture"]] - 1)
+    if (
+        ("skills" in data)
+        and (sum(data["skills"]) == (task_phases[data["furniture"]] - 1))
+        or ("failure_idx" in data)
     ):
         print(f"Data {pkl_path} has already been annotated")
         continue
@@ -37,9 +41,10 @@ for pkl_path in pkl_paths:
 
     # Initialize the annotation array
     annotations = []
+    failure_idx = None
 
     cv2.namedWindow("Frame", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Frame", 2 * 640, 2 * 240)
+    cv2.resizeWindow("Frame", 3 * 640, 3 * 240)
 
     current_frame = 0
     while True:
@@ -57,6 +62,9 @@ for pkl_path in pkl_paths:
             for annotation in annotations:
                 data["skills"][annotation] = 1
 
+            if failure_idx is not None:
+                data["failure_idx"] = failure_idx
+
             pickle_data(data, pkl_path)
             print(f"Saved annotations to {pkl_path}")
 
@@ -65,6 +73,11 @@ for pkl_path in pkl_paths:
         elif key == ord(" "):  # Press space to mark the frame
             annotations.append(current_frame)
             print(f"Marked frame {current_frame}")
+        elif key == ord("f"):
+            # Mark the frame as a failure
+            failure_idx = current_frame
+            print(f"Marked frame {current_frame} as failure")
+
         elif key == ord("u"):
             # Undo the last marking
             if len(annotations) > 0:
