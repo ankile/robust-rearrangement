@@ -61,7 +61,7 @@ def np_rot_6d_to_isaac_quat(rot_6d: np.ndarray) -> np.ndarray:
     return quat.numpy()
 
 
-def action_to_6d_rotation(action: torch.tensor) -> torch.tensor:
+def action_quat_to_6d_rotation(action: torch.tensor) -> torch.tensor:
     """
     Convert the 8D action space to 10D action space.
 
@@ -90,7 +90,7 @@ def action_to_6d_rotation(action: torch.tensor) -> torch.tensor:
     return action_6d
 
 
-def np_action_to_6d_rotation(action: np.ndarray) -> np.ndarray:
+def np_action_quat_to_6d_rotation(action: np.ndarray) -> np.ndarray:
     """
     Convert the 8D action space to 10D action space.
 
@@ -104,9 +104,28 @@ def np_action_to_6d_rotation(action: np.ndarray) -> np.ndarray:
     Accepts any number of leading dimensions.
     """
     action = torch.from_numpy(action)
-    action_6d = action_to_6d_rotation(action)
+    action_6d = action_quat_to_6d_rotation(action)
     action_6d = action_6d.numpy()
     return action_6d
+
+
+def action_6d_to_quat(action_6d: torch.tensor) -> torch.tensor:
+    assert action_6d.shape[-1] == 10, "Action must be 10D"
+
+    delta_pos = action_6d[..., :3]  # 3D position
+    delta_rot_6d = action_6d[..., 3:9]  # 6D rotation
+    delta_gripper = action_6d[..., 9:]  # 1D gripper
+
+    delta_quat = rot_6d_to_isaac_quat(delta_rot_6d)
+
+    action_quat = torch.cat([delta_pos, delta_quat, delta_gripper], dim=-1)
+    return action_quat
+
+
+def np_action_6d_to_quat(action_6d: np.ndarray) -> np.ndarray:
+    action_6d_torch = torch.from_numpy(action_6d)
+    action_quat = action_6d_to_quat(action_6d_torch)
+    return action_quat.numpy()
 
 
 def np_rot_6d_to_rotvec(rot_6d: np.ndarray) -> np.ndarray:
@@ -179,6 +198,8 @@ def np_proprioceptive_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
 
     Accepts any number of leading dimensions.
     """
+    assert robot_state.shape[-1] == 14, "Robot state must be 14D"
+
     robot_state = torch.from_numpy(robot_state)
     robot_state_6d = proprioceptive_to_6d_rotation(robot_state)
     robot_state_6d = robot_state_6d.numpy()
@@ -213,3 +234,12 @@ def np_extract_ee_pose_6d(robot_state: np.ndarray) -> np.ndarray:
     ee_pose_6d = extract_ee_pose_6d(robot_state)
     ee_pose_6d = ee_pose_6d.numpy()
     return ee_pose_6d
+
+
+def np_apply_quat(state_quat: np.ndarray, action_quat: np.ndarray) -> np.ndarray:
+    state_rot = R.from_quat(state_quat)
+    action_rot = R.from_quat(action_quat)
+
+    new_state_rot = state_rot * action_rot
+
+    return new_state_rot.as_quat()

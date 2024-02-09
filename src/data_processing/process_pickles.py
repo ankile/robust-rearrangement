@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List
 
 import numpy as np
+import torch
 import zarr
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
 from numcodecs import Blosc, blosc
@@ -15,8 +16,10 @@ from src.common.files import get_processed_path, get_raw_paths
 from src.visualization.render_mp4 import unpickle_data
 from src.common.geometry import (
     np_proprioceptive_to_6d_rotation,
-    np_action_to_6d_rotation,
+    np_action_quat_to_6d_rotation,
     np_extract_ee_pose_6d,
+    np_apply_quat,
+    np_action_6d_to_quat,
 )
 from src.data_processing.utils import clip_axis_rotation
 
@@ -53,7 +56,11 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
     return z
 
 
-def process_pickle_file(pickle_path: Path, noop_threshold: float):
+def process_pickle_file(
+    pickle_path: Path,
+    noop_threshold: float,
+    calculate_pos_action_from_delta: bool = False,
+):
     """
     Process a single pickle file and return processed data.
     """
@@ -63,51 +70,91 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     # Extract the observations from the pickle file and convert to 6D rotation
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]
     color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)[:-1]
-    all_robot_state = np.array(
-        [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
-        dtype=np.float32,
-    )
 
-    all_robot_state = np_proprioceptive_to_6d_rotation(all_robot_state)
-    robot_state = all_robot_state[:-1]
+    if isinstance(obs[0]["robot_state"], dict):
+        # Convert the robot state to a numpy array
+        all_robot_state_quat = np.array(
+            [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
+            dtype=np.float32,
+        )
+    else:
+        all_robot_state_quat = np.array(
+            [o["robot_state"] for o in obs], dtype=np.float32
+        )
+
+    all_robot_state_6d = np_proprioceptive_to_6d_rotation(all_robot_state_quat)
+
+    robot_state_6d = all_robot_state_6d[:-1]
     parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
 
     # Extract the delta actions from the pickle file and convert to 6D rotation
     action_delta = np.array(data["actions"], dtype=np.float32)
-    action_delta = np_action_to_6d_rotation(action_delta)
+    if action_delta.shape[-1] == 8:
+        action_delta_quat = action_delta
+        action_delta_6d = np_action_quat_to_6d_rotation(action_delta_quat)
+    elif action_delta.shape[-1] == 10:
+        action_delta_6d = action_delta
+        action_delta_quat = np_action_6d_to_quat(action_delta_6d)
+    else:
+        raise ValueError(
+            f"Unexpected action shape: {action_delta.shape}. Expected (N, 8) or (N, 10)"
+        )
 
     # TODO: Make sure this is rectified in the controller-end and
     # figure out what to do with the corrupted raw data
     # For now, clip the z-axis rotation to 0.35
-    action_delta = clip_axis_rotation(action_delta, clip_mag=0.35, axis="z")
+    action_delta_6d = clip_axis_rotation(action_delta_6d, clip_mag=0.35, axis="z")
 
-    # Extract the position control actions from the pickle file
-    # and concat onto the position actions the gripper actions
-    action_pos = np_extract_ee_pose_6d(all_robot_state[1:])
-    action_pos = np.concatenate([action_pos, action_delta[:, -1:]], axis=1)
+    # Clip xyz delta position actions to ±0.025
+    action_delta_6d[:, :3] = np.clip(action_delta_6d[:, :3], -0.025, 0.025)
+
+    # Calculate the position actions
+    if calculate_pos_action_from_delta:
+        action_pos = np.concatenate(
+            [
+                all_robot_state_quat[:-1, :3] + action_delta_quat[:, :3],
+                np_apply_quat(
+                    all_robot_state_quat[:-1, 3:7], action_delta_quat[:, 3:7]
+                ),
+                # Append the gripper action
+                action_delta_quat[:, -1:],
+            ],
+            axis=1,
+        )
+        action_pos_6d = np_action_quat_to_6d_rotation(action_pos)
+
+    else:
+        # Extract the position control actions from the pickle file
+        # and concat onto the position actions the gripper actions
+        action_pos_6d = np_extract_ee_pose_6d(all_robot_state_6d[1:])
+        action_pos_6d = np.concatenate([action_pos, action_delta_6d[:, -1:]], axis=1)
 
     # Extract the rewards, skills, and parts_poses from the pickle file
     reward = np.array(data["rewards"], dtype=np.float32)
-    skill = np.array(data["skills"], dtype=np.float32)
+    skill = (
+        np.array(data["skills"], dtype=np.float32)
+        if "skills" in data
+        else np.zeros_like(reward)
+    )
 
     # Sanity check that all arrays are the same length
-    assert len(robot_state) == len(
-        action_delta
-    ), f"Mismatch in {pickle_path}, lengths differ by {len(robot_state) - len(action_delta)}"
+    assert len(robot_state_6d) == len(
+        action_delta_6d
+    ), f"Mismatch in {pickle_path}, lengths differ by {len(robot_state_6d) - len(action_delta_6d)}"
 
     # Extract the pickle file name as the path after `raw` in the path
     pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
     processed_data = {
-        "robot_state": robot_state,
+        "robot_state": robot_state_6d,
         "color_image1": color_image1,
         "color_image2": color_image2,
-        "action/delta": action_delta,
-        "action/pos": action_pos,
+        "action/delta": action_delta_6d,
+        "action/pos": action_pos_6d,
         "reward": reward,
         "skill": skill,
         "parts_poses": parts_poses,
-        "episode_length": len(action_delta),
+        "episode_length": len(action_delta_6d),
         "furniture": data["furniture"],
         "success": data["success"],
         "pickle_file": pickle_file,
@@ -116,7 +163,12 @@ def process_pickle_file(pickle_path: Path, noop_threshold: float):
     return processed_data
 
 
-def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
+def parallel_process_pickle_files(
+    pickle_paths,
+    noop_threshold,
+    num_threads,
+    calculate_pos_action_from_delta=False,
+):
     """
     Process all pickle files in parallel and aggregate results.
     """
@@ -139,7 +191,12 @@ def parallel_process_pickle_files(pickle_paths, noop_threshold, num_threads):
     # Process files in parallel
     with ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = [
-            executor.submit(process_pickle_file, path, noop_threshold)
+            executor.submit(
+                process_pickle_file,
+                path,
+                noop_threshold,
+                calculate_pos_action_from_delta,
+            )
             for path in pickle_paths
         ]
         for future in tqdm(
@@ -230,6 +287,7 @@ if __name__ == "__main__":
         default=None,
         nargs="+",
     )
+    parser.add_argument("--calculate-pos-action-from-delta", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -268,7 +326,12 @@ if __name__ == "__main__":
         f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
     )
 
-    all_data = parallel_process_pickle_files(pickle_paths, noop_threshold, n_cpus)
+    all_data = parallel_process_pickle_files(
+        pickle_paths,
+        noop_threshold,
+        n_cpus,
+        calculate_pos_action_from_delta=args.calculate_pos_action_from_delta,
+    )
 
     # Define the full shapes for each dataset
     full_data_shapes = [
@@ -312,3 +375,4 @@ if __name__ == "__main__":
     z.attrs["rotation_mode"] = "rot_6d"
     z.attrs["n_episodes"] = len(z["episode_ends"])
     z.attrs["n_timesteps"] = len(z["action/delta"])
+    z.attrs["calculated_pos_action_from_delta"] = args.calculate_pos_action_from_delta

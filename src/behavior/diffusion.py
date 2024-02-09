@@ -44,6 +44,8 @@ class DiffusionPolicy(Actor):
         self.freeze_encoder = freeze_encoder
         self.device = device
 
+        print("Using inference steps:", self.inference_steps)
+
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
             # the choise of beta schedule has big impact on performance
@@ -65,13 +67,7 @@ class DiffusionPolicy(Actor):
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)
 
-        pretrained = (
-            hasattr(config.vision_encoder, "pretrained")
-            and config.vision_encoder.pretrained
-        )
-
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
-
         self.encoder1 = get_encoder(
             encoder_name,
             device=device,
@@ -80,7 +76,11 @@ class DiffusionPolicy(Actor):
         self.encoder2 = (
             self.encoder1
             if freeze_encoder
-            else get_encoder(encoder_name, device=device, **encoder_kwargs)
+            else get_encoder(
+                encoder_name,
+                device=device,
+                **encoder_kwargs,
+            )
         )
         self.encoding_dim = self.encoder1.encoding_dim
 
@@ -142,6 +142,7 @@ class DiffusionPolicy(Actor):
 
     def _sample_action_pred(self, nobs):
         # Predict normalized action
+        # (B, candidates, pred_horizon, action_dim)
         naction = self._normalized_action(nobs)
 
         # unnormalize action

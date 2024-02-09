@@ -60,9 +60,9 @@ def rollout(
     robot_states = [obs["robot_state"].cpu()]
     imgs1 = [obs["color_image1"].cpu()]
     imgs2 = [obs["color_image2"].cpu()]
+    parts_poses = [obs["parts_poses"].cpu()]
     actions = list()
     rewards = list()
-    parts_poses = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     # Define a noop tensor to use when done
@@ -180,6 +180,22 @@ def calculate_success_rate(
             pbar=pbar,
         )
 
+        # Print all the shapes
+        print(
+            "robot_states",
+            robot_states.shape,
+            "imgs1",
+            imgs1.shape,
+            "imgs2",
+            imgs2.shape,
+            "actions",
+            actions.shape,
+            "rewards",
+            rewards.shape,
+            "parts_poses",
+            parts_poses.shape,
+        )
+
         # Calculate the success rate
         success = rewards.sum(dim=1) == n_parts_assemble
         n_success += success.sum().item()
@@ -235,15 +251,15 @@ def calculate_success_rate(
         if rollout_save_dir is not None and (save_failures or success):
             # Save the raw rollout data
             save_raw_rollout(
-                robot_states[:n_steps],
-                video1[:n_steps],
-                video2[:n_steps],
-                actions[:n_steps],
-                rewards[:n_steps],
-                parts_poses[:n_steps],
-                success,
-                furniture,
-                rollout_save_dir,
+                robot_states=robot_states[: n_steps + 1],
+                imgs1=video1[: n_steps + 1],
+                imgs2=video2[: n_steps + 1],
+                parts_poses=parts_poses[: n_steps + 1],
+                actions=actions[:n_steps],
+                rewards=rewards[:n_steps],
+                success=success,
+                furniture=furniture,
+                rollout_save_dir=rollout_save_dir,
             )
 
     # Sort the table rows by return (highest at the top)

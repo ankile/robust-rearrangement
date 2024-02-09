@@ -22,7 +22,7 @@ from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
 from src.dataset.normalizer import Normalizer
-from src.common.pytorch_util import dict_apply
+from src.common.pytorch_util import dict_to_device
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
@@ -243,7 +243,8 @@ def main(config: DictConfig):
             opt_noise.zero_grad()
 
             # device transfer
-            batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+            # batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
+            batch = dict_to_device(batch, device)
 
             # Get loss
             loss = actor.compute_loss(batch)
@@ -285,9 +286,7 @@ def main(config: DictConfig):
         for test_batch in test_tepoch:
             with torch.no_grad():
                 # device transfer for test_batch
-                test_batch = dict_apply(
-                    test_batch, lambda x: x.to(device, non_blocking=True)
-                )
+                test_batch = dict_to_device(test_batch, device)
 
                 # Get test loss
                 test_loss_val = actor.compute_loss(test_batch)

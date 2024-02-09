@@ -103,6 +103,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 "color_image2",
                 "robot_state",
                 f"action/{control_mode}",
+                "skill",
             ],
             max_episodes=data_subset,
         )
@@ -145,6 +146,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
         self.successes = combined_data["success"].astype(np.uint8)
+        self.skills = combined_data["skill"].astype(np.uint8)
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -189,12 +191,14 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Discard unused observations
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
-        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+        nsample["robot_state"] = torch.from_numpy(
+            nsample["robot_state"][: self.obs_horizon, :]
+        )
 
         # Discard unused actions
-        nsample["action"] = nsample["action"][
-            self.first_action_idx : self.final_action_idx, :
-        ]
+        nsample["action"] = torch.from_numpy(
+            nsample["action"][self.first_action_idx : self.final_action_idx, :]
+        )
 
         # Apply the image augmentation
         nsample["color_image1"] = torch.stack(
@@ -211,8 +215,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         ).permute(0, 2, 3, 1)
 
         # Add the task index and success flag to the sample
-        nsample["task_idx"] = self.task_idxs[demo_idx]
-        nsample["success"] = self.successes[demo_idx]
+        nsample["task_idx"] = torch.Tensor(self.task_idxs[demo_idx])
+        nsample["success"] = torch.Tensor(self.successes[demo_idx])
 
         return nsample
 
