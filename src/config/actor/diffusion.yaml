@@ -10,7 +10,7 @@ num_diffusion_iters: 100
 clip_sample: true
 loss_fn: MSELoss  # MSELoss | L1Loss
 
-projection_dim: 256
+projection_dim: 128
 
 defaults:
   - diffusion_model: unet

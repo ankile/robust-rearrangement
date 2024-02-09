@@ -2,6 +2,7 @@ import argparse
 import time
 from typing import List
 import furniture_bench
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 from src.behavior.base import Actor  # noqa
 import torch
 from omegaconf import OmegaConf, DictConfig
@@ -55,7 +56,7 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     if args.sweep_id:
         runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
     elif args.run_id:
-        runs: List[Run] = [api.run(f"{args.run_id}")]
+        runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
     elif args.project_id:
         runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
     else:
@@ -107,7 +108,7 @@ def convert_state_dict(state_dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run-id", type=str, required=False)
+    parser.add_argument("--run-id", type=str, required=False, nargs="*")
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--n-envs", type=int, default=1)
     parser.add_argument("--n-rollouts", type=int, default=1)
@@ -159,6 +160,7 @@ if __name__ == "__main__":
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
 
+    parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
     args = parser.parse_args()
 
@@ -173,10 +175,11 @@ if __name__ == "__main__":
 
     # Get the environment
     # TODO: This needs to be changed to enable recreation the env for each run
+    action_type = "delta"
     print(
-        "Creating the environment (this needs to be changed to enable recreation the env for each run)"
+        f"Creating the environment with action_type {action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env = get_env(
+    env: FurnitureSimEnv = get_env(
         gpu_id=args.gpu,
         furniture=args.furniture,
         num_envs=args.n_envs,
@@ -185,8 +188,8 @@ if __name__ == "__main__":
         resize_img=False,
         act_rot_repr="rot_6d",
         ctrl_mode="osc",
-        action_type="delta",
-        verbose=False,
+        action_type=action_type,
+        verbose=args.verbose,
         headless=not args.visualize,
     )
 
@@ -262,14 +265,25 @@ if __name__ == "__main__":
 
                 # Create the config object with the project name and make it read-only
                 config: DictConfig = OmegaConf.create(
-                    {**run.config, "project_name": run.project},
+                    {
+                        **run.config,
+                        "project_name": run.project,
+                        "actor": {**run.config["actor"], "inference_steps": 4},
+                    },
                     flags={"readonly": True},
+                )
+
+                # Check that we didn't set the wrong action type above
+                assert config.control.control_mode == action_type, (
+                    f"Control mode in the config: {config.control.control_mode} "
+                    f"does not match the action type: {action_type}"
                 )
 
                 # Get the normalizer
                 normalizer_type = config.get("data", {}).get("normalization", "min_max")
                 normalizer = get_normalizer(
-                    normalizer_type=normalizer_type, control_mode="delta"
+                    normalizer_type=normalizer_type,
+                    control_mode=config.control.control_mode,
                 )
 
                 # TODO: Fix this properly, but for now have an ugly escape hatch
@@ -306,6 +320,9 @@ if __name__ == "__main__":
                         id=run.id,
                         resume="allow",
                     )
+
+                # Set the control mode on the environment
+                # env.action_type = config.control.control_mode
 
                 # Perform the rollouts
                 actor.set_task(furniture2idx[args.furniture])

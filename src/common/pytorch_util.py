@@ -17,6 +17,12 @@ def dict_apply(
     return result
 
 
+def dict_to_device(
+    d: Dict[str, torch.Tensor], device: torch.device
+) -> Dict[str, torch.Tensor]:
+    return dict_apply(d, lambda x: x.to(device, non_blocking=True))
+
+
 # Function borrowed from
 # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/common/pytorch_util.py#L43
 def replace_submodules(
