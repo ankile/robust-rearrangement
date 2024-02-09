@@ -147,6 +147,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
         self.successes = combined_data["success"].astype(np.uint8)
         self.skills = combined_data["skill"].astype(np.uint8)
+        self.failure_idx = combined_data["failure_idx"]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]

@@ -180,22 +180,6 @@ def calculate_success_rate(
             pbar=pbar,
         )
 
-        # Print all the shapes
-        print(
-            "robot_states",
-            robot_states.shape,
-            "imgs1",
-            imgs1.shape,
-            "imgs2",
-            imgs2.shape,
-            "actions",
-            actions.shape,
-            "rewards",
-            rewards.shape,
-            "parts_poses",
-            parts_poses.shape,
-        )
-
         # Calculate the success rate
         success = rewards.sum(dim=1) == n_parts_assemble
         n_success += success.sum().item()

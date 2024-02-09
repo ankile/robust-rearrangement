@@ -99,6 +99,10 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
             "success"
         ][:max_episodes]
 
+        combined_data["failure_idx"] = dataset.get(
+            "failure_idx", np.full_like(end_idxs, -1)
+        )
+
         # Upddate the counters
         last_episode_end += end_idxs[-1]
         n_episodes += len(end_idxs)

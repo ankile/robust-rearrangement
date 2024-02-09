@@ -157,6 +157,7 @@ def process_pickle_file(
         "episode_length": len(action_delta_6d),
         "furniture": data["furniture"],
         "success": data["success"],
+        "failure_idx": data.get("failure_idx", -1),
         "pickle_file": pickle_file,
     }
 
@@ -185,6 +186,7 @@ def parallel_process_pickle_files(
         "episode_ends": [],
         "furniture": [],
         "success": [],
+        "failure_idx": [],  # This will be -1 if no failure
         "pickle_file": [],
     }
 
@@ -348,6 +350,7 @@ if __name__ == "__main__":
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),
         ("success", (len(all_data["success"]),), np.uint8),
+        ("failure_idx", (len(all_data["failure_idx"]),), np.int32),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 

@@ -73,8 +73,8 @@ def main(config: DictConfig):
     )
 
     data_path = get_processed_paths(
-        environment=config.data.environment,
-        task=config.data.furniture,
+        environment=to_native(config.data.environment),
+        task=to_native(config.data.furniture),
         demo_source=to_native(config.data.demo_source),
         randomness=to_native(config.data.randomness),
         demo_outcome="success",

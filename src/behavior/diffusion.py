@@ -209,12 +209,14 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
+        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__(
             device=device,
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
+            normalizer=normalizer,
             config=config,
         )
 

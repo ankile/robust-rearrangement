@@ -14,7 +14,7 @@ obs_horizon: 2
 observation_type: image
 furniture: one_leg
 environment: sim
-demo_source: scripted
+demo_source: teleop
 randomness: low
 discount: 0.999
 
