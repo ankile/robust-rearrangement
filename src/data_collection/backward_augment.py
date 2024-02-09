@@ -1,4 +1,5 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
+
 import time
 import pickle
 from datetime import datetime
@@ -120,9 +121,10 @@ class DataCollectorAugmentor:
             self.env = gym.make(
                 "FurnitureSimFull-v0",
                 furniture=furniture,
-                max_env_steps=sim_config["scripted_timeout"][furniture]
-                if scripted
-                else 3000,
+                # max_env_steps=(
+                #     sim_config["scripted_timeout"][furniture] if scripted else 3000
+                # ),
+                max_env_steps=100,
                 headless=headless,
                 num_envs=1,  # Only support 1 for now.
                 manual_done=False if scripted else True,
@@ -317,9 +319,7 @@ class DataCollectorAugmentor:
 
             # Error handling.
             if not info["obs_success"]:
-                self.verbose_print(
-                    "Getting observation failed, save trajectory."
-                )
+                self.verbose_print("Getting observation failed, save trajectory.")
                 # Pop the last reward and action so that obs has length plus 1 then those of actions and rewards.
                 self.transitions["rewards"] = None
                 self.transitions["actions"] = None
@@ -356,9 +356,9 @@ class DataCollectorAugmentor:
 
             if (not self.robot_settled) and (
                 (datetime.now() - self.starttime).seconds > self.start_delay
-                ):
-                    self.robot_settled = True
-                    print("Robot settled")
+            ):
+                self.robot_settled = True
+                print("Robot settled")
 
             self.verbose_print(
                 f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
@@ -462,8 +462,7 @@ class DataCollectorAugmentor:
 
         self._reset_collector_buffer()
 
-        for _ in range(50):
-            self.env.step(torch.randn((8,)).float().to(self.env.device))
+        self.noop_actions(n=50)
 
         if self.resume_trajectory_paths:
             obs = self.load_state()
@@ -473,6 +472,13 @@ class DataCollectorAugmentor:
         self.starttime = datetime.now()
         self.robot_settled = False
         return obs
+
+    def noop_actions(self, n=50):
+        noop = torch.zeros((8,)).float().to(self.env.device)
+        # Need to set the real part of the quaternion to 1
+        noop[-2] = 1.0
+        for _ in range(n):
+            self.env.step(noop)
 
     def _reset_collector_buffer(self):
         # Now, observations, actions, rewards, and skall_complete flags are stored as transition "tuples"
@@ -484,7 +490,12 @@ class DataCollectorAugmentor:
         self.reverse_actions = []
         self.reverse_ee_poses = []
 
-    def load_state(self, offset_steps: int=20, aug_transition_idx: int=3, n_back_steps: int=10):
+    def load_state(
+        self,
+        offset_steps: int = 10,
+        aug_transition_idx: int = 3,
+        n_back_steps: int = 20,
+    ):
         """
         Load the state of the environment from a one_leg trajectory
         from the currently first pickle in the resume_trajectory_paths list
@@ -499,13 +510,9 @@ class DataCollectorAugmentor:
 
         state = unpickle_data(trajectory_path)
 
-        print("State from pickle:")
-        for k, v in state.items():
-            print(k, type(v))
-
         skill_transition_indices = []
-        original_episode_actions = []    
-        original_episode_ee_poses = []    
+        original_episode_actions = []
+        original_episode_ee_poses = []
         original_episode_horizon = len(state["observations"]) - 1
 
         def ee_pose_from_robot_state(robot_state_dict):
@@ -515,47 +522,62 @@ class DataCollectorAugmentor:
 
         # Add all the data so far in the trajectory to the collect buffer, but stop when we reach the transition to hit
         for i in trange(original_episode_horizon, desc="Hydrating state"):
-            obs={
+            obs = {
                 "color_image1": np.array(state["observations"][i]["color_image1"]),
                 "color_image2": np.array(state["observations"][i]["color_image2"]),
                 "robot_state": state["observations"][i]["robot_state"],
                 "parts_poses": np.array(state["observations"][i]["parts_poses"]),
             }
-            action=state["actions"][i] if i < len(state["actions"]) else None
-            rew=state["rewards"][i] if i < len(state["rewards"]) else None
-            skill_complete=state["skills"][i] if i < len(state["skills"]) else None
-            setup_phase=True
+            action = state["actions"][i] if i < len(state["actions"]) else None
+            rew = state["rewards"][i] if i < len(state["rewards"]) else None
+            skill_complete = state["skills"][i] if i < len(state["skills"]) else None
+            setup_phase = True
 
             original_episode_actions.append(action)
-            original_episode_ee_poses.append(ee_pose_from_robot_state(state["observations"][i]["robot_state"]))
+            original_episode_ee_poses.append(
+                ee_pose_from_robot_state(state["observations"][i]["robot_state"])
+            )
 
             if skill_complete:
                 skill_transition_indices.append(i)
-                print(f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}')
-        
+                print(
+                    f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}'
+                )
+
         # log the actions in reverse, starting at the end and going to our reset state
         aug_episode_start = skill_transition_indices[aug_transition_idx] - offset_steps
         for i in range(original_episode_horizon - 1, aug_episode_start, -1):
             self.reverse_actions.append(original_episode_actions[i])
             self.reverse_ee_poses.append(original_episode_ee_poses[i])
-        
+
         # create an additional set of reverse actions by sampling an ee pose and interpolating
         start_robot_state = state["observations"][aug_episode_start]["robot_state"]
-        start_ee_pos, start_ee_quat = start_robot_state["ee_pos"], start_robot_state["ee_quat"]
+        start_ee_pos, start_ee_quat = (
+            start_robot_state["ee_pos"],
+            start_robot_state["ee_quat"],
+        )
 
         # random delta position and euler angle
-        xmax, ymax = 0.01, 0.01
-        zmin, zmax = 0.095, 0.12
-        rmax, pmax, yawmax = 15, 15, 15
+        xmax, ymax = 0.05, 0.05
+        zmin, zmax = 0.1, 2
+        rmax, pmax, yawmax = 90, 90, 90
         # rmax, pmax, ymax = 0.1, 0.1, 0.1
-        dx, dy, dz = np.random.uniform(-xmax, xmax), np.random.uniform(-ymax, ymax), np.random.uniform(zmin, zmax)
-        dr, dp, dyaw = np.random.uniform(-np.deg2rad(rmax), np.deg2rad(rmax)), np.random.uniform(-np.deg2rad(pmax), np.deg2rad(pmax)), np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax))
+        dx, dy, dz = (
+            np.random.uniform(-xmax, xmax),
+            np.random.uniform(-ymax, ymax),
+            np.random.uniform(zmin, zmax),
+        )
+        dr, dp, dyaw = (
+            np.random.uniform(-np.deg2rad(rmax), np.deg2rad(rmax)),
+            np.random.uniform(-np.deg2rad(pmax), np.deg2rad(pmax)),
+            np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax)),
+        )
 
         # get absolute "goal" pose
         goal_ee_pos = start_ee_pos + np.array([dx, dy, dz])
 
         start_ee_mat = st.Rotation.from_quat(start_ee_quat).as_matrix()
-        delta_ee_mat = st.Rotation.from_euler('xyz', [dr, dp, dyaw]).as_matrix()
+        delta_ee_mat = st.Rotation.from_euler("xyz", [dr, dp, dyaw]).as_matrix()
         goal_ee_quat = st.Rotation.from_matrix(start_ee_mat @ delta_ee_mat).as_quat()
 
         # interpolate and record delta actions
@@ -563,22 +585,48 @@ class DataCollectorAugmentor:
         slerp = st.Slerp([0, 1], st.Rotation.from_quat([start_ee_quat, goal_ee_quat]))
         interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps))
 
+        # Print the state of the gripper at the aug_episode_start
+        print(
+            f"Start gripper width: {state['observations'][aug_episode_start]['robot_state']['gripper_width']}"
+        )
+        print(
+            f"Gripper action at aug_episode_start: {original_episode_actions[aug_episode_start][-1]}"
+        )
+
         self.env.reset_env_to(env_idx=0, state=state["observations"][aug_episode_start])
         self.env.refresh()
 
-        print(f'Start position: {start_ee_pos}, goal position: {goal_ee_pos}')
-        print(f'Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}')
+        # Apply the close gripper action
+        print("Applying close gripper action")
+        self.env.step(torch.tensor([0, 0, 0, 0, 0, 0, 1, +1]).to(self.env.device))
+
+        self.noop_actions(n=10)
+
+        print(f"Start position: {start_ee_pos}, goal position: {goal_ee_pos}")
+        print(
+            f"Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}"
+        )
 
         print(f'Executing "reverse" actions... ')
         for i in range(n_back_steps - 1):
-            
+
             # first, translate along our path
-            action_pos = interp_ee_pos[i+1] - interp_ee_pos[i]
+            action_pos = interp_ee_pos[i + 1] - interp_ee_pos[i]
+
+            # clip it to 0.025
+            action_pos = np.clip(action_pos, -0.02, 0.02)
+            print(f"Action pos: {action_pos}")
 
             # make quat action to keep same orientation
             action_quat = self.make_quat_action_stay(stay_quat=start_ee_quat)
 
-            action = np.concatenate([action_pos, action_quat, [original_episode_actions[aug_episode_start][-1]]])
+            action = np.concatenate(
+                [
+                    action_pos,
+                    action_quat,
+                    original_episode_actions[aug_episode_start][-1:],
+                ]
+            )
 
             action_t = torch.from_numpy(action).float().to(self.env.device)
             next_obs, _, _, _ = self.env.step(action_t)
@@ -589,18 +637,26 @@ class DataCollectorAugmentor:
             rev_action[-1] = action[-1]
             self.reverse_actions.append(rev_action)
             self.reverse_ee_poses.append(np.concatenate(self.get_ee_pose_np()))
-        
+
         stay_pos = self.get_ee_pose_np()[0]
 
         for i in range(n_back_steps - 1):
-            
+
             # make pos action to keep the same position
             action_pos = self.make_pos_action_stay(stay_pos=stay_pos)
 
             # now, follow rotation path
-            action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i+1]).as_quat()
+            action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i + 1]).as_quat()
 
-            action = np.concatenate([action_pos, action_quat, [original_episode_actions[aug_episode_start][-1]]])
+            action = np.concatenate(
+                [
+                    action_pos,
+                    action_quat,
+                    [original_episode_actions[aug_episode_start][-1]],
+                ]
+            )
+
+            print(f"Gripper action: {action[-1]}")
 
             action_t = torch.from_numpy(action).float().to(self.env.device)
             next_obs, _, _, _ = self.env.step(action_t)
@@ -624,22 +680,27 @@ class DataCollectorAugmentor:
         return translation, quat_xyzw
 
     def make_pos_action_stay(self, stay_pos):
-        current_pos =self.get_ee_pose_np()[0]
+        current_pos = self.get_ee_pose_np()[0]
         action_pos = stay_pos - current_pos
         return action_pos
 
     def make_quat_action_stay(self, stay_quat):
         current_quat = self.get_ee_pose_np()[1]
-        stay_rot, current_rot = st.Rotation.from_quat(stay_quat), st.Rotation.from_quat(current_quat)
+        stay_rot, current_rot = st.Rotation.from_quat(stay_quat), st.Rotation.from_quat(
+            current_quat
+        )
         action_quat = (current_rot.inv() * stay_rot).as_quat()
         return action_quat
-    
+
     def create_delta_action(self, next_ee_pose, grip_action):
         current_ee_pos, current_ee_quat = self.get_ee_pose_np()
         next_ee_pos, next_ee_quat = next_ee_pose[:3], next_ee_pose[3:]
 
         action_pos = next_ee_pos - current_ee_pos
-        action_quat = (st.Rotation.from_quat(current_ee_quat).inv() * st.Rotation.from_quat(next_ee_quat)).as_quat()
+        action_quat = (
+            st.Rotation.from_quat(current_ee_quat).inv()
+            * st.Rotation.from_quat(next_ee_quat)
+        ).as_quat()
 
         action = np.concatenate([action_pos, action_quat, grip_action])
 
@@ -766,19 +827,20 @@ def main():
     )
 
     from pathlib import Path
-    # pickle_paths = list(
-    #     Path(
-    #         "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted"
-    #     ).rglob("**/success/*.pkl*")
-    # )
 
     pickle_paths = list(
         Path(
-            "/home/anthony/repos/research/furniture-diffusion/furniture-data/raw/sim/one_leg/scripted"
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop"
         ).rglob("**/success/*.pkl*")
     )
 
-    random.shuffle(pickle_paths)
+    # pickle_paths = list(
+    #     Path(
+    #         "/home/anthony/repos/research/furniture-diffusion/furniture-data/raw/sim/one_leg/scripted"
+    #     ).rglob("**/success/*.pkl*")
+    # )
+
+    # random.shuffle(pickle_paths)
 
     pickle_paths = pickle_paths[:10]
 
