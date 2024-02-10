@@ -152,7 +152,7 @@ class DataCollectorSpaceMouse:
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
 
         # Parameters for controlling the time it takes for the robot to settle at the start of a trajectory
-        self.start_delay = 3  # seconds
+        self.start_delay = 1  # seconds
         self.robot_settled = False
         self.starttime = datetime.now()
 

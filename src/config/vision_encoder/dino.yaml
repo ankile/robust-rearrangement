@@ -1,4 +1,4 @@
 model: dino
-freeze: true
+freeze: false
 pretrained: true
 backbone: vits16

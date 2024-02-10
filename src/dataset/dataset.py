@@ -216,8 +216,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         ).permute(0, 2, 3, 1)
 
         # Add the task index and success flag to the sample
-        nsample["task_idx"] = torch.Tensor(self.task_idxs[demo_idx])
-        nsample["success"] = torch.Tensor(self.successes[demo_idx])
+        nsample["task_idx"] = torch.Tensor([self.task_idxs[demo_idx]])
+        nsample["success"] = torch.Tensor([self.successes[demo_idx]])
 
         return nsample
 

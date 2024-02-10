@@ -1,27 +1,20 @@
 # @package _global_
 defaults:
-  - override /vision_encoder: spatial_softmax
+  - override /vision_encoder: dino
 
 observation_type: image
   
 # Override the values for observation type, layernorm, and augmentation
 data:
-  data_subset: null
+  data_subset: 50
   augment_image: true
   dataloader_workers: 64
 
 training:
-  batch_size: 128
+  batch_size: 64
 
 regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
 
-# Override a subset of the rollout parameters
-rollout:
-  max_steps: 2000
-  furniture: lamp
-
-furniture: [one_leg, lamp]
-randomness: [low, med]
