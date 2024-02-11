@@ -130,7 +130,6 @@ class DiffusionPolicy(Actor):
 
         for k in self.inference_noise_scheduler.timesteps:
             # predict noise
-            # Print dtypes of all tensors to the model
             noise_pred = self.model(sample=naction, timestep=k, global_cond=nobs)
 
             # inverse diffusion step (remove noise)
@@ -276,7 +275,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         return obs_cond
 
 
-class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
+class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
     def __init__(
         self,
         device: Union[str, torch.device],
@@ -307,18 +306,18 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
 
         self.obs_dim = self.obs_dim + self.success_cond_dim
 
-        self.model = ConditionalUnet1D(
-            input_dim=config.action_dim,
-            global_cond_dim=self.obs_dim,
-            down_dims=config.down_dims,
+        self.model = get_diffusion_backbone(
+            action_dim=self.action_dim,
+            obs_dim=self.obs_dim,
+            actor_config=config.actor,
         ).to(device)
 
-    def _training_obs(self, batch):
+    def _training_obs(self, batch, flatten=True):
         # Get the standard observation data
-        nobs = super()._training_obs(batch, flatten=True)
+        nobs = super()._training_obs(batch, flatten=flatten)
 
         # Get the task embedding
-        success = batch["success"]
+        success = batch["success"].squeeze(-1)
         success_embedding = self.success_embedding(success)
 
         # Concatenate the task embedding to the observation
@@ -326,9 +325,9 @@ class SuccessConditionedDiffusionPolicy(DiffusionPolicy):
 
         return obs_cond
 
-    def _normalized_obs(self, obs: deque):
+    def _normalized_obs(self, obs: deque, flatten=True):
         # Get the standard observation data
-        nobs = super()._normalized_obs(obs, flatten=True)
+        nobs = super()._normalized_obs(obs, flatten=flatten)
         B = nobs.shape[0]
 
         # Set the success embedding to true and repeat it for the batch size

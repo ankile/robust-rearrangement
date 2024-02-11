@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: spatial_softmax
+  - override /success_guidance: success_guidance
+
+# Override the values for observation type, layernorm, and augmentation
+observation_type: image
+
+furniture: one_leg
+randomness: low
+demo_source: [teleop, rollout]
+demo_outcome: [success, failure]
+
+data:
+  data_subset: 50
+  augment_image: true
+  dataloader_workers: 64
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+# Override a subset of the rollout parameters
+rollout:
+  max_steps: 1000
+  furniture: one_leg
