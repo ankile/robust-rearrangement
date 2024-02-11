@@ -268,7 +268,7 @@ if __name__ == "__main__":
         "--source",
         "-s",
         type=str,
-        choices=["scripted", "rollout", "teleop"],
+        choices=["scripted", "rollout", "teleop", "augmentation"],
         default=None,
         nargs="+",
     )

@@ -54,7 +54,7 @@ TaskName = Literal[
 
 Environments = Literal["sim", "real"]
 
-DemoSources = Literal["scripted", "rollout", "teleop"]
+DemoSources = Literal["scripted", "rollout", "teleop", "augmentation"]
 
 Randomness = Literal["low", "med", "high"]
 

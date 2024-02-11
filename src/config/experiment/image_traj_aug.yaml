@@ -1,0 +1,34 @@
+# @package _global_
+defaults:
+  - override /actor/diffusion_model: unet_big
+  - override /vision_encoder: spatial_softmax
+
+observation_type: image
+demo_source: [teleop, augmentation]
+pred_horizon: 32
+obs_horizon: 1
+
+actor:
+ loss_fn: L1Loss
+
+vision_encoder:
+  num_kp: 64
+
+# Override the values for observation type, layernorm, and augmentation
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 64
+  pad_after: false
+
+rollout:
+  max_steps: 1000
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
