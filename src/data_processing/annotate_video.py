@@ -10,19 +10,24 @@ from src.common.tasks import task_phases
 
 from ipdb import set_trace as bp
 
-annotate = "failure"
+annotate = "success"
 
 
 # 1. Load the video
 pkl_paths = get_raw_paths(
     environment="sim",
-    demo_source="rollout",
+    demo_source="teleop",
     demo_outcome=annotate,
     randomness="low",
     task="one_leg",
 )
 
-for pkl_path in pkl_paths:
+for i, pkl_path in enumerate(pkl_paths, start=0):
+
+    # Cut off everything after `raw` in the path
+    path_name = "/".join(pkl_path.parts[pkl_path.parts.index("raw") :])
+
+    print(f"Processing {i+1}/{len(pkl_paths)}: {path_name}")
 
     data = unpickle_data(pkl_path)
 
@@ -33,7 +38,8 @@ for pkl_path in pkl_paths:
         and (sum(data["skills"]) == (task_phases[data["furniture"]] - 1))
         or ("failure_idx" in data)
     ):
-        print(f"Data {pkl_path} has already been annotated")
+
+        print(f"Data {path_name} has already been annotated")
         continue
 
     video = data_to_video(data)
@@ -72,7 +78,7 @@ for pkl_path in pkl_paths:
 
         elif key == ord(" "):  # Press space to mark the frame
             annotations.append(current_frame)
-            print(f"Marked frame {current_frame}")
+            print(f"Marked frame {current_frame}, frames marked: {annotations}")
         elif key == ord("f"):
             # Mark the frame as a failure
             failure_idx = current_frame
@@ -81,7 +87,8 @@ for pkl_path in pkl_paths:
         elif key == ord("u"):
             # Undo the last marking
             if len(annotations) > 0:
-                annotations.pop()
+                removed = annotations.pop()
+                print(f"Removed frame {removed}, frames marked: {annotations}")
         elif key == ord("k"):
             # Jump 1 frame forward
             current_frame = min(current_frame + 1, total_frames - 1)
