@@ -381,19 +381,15 @@ class DataCollectorAugmentor:
                 leg4_quat_now.cpu().numpy(), self.parts_quat_finish
             )
             print(
-                f"Norm of the difference between the parts poses now and the parts_poses_finish: {diff_pos}"
-            )
-            print(
-                f"Norm of the difference between the quaternions now and the parts_quat_finish: {diff_quat}"
+                f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Iter idx: {self.iter_idx}"
             )
             # Record iter index if the gripper was opened
-            print("Gripper aciton: ", action[-1])
             if self.open_idx is None and action[-1] == -1:
                 self.open_idx = self.iter_idx
 
             if self.open_idx is not None and self.open_idx + 30 == self.iter_idx:
                 # Declare success if within 1 cm and 10 degrees
-                success = diff_pos < 0.01 and diff_quat < 30
+                success = diff_pos < 0.015 and diff_quat < 20
                 print(f"Success: {success}")
 
                 # If success, store the trajectory and reset
@@ -408,6 +404,9 @@ class DataCollectorAugmentor:
                 else:
                     obs = self.reset()
                 self.iter_idx = 0
+                self.verbose_print(
+                    f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
+                )
                 continue
 
             # SM wait
@@ -419,10 +418,6 @@ class DataCollectorAugmentor:
             ):
                 self.robot_settled = True
                 print("Robot settled")
-
-            self.verbose_print(
-                f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
-            )
 
     def set_target_pose(self):
         translation, quat_xyzw = self.env.get_ee_pose()
@@ -552,9 +547,8 @@ class DataCollectorAugmentor:
 
     def load_state(
         self,
-        offset_steps: int = 20,
+        offset_steps: int = 15,
         aug_transition_idx: int = 3,
-        n_back_steps: int = 30,
     ):
         """
         Load the state of the environment from a one_leg trajectory
@@ -584,14 +578,6 @@ class DataCollectorAugmentor:
         for i in trange(original_episode_horizon, desc="Hydrating state"):
             action = state["actions"][i] if i < len(state["actions"]) else None
             skill_complete = state["skills"][i] if i < len(state["skills"]) else None
-            # obs = {
-            #     "color_image1": np.array(state["observations"][i]["color_image1"]),
-            #     "color_image2": np.array(state["observations"][i]["color_image2"]),
-            #     "robot_state": state["observations"][i]["robot_state"],
-            #     "parts_poses": np.array(state["observations"][i]["parts_poses"]),
-            # }
-            # rew = state["rewards"][i] if i < len(state["rewards"]) else None
-            # setup_phase = True
 
             original_episode_actions.append(action)
             original_episode_ee_poses.append(
@@ -617,8 +603,12 @@ class DataCollectorAugmentor:
             start_robot_state["ee_quat"],
         )
 
-        check_idx = skill_transition_indices[aug_transition_idx] + 10
-        # self.skill_idx
+        # TODO: Check this assumption
+        # check_idx = skill_transition_indices[aug_transition_idx] + 10
+        check_idx = skill_transition_indices[aug_transition_idx]
+        print(
+            f"Check index: {check_idx}, skill transition index: {skill_transition_indices[aug_transition_idx]}"
+        )
 
         # Parts poses at the skill completion step
         self.parts_poses_finish = state["observations"][check_idx]["parts_poses"][
@@ -628,17 +618,25 @@ class DataCollectorAugmentor:
             4 * 7 + 3 : 4 * 7 + 7
         ]
 
-        # random delta position and euler angle
-        zmin, zmax = 0.6, 0.6
-        rmax, pmax, yawmax = 180, 180, 180
-        # rmax, pmax, ymax = 0.1, 0.1, 0.1
-        dz = np.random.uniform(zmin, zmax)
+        # Randomly sample a new goal position using spherical coordinates
 
         # Samplem x and y as uniformly random on a circle with a random radius between 10 and 25 cm
-        r = np.random.uniform(0.2, 0.35)
-        theta = np.random.uniform(0, 2 * np.pi)
-        dx, dy = r * np.cos(theta), r * np.sin(theta)
+        # r is the distance away from the final position
+        r = np.random.uniform(0.2, 0.5)
 
+        # theta controls the size of the cone
+        theta = np.deg2rad(np.random.uniform(15, 75))
+
+        # phi controls where on the cone in the x-y plane the goal is
+        phi = np.random.uniform(0, 2 * np.pi)
+
+        # Based on the spherical coordinates, convert to cartesian
+        dx = r * np.sin(theta) * np.cos(phi)
+        dy = r * np.sin(theta) * np.sin(phi)
+        dz = r * np.cos(theta)
+
+        # Sample a random rotation
+        rmax, pmax, yawmax = 180, 180, 180
         dr, dp, dyaw = (
             np.random.uniform(-np.deg2rad(rmax), np.deg2rad(rmax)),
             np.random.uniform(-np.deg2rad(pmax), np.deg2rad(pmax)),
@@ -651,11 +649,25 @@ class DataCollectorAugmentor:
         start_ee_mat = st.Rotation.from_quat(start_ee_quat).as_matrix()
         delta_ee_mat = st.Rotation.from_euler("xyz", [dr, dp, dyaw]).as_matrix()
         goal_ee_quat = st.Rotation.from_matrix(start_ee_mat @ delta_ee_mat).as_quat()
+        delta_ee_rotvec_norm = np.linalg.norm(
+            st.Rotation.from_matrix(delta_ee_mat).as_rotvec()
+        )
+
+        # Calculate the number of back steps we need based on the distance r
+        n_back_steps = int(np.ceil(r / 0.020))
+
+        # The number of back steps for the rotation is based on the magnitude of the rotvec, and we'll rotate with 20 deg
+        # steps
+        n_back_steps_rot = int(delta_ee_rotvec_norm / np.deg2rad(7.5))
+
+        print(
+            f"Sampled r: {r}, n_back_steps: {n_back_steps}, Rotvec norm: {delta_ee_rotvec_norm}, n_bac k_steps_rot: {n_back_steps_rot}"
+        )
 
         # interpolate and record delta actions
         interp_ee_pos = np.linspace(start_ee_pos, goal_ee_pos, n_back_steps)
         slerp = st.Slerp([0, 1], st.Rotation.from_quat([start_ee_quat, goal_ee_quat]))
-        interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps))
+        interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps_rot))
 
         for _ in range(10):
             self.env.reset_env_to(
@@ -677,7 +689,7 @@ class DataCollectorAugmentor:
             f"Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}"
         )
 
-        print(f'Executing "reverse" actions... ')
+        print(f'Executing "reverse" actions position with {n_back_steps} steps... ')
         for i in range(n_back_steps - 1):
             print(f"Backward step: {i} / {n_back_steps - 1}")
 
@@ -685,11 +697,11 @@ class DataCollectorAugmentor:
             action_pos = interp_ee_pos[i + 1] - interp_ee_pos[i]
 
             # clip it to 0.025
-            action_pos = np.clip(action_pos, -0.02, 0.02)
-            print(f"Action pos: {action_pos}")
+            action_pos = np.clip(action_pos, -0.025, 0.025)
 
             # make quat action to keep same orientation
             action_quat = self.make_quat_action_stay(stay_quat=start_ee_quat)
+            # action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i + 1]).as_quat()
 
             action = np.concatenate(
                 [
@@ -701,7 +713,6 @@ class DataCollectorAugmentor:
 
             action_t = torch.from_numpy(action).float().to(self.env.device)
             next_obs, _, _, _ = self.env.step(action_t)
-            # self.print_poses()
 
             rev_action = np.zeros_like(action)
             rev_action[:3] = -1.0 * action_pos
@@ -714,8 +725,8 @@ class DataCollectorAugmentor:
 
         # After the back action, it seems the leg has drifted up in he hand a bit, meaning that it releases the leg too early
 
-        print("Executing backward rotation actions... ")
-        for i in range(n_back_steps - 1):
+        print(f"Executing backward rotation actions with {n_back_steps_rot}... ")
+        for i in range(n_back_steps_rot - 1):
 
             # make pos action to keep the same position
             action_pos = self.make_pos_action_stay(stay_pos=stay_pos)
@@ -916,7 +927,7 @@ def main():
 
     # random.shuffle(pickle_paths)
 
-    pickle_paths = pickle_paths[:10]
+    # pickle_paths = pickle_paths[:10]
 
     print("loaded num trajectories", len(pickle_paths))
 
