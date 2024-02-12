@@ -62,9 +62,17 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     else:
         raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
-        # Filter out the runs based on the run state
+    # Filter out the runs based on the run state
     if args.run_state:
         runs = [run for run in runs if run.state in args.run_state]
+
+    # Filter out runs based on action type
+    runs = [
+        run
+        for run in runs
+        if run.config.get("control", {}).get("control_mode", "delta")
+        == args.action_type
+    ]
     return runs
 
 
@@ -159,6 +167,9 @@ if __name__ == "__main__":
     parser.add_argument("--visualize", action="store_true")
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
+    parser.add_argument(
+        "--action-type", type=str, default="delta", choices=["delta", "pos"]
+    )
 
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
@@ -175,9 +186,8 @@ if __name__ == "__main__":
 
     # Get the environment
     # TODO: This needs to be changed to enable recreation the env for each run
-    action_type = "delta"
     print(
-        f"Creating the environment with action_type {action_type} (this needs to be changed to enable recreation the env for each run)"
+        f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
     env: FurnitureSimEnv = get_env(
         gpu_id=args.gpu,
@@ -188,7 +198,7 @@ if __name__ == "__main__":
         resize_img=False,
         act_rot_repr="rot_6d",
         ctrl_mode="osc",
-        action_type=action_type,
+        action_type=args.action_type,
         verbose=args.verbose,
         headless=not args.visualize,
     )
@@ -274,9 +284,9 @@ if __name__ == "__main__":
                 )
 
                 # Check that we didn't set the wrong action type above
-                assert config.control.control_mode == action_type, (
+                assert config.control.control_mode == args.action_type, (
                     f"Control mode in the config: {config.control.control_mode} "
-                    f"does not match the action type: {action_type}"
+                    f"does not match the action type: {args.action_type}"
                 )
 
                 # Get the normalizer

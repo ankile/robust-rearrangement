@@ -1,0 +1,24 @@
+program: src/train/bc.py
+entity: robot-rearrangement
+project: sweeps
+name: baseline-teleop-sweep
+method: random
+parameters:
+  vision_encoder:
+    values: [spatial_softmax, vip, resnet, r3m, dino]
+  control.control_mode:
+    values: [delta, pos]
+  training.batch_size:
+    values: [64, 128, 256]
+  demo_source:
+    values:
+      - teleop
+      - [teleop, augmentation]
+  
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_sweep_2
+  - ${args_no_hyphens}
+

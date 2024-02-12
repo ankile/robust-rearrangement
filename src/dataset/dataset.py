@@ -148,6 +148,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
         self.successes = combined_data["success"].astype(np.uint8)
         self.skills = combined_data["skill"].astype(np.uint8)
+        self.failure_idx = combined_data["failure_idx"]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
@@ -216,8 +217,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         ).permute(0, 2, 3, 1)
 
         # Add the task index and success flag to the sample
-        nsample["task_idx"] = torch.Tensor(self.task_idxs[demo_idx])
-        nsample["success"] = torch.Tensor(self.successes[demo_idx])
+        nsample["task_idx"] = torch.Tensor([self.task_idxs[demo_idx]])
+        nsample["success"] = torch.Tensor([self.successes[demo_idx]])
 
         return nsample
 

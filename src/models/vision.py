@@ -100,7 +100,7 @@ class ResnetEncoder(VisionEncoder):
         *args,
         **kwargs,
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__()
         assert model_name in ["resnet18", "resnet34", "resnet50"]
         assert not freeze or pretrained, "If not pretrained, then freeze must be False"
 

@@ -1,4 +1,4 @@
-model: resnet
+model: resnet18
 freeze: false
 pretrained: false
 backbone: resnet18

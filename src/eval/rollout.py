@@ -180,22 +180,6 @@ def calculate_success_rate(
             pbar=pbar,
         )
 
-        # Print all the shapes
-        print(
-            "robot_states",
-            robot_states.shape,
-            "imgs1",
-            imgs1.shape,
-            "imgs2",
-            imgs2.shape,
-            "actions",
-            actions.shape,
-            "rewards",
-            rewards.shape,
-            "parts_poses",
-            parts_poses.shape,
-        )
-
         # Calculate the success rate
         success = rewards.sum(dim=1) == n_parts_assemble
         n_success += success.sum().item()
@@ -302,14 +286,14 @@ def do_rollout_evaluation(
     if save_rollouts:
         rollout_save_dir = trajectory_save_dir(
             environment="sim",
-            task=config.furniture,
+            task=env.furniture_name,
             demo_source="rollout",
             randomness=config.randomness,
             # Don't create here because we have to do it when we save anyway
             create=False,
         )
 
-    actor.set_task(furniture2idx[config.furniture])
+    actor.set_task(furniture2idx[env.furniture_name])
 
     rollout_stats = calculate_success_rate(
         env,

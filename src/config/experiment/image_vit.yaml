@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: dino
+
+observation_type: image
+  
+# Override the values for observation type, layernorm, and augmentation
+data:
+  data_subset: 50
+  augment_image: true
+  dataloader_workers: 64
+
+training:
+  batch_size: 64
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
