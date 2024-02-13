@@ -40,16 +40,6 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
                 freeze_encoder=config.vision_encoder.freeze,
                 config=config,
             )
-        elif config.success_guidance.success_guidance:
-            from src.behavior.diffusion import SuccessGuidedDiffusionPolicy
-
-            return SuccessGuidedDiffusionPolicy(
-                device=device,
-                encoder_name=config.vision_encoder.model,
-                freeze_encoder=config.vision_encoder.freeze,
-                normalizer=normalizer,
-                config=config,
-            )
         else:
             from src.behavior.diffusion import DiffusionPolicy
 
@@ -60,5 +50,14 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
                 normalizer=normalizer,
                 config=config,
             )
+    elif actor_name == "guided_diffusion":
+        from src.behavior.diffusion import SuccessGuidedDiffusionPolicy
 
+        return SuccessGuidedDiffusionPolicy(
+            device=device,
+            encoder_name=config.vision_encoder.model,
+            freeze_encoder=config.vision_encoder.freeze,
+            normalizer=normalizer,
+            config=config,
+        )
     raise ValueError(f"Unknown actor type: {config.actor}")

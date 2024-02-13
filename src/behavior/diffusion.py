@@ -323,7 +323,6 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
         # Get the task embedding
         success = batch["success"].squeeze(-1)
         success_embedding = self.success_embedding(success)
-        bp()
 
         # With probability p, zero out the success embedding
         B = success_embedding.shape[0]
@@ -335,17 +334,68 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
 
         return obs_cond
 
-    def _normalized_obs(self, obs: deque, flatten=True):
-        # Get the standard observation data
-        nobs = super()._normalized_obs(obs, flatten=flatten)
-        B = nobs.shape[0]
+    # === Inference ===
+    def _normalized_action(self, nobs):
+        """
+        Overwrite the diffusion inference to use the success embedding
+        by calling the model with both positive and negative success embeddings
+        and without any success embedding.
 
-        # Set the success embedding to true and repeat it for the batch size
-        success_embedding = self.success_embedding(
-            torch.tensor(1).to(self.device).repeat(B)
+        The resulting noise prediction will be
+        noise_pred = noise_pred_pos - self.guidance_scale * (noise_pred_neg - noise_pred_blank)
+
+        We'll calculate all three in parallel and then split the result into the three parts.
+        """
+        B = nobs.shape[0]
+        # Important! `nobs` needs to be normalized and flattened before passing to this function
+        # Initialize action from Guassian noise
+        naction = torch.randn(
+            (B, self.pred_horizon, self.action_dim),
+            device=self.device,
         )
 
-        # Concatenate the task embedding to the observation
-        obs_cond = torch.cat((nobs, success_embedding), dim=-1)
+        # Create 3 success embeddings: positive, negative, and blank
+        success_embedding_pos = self.success_embedding(
+            torch.tensor(1).to(self.device).repeat(B)
+        )
+        success_embedding_neg = self.success_embedding(
+            torch.tensor(0).to(self.device).repeat(B)
+        )
+        success_embedding_blank = torch.zeros_like(success_embedding_pos)
 
-        return obs_cond
+        # Concatenate the success embeddings to the observation
+        # (B, obs_dim + success_cond_emb_dim)
+        obs_cond_pos = torch.cat((nobs, success_embedding_pos), dim=-1)
+        obs_cond_neg = torch.cat((nobs, success_embedding_neg), dim=-1)
+        obs_cond_blank = torch.cat((nobs, success_embedding_blank), dim=-1)
+
+        # Stack together so that we can calculate all three in parallel
+        # (3, B, obs_dim + success_cond_emb_dim)
+        obs_cond = torch.stack((obs_cond_pos, obs_cond_neg, obs_cond_blank))
+
+        # Flatten the obs_cond so that it can be passed to the model
+        # (3 * B, obs_dim + success_cond_emb_dim)
+        obs_cond = obs_cond.view(-1, obs_cond.shape[-1])
+
+        # init scheduler
+        self.inference_noise_scheduler.set_timesteps(self.inference_steps)
+
+        for k in self.inference_noise_scheduler.timesteps:
+            # Predict the noises for all three success embeddings
+            noise_pred_pos, noise_pred_neg, noise_pred_blank = self.model(
+                sample=naction.repeat(3, 1, 1),
+                timestep=k,
+                global_cond=obs_cond,
+            ).view(3, B, self.pred_horizon, self.action_dim)
+
+            # Calculate the final noise prediction
+            noise_pred = noise_pred_pos - self.guidance_scale * (
+                noise_pred_neg - noise_pred_blank
+            )
+
+            # inverse diffusion step (remove noise)
+            naction = self.inference_noise_scheduler.step(
+                model_output=noise_pred, timestep=k, sample=naction
+            ).prev_sample
+
+        return naction
