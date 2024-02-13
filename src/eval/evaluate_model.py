@@ -53,6 +53,8 @@ def validate_args(args: argparse.Namespace):
 
 
 def get_runs(args: argparse.Namespace) -> List[Run]:
+    # Clear the cache to make sure we get the latest runs
+    api.flush()
     if args.sweep_id:
         runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
     elif args.run_id:

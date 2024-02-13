@@ -604,8 +604,8 @@ class DataCollectorAugmentor:
         )
 
         # TODO: Check this assumption
-        # check_idx = skill_transition_indices[aug_transition_idx] + 10
-        check_idx = skill_transition_indices[aug_transition_idx]
+        check_idx = skill_transition_indices[aug_transition_idx] + 10
+        # check_idx = skill_transition_indices[aug_transition_idx]
         print(
             f"Check index: {check_idx}, skill transition index: {skill_transition_indices[aug_transition_idx]}"
         )
