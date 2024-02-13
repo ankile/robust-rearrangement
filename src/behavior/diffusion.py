@@ -291,11 +291,15 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
             normalizer=normalizer,
             config=config,
         )
+        actor_cfg = config.actor
 
-        self.success_cond_dim = 10
+        self.guidance_scale = actor_cfg.guidance_scale
+        self.prob_blank_cond = actor_cfg.prob_blank_cond
+        self.success_cond_emb_dim = actor_cfg.success_cond_emb_dim
+
         self.success_embedding = nn.Embedding(
             num_embeddings=2,
-            embedding_dim=self.success_cond_dim,
+            embedding_dim=self.success_cond_emb_dim,
             padding_idx=None,
             max_norm=None,
             norm_type=2.0,
@@ -304,12 +308,12 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
             _weight=None,
         ).to(device)
 
-        self.obs_dim = self.obs_dim + self.success_cond_dim
+        self.obs_dim = self.obs_dim + self.success_cond_emb_dim
 
         self.model = get_diffusion_backbone(
             action_dim=self.action_dim,
             obs_dim=self.obs_dim,
-            actor_config=config.actor,
+            actor_config=actor_cfg,
         ).to(device)
 
     def _training_obs(self, batch, flatten=True):
@@ -319,6 +323,12 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
         # Get the task embedding
         success = batch["success"].squeeze(-1)
         success_embedding = self.success_embedding(success)
+        bp()
+
+        # With probability p, zero out the success embedding
+        B = success_embedding.shape[0]
+        blank = torch.rand(B, device=self.device) < self.prob_blank_cond
+        success_embedding = success_embedding * ~blank.unsqueeze(-1)
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, success_embedding), dim=-1)

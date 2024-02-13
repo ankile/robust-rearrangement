@@ -7,7 +7,6 @@ defaults:
   - regularization
   - data
   - multitask: default
-  - success_guidance: default
 
 action_horizon: 8
 pred_horizon: 16

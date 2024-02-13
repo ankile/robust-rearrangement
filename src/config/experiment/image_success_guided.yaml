@@ -1,7 +1,7 @@
 # @package _global_
 defaults:
   - override /vision_encoder: spatial_softmax
-  - override /success_guidance: success_guidance
+  - override /actor: guided_diffusion
 
 # Override the values for observation type, layernorm, and augmentation
 observation_type: image
@@ -23,8 +23,3 @@ regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
-
-# Override a subset of the rollout parameters
-rollout:
-  max_steps: 1000
-  furniture: one_leg
