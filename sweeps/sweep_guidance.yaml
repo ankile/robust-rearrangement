@@ -1,0 +1,20 @@
+program: src/train/bc.py
+entity: robot-rearrangement
+project: sweeps
+name: guidance-sweep-1
+method: random
+parameters:
+  +experiment:
+    values: [image_training, image_success_guided]
+  +seed:
+    values: [0, 1, 2, 3, 4]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - data.dataloader_workers=16
+  - control.control_mode=pos
+  - training.batch_size=128
+  - vision_encoder=resnet
+  - ${args_no_hyphens}
