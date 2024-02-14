@@ -17,7 +17,7 @@ environment: sim
 demo_source: teleop
 randomness: low
 discount: 0.999
-
+demo_outcome: success
 
 control:
   act_rot_repr: rot_6d

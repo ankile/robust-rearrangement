@@ -1,0 +1,21 @@
+name: guided_diffusion
+action_horizon: ${action_horizon}
+pred_horizon: ${pred_horizon}
+obs_horizon: ${obs_horizon}
+first_action_index: 0
+beta_schedule: squaredcos_cap_v2
+inference_steps: 16
+prediction_type: epsilon
+num_diffusion_iters: 100
+clip_sample: true
+loss_fn: MSELoss  # MSELoss | L1Loss
+
+projection_dim: 128
+
+defaults:
+  - diffusion_model: unet
+
+# Parameters for the guided diffusion model
+guidance_scale: 0.1
+prob_blank_cond: 0.2
+success_cond_emb_dim: 128

@@ -77,7 +77,7 @@ def main(config: DictConfig):
         task=to_native(config.data.furniture),
         demo_source=to_native(config.data.demo_source),
         randomness=to_native(config.data.randomness),
-        demo_outcome="success",
+        demo_outcome=to_native(config.data.demo_outcome),
     )
 
     normalizer: Normalizer = get_normalizer(

@@ -26,6 +26,11 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
             config=config,
         )
     elif actor_name == "diffusion":
+        assert not (
+            config.multitask.get("multitask", False)
+            and config.success_guidance.get("success_guidance", False)
+        ), "Multitask and success guidance cannot be used together"
+
         if config.multitask.multitask:
             from src.behavior.diffusion import MultiTaskDiffusionPolicy
 
@@ -45,5 +50,14 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
                 normalizer=normalizer,
                 config=config,
             )
+    elif actor_name == "guided_diffusion":
+        from src.behavior.diffusion import SuccessGuidedDiffusionPolicy
 
+        return SuccessGuidedDiffusionPolicy(
+            device=device,
+            encoder_name=config.vision_encoder.model,
+            freeze_encoder=config.vision_encoder.freeze,
+            normalizer=normalizer,
+            config=config,
+        )
     raise ValueError(f"Unknown actor type: {config.actor}")
