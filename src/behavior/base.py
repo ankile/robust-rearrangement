@@ -12,7 +12,6 @@ from src.common.vision import FrontCameraTransform, WristCameraTransform
 # Update the PostInitCaller to be compatible
 class PostInitCaller(type(torch.nn.Module)):
     def __call__(cls, *args, **kwargs):
-        # print(f"{cls.__name__}.__call__({args}, {kwargs})")
         obj = super().__call__(*args, **kwargs)
         obj.__post_init__(*args, **kwargs)
         return obj

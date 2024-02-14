@@ -11,4 +11,5 @@ data:
   demo_source: ${demo_source}
   randomness: ${randomness}
   normalization: min_max # min_max, mean_std
+  demo_outcome: ${demo_outcome}
   pad_after: true
