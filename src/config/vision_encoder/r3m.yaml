@@ -1,4 +1,4 @@
 model: r3m_18
-freeze: true
+freeze: false
 pretrained: true
 backbone: resnet18

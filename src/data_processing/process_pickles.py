@@ -64,6 +64,7 @@ def process_pickle_file(
     """
     Process a single pickle file and return processed data.
     """
+    print(f"Processing {pickle_path}")
     data: Trajectory = unpickle_data(pickle_path)
     obs = data["observations"]
 
@@ -270,7 +271,7 @@ if __name__ == "__main__":
         "--source",
         "-s",
         type=str,
-        choices=["scripted", "rollout", "teleop"],
+        choices=["scripted", "rollout", "teleop", "augmentation"],
         default=None,
         nargs="+",
     )
@@ -293,12 +294,14 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    pickle_paths: List[Path] = get_raw_paths(
-        environment=args.env,
-        task=args.furniture,
-        demo_source=args.source,
-        randomness=args.randomness,
-        demo_outcome=args.demo_outcome,
+    pickle_paths: List[Path] = sorted(
+        get_raw_paths(
+            environment=args.env,
+            task=args.furniture,
+            demo_source=args.source,
+            randomness=args.randomness,
+            demo_outcome=args.demo_outcome,
+        )
     )
 
     print(f"Found {len(pickle_paths)} pickle files")

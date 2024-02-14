@@ -118,9 +118,9 @@ def add_glob_part(paths, part) -> List[Path]:
 def get_raw_paths(
     environment: Union[List[Environments], Environments, None] = "sim",
     task: List[TaskName] = ["square_table"],
-    demo_source: List[Literal["scripted", "rollout", "teleop"]] = ["scripted"],
-    randomness: List[Literal["low", "med", "high"]] = [],
-    demo_outcome: List[Literal["success", "failure"]] = ["success"],
+    demo_source: List[DemoSources] = ["teleop"],
+    randomness: List[Randomness] = ["low"],
+    demo_outcome: List[DemoStatus] = ["success"],
 ) -> List[Path]:
     path = Path(os.environ["DATA_DIR_RAW"]) / "raw"
 

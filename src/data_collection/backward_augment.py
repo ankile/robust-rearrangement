@@ -1,15 +1,16 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
+
 import time
 import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 import gym
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 
-from furniture_bench.device.device_interface import DeviceInterface
 from furniture_bench.data.collect_enum import CollectEnum
 from furniture_bench.sim_config import sim_config
 from src.data_processing.utils import resize, resize_crop
@@ -29,7 +30,6 @@ import argparse
 import random
 import torch
 
-from furniture_bench.device import make_device
 from furniture_bench.config import config
 
 from src.common.files import trajectory_save_dir
@@ -45,6 +45,27 @@ def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monoton
         while time_func() < t_end:
             pass
     return
+
+
+def quaternion_conjugate(q):
+    return np.array([q[0], -q[1], -q[2], -q[3]])
+
+
+def quaternion_multiply(q1, q2):
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+    z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+    return np.array([w, x, y, z])
+
+
+def difference_in_orientation(q1, q2):
+    q1_conjugate = quaternion_conjugate(q1)
+    q_rel = quaternion_multiply(q2, q1_conjugate)
+    angle = 2 * np.arccos(q_rel[0])
+    return np.degrees(angle)  # Convert to degrees for easier interpretation
 
 
 @contextmanager
@@ -76,12 +97,12 @@ class DataCollectorAugmentor:
         self,
         is_sim: bool,
         data_path: str,
-        device_interface: DeviceInterface,
         furniture: str,
         headless: bool,
         draw_marker: bool,
         manual_label: bool,
         scripted: bool,
+        augment_trajectories_paths: Union[List[str], None],
         randomness: Randomness.LOW,
         compute_device_id: int,
         graphics_device_id: int,
@@ -95,7 +116,6 @@ class DataCollectorAugmentor:
         ee_laser: bool = True,
         right_multiply_rot: bool = True,
         compress_pickles: bool = False,
-        resume_trajectory_paths: Union[List[str], None] = None,
     ):
         """
         Args:
@@ -120,9 +140,10 @@ class DataCollectorAugmentor:
             self.env = gym.make(
                 "FurnitureSimFull-v0",
                 furniture=furniture,
-                max_env_steps=sim_config["scripted_timeout"][furniture]
-                if scripted
-                else 3000,
+                # max_env_steps=(
+                #     sim_config["scripted_timeout"][furniture] if scripted else 3000
+                # ),
+                max_env_steps=100,
                 headless=headless,
                 num_envs=1,  # Only support 1 for now.
                 manual_done=False if scripted else True,
@@ -141,7 +162,7 @@ class DataCollectorAugmentor:
             elif randomness == "high":
                 randomness = Randomness.HIGH_COLLECT
 
-            self.env = gym.make(
+            self.env: FurnitureSimEnv = gym.make(
                 "FurnitureBench-v0",
                 furniture=furniture,
                 resize_img=False,
@@ -152,7 +173,6 @@ class DataCollectorAugmentor:
             )
 
         self.data_path = Path(data_path)
-        self.device_interface = device_interface
         self.headless = headless
         self.manual_label = manual_label
         self.furniture = furniture
@@ -167,9 +187,10 @@ class DataCollectorAugmentor:
         self.save_failure = save_failure
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
-        self.resume_trajectory_paths = resume_trajectory_paths
+        self.augment_trajectories_paths = augment_trajectories_paths
 
         self.iter_idx = 0
+        self.open_idx = None
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
@@ -255,7 +276,7 @@ class DataCollectorAugmentor:
             t_cycle_end = t_start + (self.iter_idx + 1) * dt
             t_sample = t_cycle_end - command_latency
             # t_command_target = t_cycle_end + dt
-            precise_wait(t_sample)
+            # precise_wait(t_sample)
 
             if not len(self.reverse_actions):
                 collect_enum = CollectEnum.FAIL
@@ -317,9 +338,7 @@ class DataCollectorAugmentor:
 
             # Error handling.
             if not info["obs_success"]:
-                self.verbose_print(
-                    "Getting observation failed, save trajectory."
-                )
+                self.verbose_print("Getting observation failed, save trajectory.")
                 # Pop the last reward and action so that obs has length plus 1 then those of actions and rewards.
                 self.transitions["rewards"] = None
                 self.transitions["actions"] = None
@@ -350,19 +369,55 @@ class DataCollectorAugmentor:
                 quat_xyzw.cpu().numpy().squeeze(),
             )
 
+            # Check the difference between all the parts poses now to the parts_poses_finish
+            leg4_pos_now = self.env.get_parts_poses()[0][0][4 * 7 : 4 * 7 + 3]
+            leg4_quat_now = self.env.get_parts_poses()[0][0][4 * 7 + 3 : 4 * 7 + 7]
+
+            # Calculate the norm of the difference
+            diff_pos = np.linalg.norm(
+                leg4_pos_now.cpu().numpy() - self.parts_poses_finish
+            )
+            diff_quat = difference_in_orientation(
+                leg4_quat_now.cpu().numpy(), self.parts_quat_finish
+            )
+            print(
+                f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Iter idx: {self.iter_idx}"
+            )
+            # Record iter index if the gripper was opened
+            if self.open_idx is None and action[-1] == -1:
+                self.open_idx = self.iter_idx
+
+            if self.open_idx is not None and self.open_idx + 30 == self.iter_idx:
+                # Declare success if within 1 cm and 10 degrees
+                success = diff_pos < 0.015 and diff_quat < 20
+                print(f"Success: {success}")
+
+                # If success, store the trajectory and reset
+                if success:
+                    obs = self.save_and_reset(CollectEnum.SUCCESS, info)
+                    self.num_success += 1
+                    self.update_pbar()
+                    self.traj_counter += 1
+                    self.verbose_print(
+                        f"Success: {self.num_success}, Fail: {self.num_fail}"
+                    )
+                else:
+                    obs = self.reset()
+                self.iter_idx = 0
+                self.verbose_print(
+                    f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
+                )
+                continue
+
             # SM wait
-            precise_wait(t_cycle_end)
+            # precise_wait(t_cycle_end)
             self.iter_idx += 1
 
             if (not self.robot_settled) and (
                 (datetime.now() - self.starttime).seconds > self.start_delay
-                ):
-                    self.robot_settled = True
-                    print("Robot settled")
-
-            self.verbose_print(
-                f"Collected {self.traj_counter} / {self.num_demos} successful trajectories!"
-            )
+            ):
+                self.robot_settled = True
+                print("Robot settled")
 
     def set_target_pose(self):
         translation, quat_xyzw = self.env.get_ee_pose()
@@ -456,23 +511,22 @@ class DataCollectorAugmentor:
     def reset(self):
         obs = self.env.reset()
 
-        print("State from reset:")
-        for k, v in obs.items():
-            print(k, type(v))
-
         self._reset_collector_buffer()
-
-        for _ in range(50):
-            self.env.step(torch.randn((8,)).float().to(self.env.device))
-
-        if self.resume_trajectory_paths:
-            obs = self.load_state()
+        self.noop_actions(n=50)
+        obs = self.load_state()
 
         self.verbose_print("Start collecting the data!")
 
         self.starttime = datetime.now()
         self.robot_settled = False
         return obs
+
+    def noop_actions(self, n=50):
+        noop = torch.zeros((8,)).float().to(self.env.device)
+        # Need to set the real part of the quaternion to 1
+        noop[-2] = 1.0
+        for _ in range(n):
+            self.env.step(noop)
 
     def _reset_collector_buffer(self):
         # Now, observations, actions, rewards, and skall_complete flags are stored as transition "tuples"
@@ -484,7 +538,18 @@ class DataCollectorAugmentor:
         self.reverse_actions = []
         self.reverse_ee_poses = []
 
-    def load_state(self, offset_steps: int=20, aug_transition_idx: int=3, n_back_steps: int=10):
+    def print_poses(self):
+
+        ee_trans, _ = self.env.get_ee_pose()
+        leg_trans4 = self.env.get_parts_poses()[0][0][4 * 7 : 4 * 7 + 3]
+
+        print(f"Diff: {(ee_trans - leg_trans4).tolist()}")
+
+    def load_state(
+        self,
+        offset_steps: int = 15,
+        aug_transition_idx: int = 3,
+    ):
         """
         Load the state of the environment from a one_leg trajectory
         from the currently first pickle in the resume_trajectory_paths list
@@ -492,20 +557,16 @@ class DataCollectorAugmentor:
 
         # Get the state dict at the end of a one_leg trajectory
         # trajectory_path = self.resume_trajectory_paths.pop(0)
-        trajectory_path = random.sample(self.resume_trajectory_paths, 1)[0]
+        trajectory_path = random.sample(self.augment_trajectories_paths, 1)[0]
 
         print("Loading state from:")
         print(trajectory_path)
 
         state = unpickle_data(trajectory_path)
 
-        print("State from pickle:")
-        for k, v in state.items():
-            print(k, type(v))
-
         skill_transition_indices = []
-        original_episode_actions = []    
-        original_episode_ee_poses = []    
+        original_episode_actions = []
+        original_episode_ee_poses = []
         original_episode_horizon = len(state["observations"]) - 1
 
         def ee_pose_from_robot_state(robot_state_dict):
@@ -515,70 +576,140 @@ class DataCollectorAugmentor:
 
         # Add all the data so far in the trajectory to the collect buffer, but stop when we reach the transition to hit
         for i in trange(original_episode_horizon, desc="Hydrating state"):
-            obs={
-                "color_image1": np.array(state["observations"][i]["color_image1"]),
-                "color_image2": np.array(state["observations"][i]["color_image2"]),
-                "robot_state": state["observations"][i]["robot_state"],
-                "parts_poses": np.array(state["observations"][i]["parts_poses"]),
-            }
-            action=state["actions"][i] if i < len(state["actions"]) else None
-            rew=state["rewards"][i] if i < len(state["rewards"]) else None
-            skill_complete=state["skills"][i] if i < len(state["skills"]) else None
-            setup_phase=True
+            action = state["actions"][i] if i < len(state["actions"]) else None
+            skill_complete = state["skills"][i] if i < len(state["skills"]) else None
 
             original_episode_actions.append(action)
-            original_episode_ee_poses.append(ee_pose_from_robot_state(state["observations"][i]["robot_state"]))
+            original_episode_ee_poses.append(
+                ee_pose_from_robot_state(state["observations"][i]["robot_state"])
+            )
 
             if skill_complete:
                 skill_transition_indices.append(i)
-                print(f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}')
-        
+                print(
+                    f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}'
+                )
+
         # log the actions in reverse, starting at the end and going to our reset state
         aug_episode_start = skill_transition_indices[aug_transition_idx] - offset_steps
         for i in range(original_episode_horizon - 1, aug_episode_start, -1):
             self.reverse_actions.append(original_episode_actions[i])
             self.reverse_ee_poses.append(original_episode_ee_poses[i])
-        
+
         # create an additional set of reverse actions by sampling an ee pose and interpolating
         start_robot_state = state["observations"][aug_episode_start]["robot_state"]
-        start_ee_pos, start_ee_quat = start_robot_state["ee_pos"], start_robot_state["ee_quat"]
+        start_ee_pos, start_ee_quat = (
+            start_robot_state["ee_pos"],
+            start_robot_state["ee_quat"],
+        )
 
-        # random delta position and euler angle
-        xmax, ymax = 0.01, 0.01
-        zmin, zmax = 0.095, 0.12
-        rmax, pmax, yawmax = 15, 15, 15
-        # rmax, pmax, ymax = 0.1, 0.1, 0.1
-        dx, dy, dz = np.random.uniform(-xmax, xmax), np.random.uniform(-ymax, ymax), np.random.uniform(zmin, zmax)
-        dr, dp, dyaw = np.random.uniform(-np.deg2rad(rmax), np.deg2rad(rmax)), np.random.uniform(-np.deg2rad(pmax), np.deg2rad(pmax)), np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax))
+        # TODO: Check this assumption
+        check_idx = skill_transition_indices[aug_transition_idx] + 10
+        # check_idx = skill_transition_indices[aug_transition_idx]
+        print(
+            f"Check index: {check_idx}, skill transition index: {skill_transition_indices[aug_transition_idx]}"
+        )
+
+        # Parts poses at the skill completion step
+        self.parts_poses_finish = state["observations"][check_idx]["parts_poses"][
+            4 * 7 : 4 * 7 + 3
+        ]
+        self.parts_quat_finish = state["observations"][check_idx]["parts_poses"][
+            4 * 7 + 3 : 4 * 7 + 7
+        ]
+
+        # Randomly sample a new goal position using spherical coordinates
+
+        # Samplem x and y as uniformly random on a circle with a random radius between 10 and 25 cm
+        # r is the distance away from the final position
+        r = np.random.uniform(0.2, 0.5)
+
+        # theta controls the size of the cone
+        theta = np.deg2rad(np.random.uniform(15, 75))
+
+        # phi controls where on the cone in the x-y plane the goal is
+        phi = np.random.uniform(0, 2 * np.pi)
+
+        # Based on the spherical coordinates, convert to cartesian
+        dx = r * np.sin(theta) * np.cos(phi)
+        dy = r * np.sin(theta) * np.sin(phi)
+        dz = r * np.cos(theta)
+
+        # Sample a random rotation
+        rmax, pmax, yawmax = 180, 180, 180
+        dr, dp, dyaw = (
+            np.random.uniform(-np.deg2rad(rmax), np.deg2rad(rmax)),
+            np.random.uniform(-np.deg2rad(pmax), np.deg2rad(pmax)),
+            np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax)),
+        )
 
         # get absolute "goal" pose
         goal_ee_pos = start_ee_pos + np.array([dx, dy, dz])
 
         start_ee_mat = st.Rotation.from_quat(start_ee_quat).as_matrix()
-        delta_ee_mat = st.Rotation.from_euler('xyz', [dr, dp, dyaw]).as_matrix()
+        delta_ee_mat = st.Rotation.from_euler("xyz", [dr, dp, dyaw]).as_matrix()
         goal_ee_quat = st.Rotation.from_matrix(start_ee_mat @ delta_ee_mat).as_quat()
+        delta_ee_rotvec_norm = np.linalg.norm(
+            st.Rotation.from_matrix(delta_ee_mat).as_rotvec()
+        )
+
+        # Calculate the number of back steps we need based on the distance r
+        n_back_steps = int(np.ceil(r / 0.020))
+
+        # The number of back steps for the rotation is based on the magnitude of the rotvec, and we'll rotate with 20 deg
+        # steps
+        n_back_steps_rot = int(delta_ee_rotvec_norm / np.deg2rad(7.5))
+
+        print(
+            f"Sampled r: {r}, n_back_steps: {n_back_steps}, Rotvec norm: {delta_ee_rotvec_norm}, n_bac k_steps_rot: {n_back_steps_rot}"
+        )
 
         # interpolate and record delta actions
         interp_ee_pos = np.linspace(start_ee_pos, goal_ee_pos, n_back_steps)
         slerp = st.Slerp([0, 1], st.Rotation.from_quat([start_ee_quat, goal_ee_quat]))
-        interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps))
+        interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps_rot))
 
-        self.env.reset_env_to(env_idx=0, state=state["observations"][aug_episode_start])
-        self.env.refresh()
+        for _ in range(10):
+            self.env.reset_env_to(
+                env_idx=0, state=state["observations"][aug_episode_start]
+            )
+            self.env.refresh()
 
-        print(f'Start position: {start_ee_pos}, goal position: {goal_ee_pos}')
-        print(f'Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}')
+        # Print the relative x, y, z coordinates of the EE and the relevant part
+        self.print_poses()
 
-        print(f'Executing "reverse" actions... ')
+        # Apply the close gripper action
+        print("Applying close gripper action")
+        self.env.step(torch.tensor([0, 0, 0, 0, 0, 0, 1, +1]).to(self.env.device))
+
+        self.noop_actions(n=10)
+
+        print(f"Start position: {start_ee_pos}, goal position: {goal_ee_pos}")
+        print(
+            f"Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}"
+        )
+
+        print(f'Executing "reverse" actions position with {n_back_steps} steps... ')
         for i in range(n_back_steps - 1):
-            
+            print(f"Backward step: {i} / {n_back_steps - 1}")
+
             # first, translate along our path
-            action_pos = interp_ee_pos[i+1] - interp_ee_pos[i]
+            action_pos = interp_ee_pos[i + 1] - interp_ee_pos[i]
+
+            # clip it to 0.025
+            action_pos = np.clip(action_pos, -0.025, 0.025)
 
             # make quat action to keep same orientation
             action_quat = self.make_quat_action_stay(stay_quat=start_ee_quat)
+            # action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i + 1]).as_quat()
 
-            action = np.concatenate([action_pos, action_quat, [original_episode_actions[aug_episode_start][-1]]])
+            action = np.concatenate(
+                [
+                    action_pos,
+                    action_quat,
+                    original_episode_actions[aug_episode_start][-1:],
+                ]
+            )
 
             action_t = torch.from_numpy(action).float().to(self.env.device)
             next_obs, _, _, _ = self.env.step(action_t)
@@ -589,18 +720,27 @@ class DataCollectorAugmentor:
             rev_action[-1] = action[-1]
             self.reverse_actions.append(rev_action)
             self.reverse_ee_poses.append(np.concatenate(self.get_ee_pose_np()))
-        
+
         stay_pos = self.get_ee_pose_np()[0]
 
-        for i in range(n_back_steps - 1):
-            
+        # After the back action, it seems the leg has drifted up in he hand a bit, meaning that it releases the leg too early
+
+        print(f"Executing backward rotation actions with {n_back_steps_rot}... ")
+        for i in range(n_back_steps_rot - 1):
+
             # make pos action to keep the same position
             action_pos = self.make_pos_action_stay(stay_pos=stay_pos)
 
             # now, follow rotation path
-            action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i+1]).as_quat()
+            action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i + 1]).as_quat()
 
-            action = np.concatenate([action_pos, action_quat, [original_episode_actions[aug_episode_start][-1]]])
+            action = np.concatenate(
+                [
+                    action_pos,
+                    action_quat,
+                    [original_episode_actions[aug_episode_start][-1]],
+                ]
+            )
 
             action_t = torch.from_numpy(action).float().to(self.env.device)
             next_obs, _, _, _ = self.env.step(action_t)
@@ -624,22 +764,27 @@ class DataCollectorAugmentor:
         return translation, quat_xyzw
 
     def make_pos_action_stay(self, stay_pos):
-        current_pos =self.get_ee_pose_np()[0]
+        current_pos = self.get_ee_pose_np()[0]
         action_pos = stay_pos - current_pos
         return action_pos
 
     def make_quat_action_stay(self, stay_quat):
         current_quat = self.get_ee_pose_np()[1]
-        stay_rot, current_rot = st.Rotation.from_quat(stay_quat), st.Rotation.from_quat(current_quat)
+        stay_rot, current_rot = st.Rotation.from_quat(stay_quat), st.Rotation.from_quat(
+            current_quat
+        )
         action_quat = (current_rot.inv() * stay_rot).as_quat()
         return action_quat
-    
+
     def create_delta_action(self, next_ee_pose, grip_action):
         current_ee_pos, current_ee_quat = self.get_ee_pose_np()
         next_ee_pos, next_ee_quat = next_ee_pose[:3], next_ee_pose[3:]
 
         action_pos = next_ee_pos - current_ee_pos
-        action_quat = (st.Rotation.from_quat(current_ee_quat).inv() * st.Rotation.from_quat(next_ee_quat)).as_quat()
+        action_quat = (
+            st.Rotation.from_quat(current_ee_quat).inv()
+            * st.Rotation.from_quat(next_ee_quat)
+        ).as_quat()
 
         action = np.concatenate([action_pos, action_quat, grip_action])
 
@@ -688,9 +833,6 @@ class DataCollectorAugmentor:
 
     def __del__(self):
         del self.env
-
-        if self.device_interface is not None:
-            self.device_interface.close()
 
 
 def main():
@@ -756,38 +898,42 @@ def main():
 
     args = parser.parse_args()
 
-    keyboard_device_interface = make_device("keyboard")
-
     data_path = trajectory_save_dir(
         environment="sim" if args.is_sim else "real",
         task=args.furniture,
-        demo_source="teleop",
+        demo_source="augmentation",
         randomness=args.randomness,
     )
 
     from pathlib import Path
-    # pickle_paths = list(
-    #     Path(
-    #         "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted"
-    #     ).rglob("**/success/*.pkl*")
-    # )
 
     pickle_paths = list(
         Path(
-            "/home/anthony/repos/research/furniture-diffusion/furniture-data/raw/sim/one_leg/scripted"
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop"
         ).rglob("**/success/*.pkl*")
     )
 
-    random.shuffle(pickle_paths)
+    # pickle_paths = [
+    #     Path(
+    #         "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop/low/success/2024-01-31T18:06:40.pkl"
+    #     )
+    # ]
 
-    pickle_paths = pickle_paths[:10]
+    # pickle_paths = list(
+    #     Path(
+    #         "/home/anthony/repos/research/furniture-diffusion/furniture-data/raw/sim/one_leg/scripted"
+    #     ).rglob("**/success/*.pkl*")
+    # )
+
+    # random.shuffle(pickle_paths)
+
+    # pickle_paths = pickle_paths[:10]
 
     print("loaded num trajectories", len(pickle_paths))
 
     data_collector = DataCollectorAugmentor(
         is_sim=args.is_sim,
         data_path=data_path,
-        device_interface=keyboard_device_interface,
         furniture=args.furniture,
         headless=args.headless,
         draw_marker=args.draw_marker,
@@ -801,9 +947,9 @@ def main():
         save_failure=args.save_failure,
         num_demos=args.num_demos,
         ctrl_mode=args.ctrl_mode,
+        compress_pickles=True,
+        augment_trajectories_paths=pickle_paths,
         ee_laser=args.ee_laser,
-        compress_pickles=False,
-        resume_trajectory_paths=pickle_paths,
     )
     data_collector.collect()
 

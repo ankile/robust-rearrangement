@@ -87,6 +87,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         data_subset: int = None,
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
+        pad_after: bool = True,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -130,7 +131,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             episode_ends=self.episode_ends,
             sequence_length=pred_horizon,
             pad_before=obs_horizon - 1,
-            pad_after=action_horizon - 1,
+            pad_after=action_horizon - 1 if pad_after else 0,
         )
 
         # Add image augmentation

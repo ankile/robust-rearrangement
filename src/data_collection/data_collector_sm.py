@@ -111,6 +111,7 @@ class DataCollectorSpaceMouse:
                 graphics_device_id=graphics_device_id,
                 ctrl_mode=ctrl_mode,
                 ee_laser=ee_laser,
+                high_random_idx=-1,
             )
         else:
             if randomness == "med":
@@ -150,6 +151,10 @@ class DataCollectorSpaceMouse:
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
+
+        # Set the number of timesteps we will continue to record actions after a gripper action is taken
+        # This is taken up from 10 because we saw some "teleportation" of the gripper when we were recording
+        self.record_latency_when_grasping = 12
 
         # Parameters for controlling the time it takes for the robot to settle at the start of a trajectory
         self.start_delay = 1  # seconds
@@ -334,9 +339,9 @@ class DataCollectorSpaceMouse:
                         target_pose_last_action_rv = None
 
                     steps_since_grasp += 1
-                    if steps_since_grasp > 10:
+                    if steps_since_grasp > self.record_latency_when_grasping:
                         ready_to_grasp = True
-                    if steps_since_grasp < 10:
+                    if steps_since_grasp < self.record_latency_when_grasping:
                         action_taken = True
 
                     kb_grasp = prev_keyboard_gripper != keyboard_action[-1]
@@ -635,10 +640,6 @@ class DataCollectorSpaceMouse:
         print(trajectory_path)
 
         state = unpickle_data(trajectory_path)
-
-        print("State from pickle:")
-        for k, v in state.items():
-            print(k, type(v))
 
         self.env.reset_env_to(env_idx=0, state=state["observations"][-1])
         self.env.refresh()
