@@ -907,27 +907,16 @@ def main():
 
     from pathlib import Path
 
+    data_dir = os.environ["DATA_DIR_RAW"]
+
     pickle_paths = list(
-        Path(
-            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop"
-        ).rglob("**/success/*.pkl*")
+        Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl*")
     )
 
-    # pickle_paths = [
-    #     Path(
-    #         "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop/low/success/2024-01-31T18:06:40.pkl"
-    #     )
-    # ]
-
-    # pickle_paths = list(
-    #     Path(
-    #         "/home/anthony/repos/research/furniture-diffusion/furniture-data/raw/sim/one_leg/scripted"
-    #     ).rglob("**/success/*.pkl*")
-    # )
-
-    # random.shuffle(pickle_paths)
-
-    # pickle_paths = pickle_paths[:10]
+    # Filter out only pickles that have the `augment_states` key
+    pickle_paths = [
+        p for p in pickle_paths if "augment_states" in unpickle_data(p).keys()
+    ]
 
     print("loaded num trajectories", len(pickle_paths))
 

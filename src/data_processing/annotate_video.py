@@ -19,7 +19,7 @@ pkl_paths = get_raw_paths(
     demo_source="teleop",
     demo_outcome=annotate,
     randomness="low",
-    task="lamp",
+    task="round_table",
 )
 
 for i, pkl_path in enumerate(pkl_paths, start=0):
@@ -32,13 +32,8 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
     data = unpickle_data(pkl_path)
 
     # Check if this data has already been annotated
-    # TODO make this be adapti
-    if (
-        ("skills" in data)
-        and (sum(data["skills"]) == (task_phases[data["furniture"]] - 1))
-        or ("failure_idx" in data)
-    ):
-
+    # TODO make this be adaptive
+    if ("augment_states" in data) or ("failure_idx" in data):
         print(f"Data {path_name} has already been annotated")
         continue
 
@@ -64,9 +59,9 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
         elif key == ord("s"):
             # Save the annotations to a file
             # Convert the indexes to a list of 0s and 1s
-            data["skills"] = np.zeros(total_frames)
+            data["augment_states"] = np.zeros(total_frames)
             for annotation in annotations:
-                data["skills"][annotation] = 1
+                data["augment_states"][annotation] = 1
 
             if failure_idx is not None:
                 data["failure_idx"] = failure_idx

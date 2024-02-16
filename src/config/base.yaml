@@ -21,7 +21,7 @@ demo_outcome: success
 
 control:
   act_rot_repr: rot_6d
-  control_mode: delta # delta, pos
+  control_mode: pos # delta, pos
 
 lr_scheduler:
   name: cosine

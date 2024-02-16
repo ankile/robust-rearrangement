@@ -1,0 +1,18 @@
+program: src/train/bc.py
+entity: robot-rearrangement
+project: sweeps
+name: spatial-softmax-sweep
+method: grid
+parameters:
+  vision_encoder.num_kp:
+    values: [16, 32, 64, 128]
+  actor.projection_dim:
+    values: [16, 32, 64, 128]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_sweep_2
+  - ${args_no_hyphens}
+
