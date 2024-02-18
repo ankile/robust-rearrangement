@@ -16,7 +16,7 @@ def main():
 
     aws_command = os.environ.get("AWS_COMMAND", "aws")
     command = [aws_command, "s3", "sync"]
-    local = Path(os.environ.get("FURNITURE_DATA_DIR", "data")) / args.subfolder
+    local = Path(os.environ.get("DATA_DIR_PROCESSED", "data")) / args.subfolder
     remote = f"s3://furniture-diffusion/data/{args.subfolder}"
 
     if args.up:

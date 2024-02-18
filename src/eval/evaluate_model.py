@@ -280,7 +280,7 @@ if __name__ == "__main__":
                     {
                         **run.config,
                         "project_name": run.project,
-                        "actor": {**run.config["actor"], "inference_steps": 4},
+                        "actor": {**run.config["actor"], "inference_steps": 8},
                     },
                     flags={"readonly": True},
                 )
