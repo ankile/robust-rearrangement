@@ -41,11 +41,11 @@ def validate_args(args: argparse.Namespace):
         "Invalid run-state: "
         f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
     )
-    assert (
-        not args.continuous_mode
-        or args.sweep_id is not None
-        or args.project_id is not None
-    ), "Continuous mode is only supported when sweep_id is provided"
+    # assert (
+    #     not args.continuous_mode
+    #     or args.sweep_id is not None
+    #     or args.project_id is not None
+    # ), "Continuous mode is only supported when sweep_id is provided"
 
     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
 
@@ -233,14 +233,6 @@ if __name__ == "__main__":
                 api.flush()
                 run = api.run("/".join([run.project, run.id]))
 
-                # Check if the run is currently being evaluated
-                if (
-                    run.config.get("currently_evaluating", False)
-                    and not args.ignore_currently_evaluating_flag
-                ):
-                    print(f"Run: {run.name} is currently being evaluated, skipping")
-                    continue
-
                 # Check if the run has already been evaluated
                 how_update = "overwrite"
                 if run.summary.get("success_rate", None) is not None:
@@ -280,7 +272,7 @@ if __name__ == "__main__":
                     {
                         **run.config,
                         "project_name": run.project,
-                        "actor": {**run.config["actor"], "inference_steps": 8},
+                        "actor": {**run.config["actor"], "inference_steps": 4},
                     },
                     flags={"readonly": True},
                 )
