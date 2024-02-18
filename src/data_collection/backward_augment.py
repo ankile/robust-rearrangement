@@ -65,7 +65,8 @@ def difference_in_orientation(q1, q2):
     q1_conjugate = quaternion_conjugate(q1)
     q_rel = quaternion_multiply(q2, q1_conjugate)
     angle = 2 * np.arccos(q_rel[0])
-    return np.degrees(angle)  # Convert to degrees for easier interpretation
+    angle_degrees = np.degrees(angle)
+    return min(angle_degrees, 360 - angle_degrees)
 
 
 @contextmanager
@@ -182,6 +183,8 @@ class DataCollectorAugmentor:
         self.traj_counter = 0
         self.num_success = 0
         self.num_fail = 0
+        self.count_per_critical_state = None
+        self.current_critical_state = None
 
         self.pkl_only = pkl_only
         self.save_failure = save_failure
@@ -268,6 +271,8 @@ class DataCollectorAugmentor:
         obs = self.reset()
         done = False
 
+        initial_gripper_action = None
+
         t_start = time.monotonic()
 
         while self.num_success < self.num_demos:
@@ -287,6 +292,8 @@ class DataCollectorAugmentor:
                 action = self.create_delta_action(rev_ee_pose, [rev_action[-1]])
                 action_taken = True
                 collect_enum = CollectEnum.DONE_FALSE
+                if initial_gripper_action is None:
+                    initial_gripper_action = rev_action[-1]
 
             skill_complete = int(collect_enum == CollectEnum.SKILL)
             if skill_complete == 1:
@@ -370,38 +377,51 @@ class DataCollectorAugmentor:
             )
 
             # Check the difference between all the parts poses now to the parts_poses_finish
-            leg4_pos_now = self.env.get_parts_poses()[0][0][4 * 7 : 4 * 7 + 3]
-            leg4_quat_now = self.env.get_parts_poses()[0][0][4 * 7 + 3 : 4 * 7 + 7]
+            if self.total_back_steps + self.relative_check_index == self.iter_idx:
+                parts_pos_now, parts_quat_now = self.extract_poses_from_state(
+                    obs["parts_poses"][0]
+                )
+                diff_pos = 0
+                diff_quat = 0
+                for i in range(len(parts_pos_now)):
 
-            # Calculate the norm of the difference
-            diff_pos = np.linalg.norm(
-                leg4_pos_now.cpu().numpy() - self.parts_poses_finish
-            )
-            diff_quat = difference_in_orientation(
-                leg4_quat_now.cpu().numpy(), self.parts_quat_finish
-            )
-            print(
-                f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Iter idx: {self.iter_idx}"
-            )
-            # Record iter index if the gripper was opened
-            if self.open_idx is None and action[-1] == -1:
-                self.open_idx = self.iter_idx
+                    # Calculate the norm of the difference
+                    diff_pos = max(
+                        diff_pos,
+                        np.linalg.norm(
+                            parts_pos_now[i].cpu().numpy() - self.parts_poses_finish[i]
+                        ),
+                    )
+                    diff_quat = max(
+                        diff_quat,
+                        difference_in_orientation(
+                            parts_quat_now[i].cpu().numpy(), self.parts_quat_finish[i]
+                        ),
+                    )
 
-            if self.open_idx is not None and self.open_idx + 30 == self.iter_idx:
-                # Declare success if within 1 cm and 10 degrees
-                success = diff_pos < 0.015 and diff_quat < 20
+                # Declare success if within 1.5 cm and 20 degrees
+                print(
+                    f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Iter idx: {self.iter_idx}"
+                )
+                success = diff_pos < 0.017 and (diff_quat % 360) < 20
                 print(f"Success: {success}")
 
                 # If success, store the trajectory and reset
                 if success:
-                    obs = self.save_and_reset(CollectEnum.SUCCESS, info)
                     self.num_success += 1
                     self.update_pbar()
                     self.traj_counter += 1
                     self.verbose_print(
                         f"Success: {self.num_success}, Fail: {self.num_fail}"
                     )
+                    print(
+                        f"Setting current critical state: {self.count_per_critical_state}: {self.current_critical_state} -> {self.count_per_critical_state}"
+                    )
+                    self.count_per_critical_state[self.current_critical_state] += 1
+                    obs = self.save_and_reset(CollectEnum.SUCCESS, info)
                 else:
+                    self.num_fail += 1
+                    # obs = self.save_and_reset(CollectEnum.FAIL, info)
                     obs = self.reset()
                 self.iter_idx = 0
                 self.verbose_print(
@@ -491,12 +511,12 @@ class DataCollectorAugmentor:
         self.transitions.append(transition)
 
         # We'll update the steps counter whenever we store an observation
-        if not setup_phase:
-            print(
-                f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} "
-                f"num assembled: {len(self.env.furniture.assembled_set)} "
-                f"Skill: {len(self.skill_set)}."
-            )
+        # if not setup_phase:
+        #     print(
+        #         f"{[self.step_counter]} assembled: {self.env.furniture.assembled_set} "
+        #         f"num assembled: {len(self.env.furniture.assembled_set)} "
+        #         f"Skill: {len(self.skill_set)}."
+        #     )
 
     @property
     def step_counter(self):
@@ -538,31 +558,66 @@ class DataCollectorAugmentor:
         self.reverse_actions = []
         self.reverse_ee_poses = []
 
-    def print_poses(self):
+    def extract_poses_from_state(self, parts_poses):
+        # Do this by taking the first 3 numbers in each 7-tuple and store them as a list of tuples
+        parts_pos = [
+            parts_poses[i * 7 : i * 7 + 3] for i in range(parts_poses.shape[0] // 7)
+        ]
 
-        ee_trans, _ = self.env.get_ee_pose()
-        leg_trans4 = self.env.get_parts_poses()[0][0][4 * 7 : 4 * 7 + 3]
+        # Then we store the orientations by taking the last 4 numbers in each 7-tuple
+        parts_quat = [
+            parts_poses[i * 7 + 3 : i * 7 + 7] for i in range(parts_poses.shape[0] // 7)
+        ]
 
-        print(f"Diff: {(ee_trans - leg_trans4).tolist()}")
+        return parts_pos, parts_quat
 
     def load_state(
         self,
-        offset_steps: int = 15,
-        aug_transition_idx: int = 3,
+        # Now, we're using the `augment_states` key, which is already offset by hand
+        offset_steps: int = 0,
     ):
         """
         Load the state of the environment from a one_leg trajectory
         from the currently first pickle in the resume_trajectory_paths list
         """
 
-        # Get the state dict at the end of a one_leg trajectory
-        # trajectory_path = self.resume_trajectory_paths.pop(0)
+        # Randomly sample a trajectory and a state
         trajectory_path = random.sample(self.augment_trajectories_paths, 1)[0]
 
         print("Loading state from:")
         print(trajectory_path)
 
         state = unpickle_data(trajectory_path)
+
+        if self.count_per_critical_state is None:
+            n_critical_states = len(np.where(state["augment_states"] == 1)[0])
+            self.count_per_critical_state = np.ones(n_critical_states)
+
+        print(f"Count per critical state: {self.count_per_critical_state}")
+
+        # Calculate sampling probabilities inversely proportional to the counts
+        inverse_counts = 1.0 / self.count_per_critical_state
+        probabilities = inverse_counts / inverse_counts.sum()
+
+        print(f"Probabilities: {probabilities}")
+
+        # Sample a critical state index based on the calculated probabilities
+        aug_state_indices = np.where(state["augment_states"] == 1)[0]
+        critical_state_idx = np.random.choice(
+            np.arange(len(probabilities)), p=probabilities
+        )
+        print(f"Critical state index: {critical_state_idx}")
+        print(f"Critical state indices: {aug_state_indices}")
+        aug_episode_start = aug_state_indices[critical_state_idx]
+        self.current_critical_state = critical_state_idx
+
+        # Search forward and find the index of the action when the gripper action changes
+        curr_gripper_action = state["actions"][aug_episode_start][-1]
+        for i in range(aug_episode_start, len(state["actions"])):
+            if state["actions"][i][-1] != curr_gripper_action:
+                self.check_index = i + 20  # Check 2s after opening/closing gripper
+                self.relative_check_index = self.check_index - aug_episode_start
+                break
 
         skill_transition_indices = []
         original_episode_actions = []
@@ -591,7 +646,6 @@ class DataCollectorAugmentor:
                 )
 
         # log the actions in reverse, starting at the end and going to our reset state
-        aug_episode_start = skill_transition_indices[aug_transition_idx] - offset_steps
         for i in range(original_episode_horizon - 1, aug_episode_start, -1):
             self.reverse_actions.append(original_episode_actions[i])
             self.reverse_ee_poses.append(original_episode_ee_poses[i])
@@ -603,23 +657,12 @@ class DataCollectorAugmentor:
             start_robot_state["ee_quat"],
         )
 
-        # TODO: Check this assumption
-        check_idx = skill_transition_indices[aug_transition_idx] + 10
-        # check_idx = skill_transition_indices[aug_transition_idx]
-        print(
-            f"Check index: {check_idx}, skill transition index: {skill_transition_indices[aug_transition_idx]}"
+        # Parts poses at the skill completion step
+        self.parts_poses_finish, self.parts_quat_finish = self.extract_poses_from_state(
+            state["observations"][self.check_index]["parts_poses"]
         )
 
-        # Parts poses at the skill completion step
-        self.parts_poses_finish = state["observations"][check_idx]["parts_poses"][
-            4 * 7 : 4 * 7 + 3
-        ]
-        self.parts_quat_finish = state["observations"][check_idx]["parts_poses"][
-            4 * 7 + 3 : 4 * 7 + 7
-        ]
-
         # Randomly sample a new goal position using spherical coordinates
-
         # Samplem x and y as uniformly random on a circle with a random radius between 10 and 25 cm
         # r is the distance away from the final position
         r = np.random.uniform(0.2, 0.5)
@@ -660,6 +703,8 @@ class DataCollectorAugmentor:
         # steps
         n_back_steps_rot = int(delta_ee_rotvec_norm / np.deg2rad(7.5))
 
+        self.total_back_steps = n_back_steps + n_back_steps_rot
+
         print(
             f"Sampled r: {r}, n_back_steps: {n_back_steps}, Rotvec norm: {delta_ee_rotvec_norm}, n_bac k_steps_rot: {n_back_steps_rot}"
         )
@@ -669,29 +714,33 @@ class DataCollectorAugmentor:
         slerp = st.Slerp([0, 1], st.Rotation.from_quat([start_ee_quat, goal_ee_quat]))
         interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps_rot))
 
+        # Do a few no-ops to let the robot settle
+        self.noop_actions(n=10)
+
         for _ in range(10):
             self.env.reset_env_to(
                 env_idx=0, state=state["observations"][aug_episode_start]
             )
             self.env.refresh()
 
-        # Print the relative x, y, z coordinates of the EE and the relevant part
-        self.print_poses()
-
-        # Apply the close gripper action
-        print("Applying close gripper action")
-        self.env.step(torch.tensor([0, 0, 0, 0, 0, 0, 1, +1]).to(self.env.device))
-
-        self.noop_actions(n=10)
+        # Get current gripper action and apply close gripper action
+        gripper_action = state["actions"][aug_episode_start][-1]
+        # # Apply the close gripper action
+        # print("Applying close gripper action")
+        self.env.step(
+            torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
+        )
 
         print(f"Start position: {start_ee_pos}, goal position: {goal_ee_pos}")
         print(
             f"Start rvec: {st.Rotation.from_quat(start_ee_quat).as_rotvec()}, goal rvec: {st.Rotation.from_quat(goal_ee_quat).as_rotvec()}"
         )
 
+        # Start by applying one action straight up, then we interpolate the rest
+
         print(f'Executing "reverse" actions position with {n_back_steps} steps... ')
         for i in range(n_back_steps - 1):
-            print(f"Backward step: {i} / {n_back_steps - 1}")
+            # print(f"Backward step: {i} / {n_back_steps - 1}")
 
             # first, translate along our path
             action_pos = interp_ee_pos[i + 1] - interp_ee_pos[i]
@@ -910,13 +959,14 @@ def main():
     data_dir = os.environ["DATA_DIR_RAW"]
 
     pickle_paths = list(
-        Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl*")
+        Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
     )
 
     # Filter out only pickles that have the `augment_states` key
-    pickle_paths = [
-        p for p in pickle_paths if "augment_states" in unpickle_data(p).keys()
-    ]
+    pickle_paths_aug = []
+    for p in tqdm(pickle_paths, desc="Filtering pickles"):
+        if "augment_states" in unpickle_data(p).keys():
+            pickle_paths_aug.append(p)
 
     print("loaded num trajectories", len(pickle_paths))
 
@@ -937,7 +987,7 @@ def main():
         num_demos=args.num_demos,
         ctrl_mode=args.ctrl_mode,
         compress_pickles=True,
-        augment_trajectories_paths=pickle_paths,
+        augment_trajectories_paths=pickle_paths_aug,
         ee_laser=args.ee_laser,
     )
     data_collector.collect()
