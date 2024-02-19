@@ -1,0 +1,19 @@
+program: src/train/bc_no_rollout.py
+entity: robot-rearrangement
+project: sweeps
+name: baseline-teleop-sweep
+method: random
+parameters:
+  +seed:
+    values: [0, 1, 2, 3, 4]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_training
+  - vision_encoder=resnet
+  - furniture=lamp
+  - randomness=low
+  - ${args_no_hyphens}
+
