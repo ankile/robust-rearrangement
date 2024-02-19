@@ -538,7 +538,7 @@ class DataCollectorSpaceMouse:
         self, obs, action=None, rew=None, skill_complete=None, setup_phase=False
     ):
         """Store the observation, action, and reward."""
-        if (not setup_phase) and (not self.robot_settled) or (not self.recording):
+        if (not setup_phase) and ((not self.robot_settled) or (not self.recording)):
             # Don't store anything until the robot has settled
             # Without this, we get ~8 useless actions at the start of every trajectory
             return

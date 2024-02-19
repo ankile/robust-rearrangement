@@ -49,6 +49,8 @@ unzip awscliv2.zip
 # export AWS_COMMAND='/home/larsankile/aws-cli/v2/current/bin/aws'
 # alias aws='/home/larsankile/aws-cli/v2/current/bin/aws'
 
+# Then run `aws configure` and enter the required information
+
 # Install robomimic (for BC-RNN)
 cd ..
 git clone https://github.com/ARISE-Initiative/robomimic.git

@@ -103,6 +103,7 @@ class ResnetEncoder(VisionEncoder):
         super().__init__()
         assert model_name in ["resnet18", "resnet34", "resnet50"]
         assert not freeze or pretrained, "If not pretrained, then freeze must be False"
+        print(f"Loading resnet, pretrained={pretrained}")
 
         weights = "IMAGENET1K_V1" if pretrained else None
 

@@ -41,11 +41,11 @@ def validate_args(args: argparse.Namespace):
         "Invalid run-state: "
         f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
     )
-    assert (
-        not args.continuous_mode
-        or args.sweep_id is not None
-        or args.project_id is not None
-    ), "Continuous mode is only supported when sweep_id is provided"
+    # assert (
+    #     not args.continuous_mode
+    #     or args.sweep_id is not None
+    #     or args.project_id is not None
+    # ), "Continuous mode is only supported when sweep_id is provided"
 
     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
 
@@ -315,12 +315,16 @@ if __name__ == "__main__":
                 actor.load_state_dict(state_dict)
                 actor.eval()
 
-                save_dir = trajectory_save_dir(
-                    environment="sim",
-                    task=args.furniture,
-                    demo_source="rollout",
-                    randomness=args.randomness,
-                    create=False,
+                save_dir = (
+                    trajectory_save_dir(
+                        environment="sim",
+                        task=args.furniture,
+                        demo_source="rollout",
+                        randomness=args.randomness,
+                        create=False,
+                    )
+                    if args.save_rollouts
+                    else None
                 )
 
                 if args.store_video_wandb:

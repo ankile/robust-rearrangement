@@ -35,6 +35,7 @@ def get_encoder(
             model_name=encoder_name,
             device=device,
             freeze=freeze,
+            pretrained=pretrained,
             *args,
             **kwargs,
         )

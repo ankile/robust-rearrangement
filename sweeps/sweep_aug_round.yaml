@@ -1,0 +1,25 @@
+program: src/train/bc.py
+entity: robot-rearrangement
+project: sweeps
+name: traj-aug-roundtable-1
+method: grid
+parameters:
+  demo_source:
+    values:
+      - teleop
+      - [teleop, augmentation]
+  +seed:
+    values: [0, 1, 2]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - data.dataloader_workers=16
+  - control.control_mode=pos
+  - training.batch_size=128
+  - vision_encoder=resnet
+  - obs_horizon=1
+  - pred_horizon=32
+  - furniture=round_table
+  - ${args_no_hyphens}

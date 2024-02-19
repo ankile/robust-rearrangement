@@ -291,6 +291,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--calculate-pos-action-from-delta", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--max-files", type=int, default=None)
     args = parser.parse_args()
 
     pickle_paths: List[Path] = sorted(
@@ -301,7 +302,7 @@ if __name__ == "__main__":
             randomness=args.randomness,
             demo_outcome=args.demo_outcome,
         )
-    )
+    )[: args.max_files]
 
     print(f"Found {len(pickle_paths)} pickle files")
 
