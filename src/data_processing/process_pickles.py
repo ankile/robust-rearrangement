@@ -64,7 +64,6 @@ def process_pickle_file(
     """
     Process a single pickle file and return processed data.
     """
-    print(f"Processing {pickle_path}")
     data: Trajectory = unpickle_data(pickle_path)
     obs = data["observations"]
 
