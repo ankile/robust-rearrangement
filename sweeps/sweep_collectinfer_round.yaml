@@ -1,16 +1,15 @@
 program: src/train/bc.py
 entity: robot-rearrangement
 project: sweeps
-name: traj-aug-roundtable-1
+name: traj-collectinfer-roundtable-1
 method: grid
 parameters:
   demo_source:
     values:
-      - teleop
-      - [teleop, augmentation]
+      - [teleop, rollout]
   +seed:
-    values: [0, 1, 2]
-
+    values: [0, 1, 2, 3, 4]
+  
 command:
   - ${env}
   - python

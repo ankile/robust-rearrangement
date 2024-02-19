@@ -87,13 +87,13 @@ def main():
 
     pickle_paths = list(
         Path(
-            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/scripted"
-        ).rglob("**/success/*.pkl*")
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop/low/success/3"
+        ).rglob("*.pkl*")
     )
 
     random.shuffle(pickle_paths)
 
-    pickle_paths = pickle_paths[:0]
+    pickle_paths = pickle_paths[: args.num_demos]
 
     print("loaded num trajectories", len(pickle_paths))
 

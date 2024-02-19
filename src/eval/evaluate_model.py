@@ -233,6 +233,14 @@ if __name__ == "__main__":
                 api.flush()
                 run = api.run("/".join([run.project, run.id]))
 
+                # Check if the run is currently being evaluated
+                if (
+                    run.config.get("currently_evaluating", False)
+                    and not args.ignore_currently_evaluating_flag
+                ):
+                    print(f"Run: {run.name} is currently being evaluated, skipping")
+                    continue
+
                 # Check if the run has already been evaluated
                 how_update = "overwrite"
                 if run.summary.get("success_rate", None) is not None:
@@ -307,12 +315,16 @@ if __name__ == "__main__":
                 actor.load_state_dict(state_dict)
                 actor.eval()
 
-                save_dir = trajectory_save_dir(
-                    environment="sim",
-                    task=args.furniture,
-                    demo_source="rollout",
-                    randomness=args.randomness,
-                    create=False,
+                save_dir = (
+                    trajectory_save_dir(
+                        environment="sim",
+                        task=args.furniture,
+                        demo_source="rollout",
+                        randomness=args.randomness,
+                        create=False,
+                    )
+                    if args.save_rollouts
+                    else None
                 )
 
                 if args.store_video_wandb:
