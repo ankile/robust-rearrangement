@@ -686,6 +686,53 @@ class DataCollectorAugmentor:
             np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax)),
         )
 
+        # Do a few no-ops to let the robot settle
+        self.noop_actions(n=10)
+
+        for _ in range(10):
+            self.env.reset_env_to(
+                env_idx=0, state=state["observations"][aug_episode_start]
+            )
+            self.env.refresh()
+
+        # Get current gripper action and apply close gripper action
+        gripper_action = state["actions"][aug_episode_start][-1]
+        # # Apply the close gripper action
+        # print("Applying close gripper action")
+        self.env.step(
+            torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
+        )
+
+        # start by applying one action straight up, then we interpolate the rest
+        for _ in range(5):
+            # go 2 cm up
+            action_pos = np.array([0, 0, 0.02])
+
+            # make quat action to keep same orientation
+            action_quat = self.make_quat_action_stay(stay_quat=start_ee_quat)
+            # action_quat = (interp_ee_rot[i].inv() * interp_ee_rot[i + 1]).as_quat()
+
+            action = np.concatenate(
+                [
+                    action_pos,
+                    action_quat,
+                    original_episode_actions[aug_episode_start][-1:],
+                ]
+            )
+
+            action_t = torch.from_numpy(action).float().to(self.env.device)
+            next_obs, _, _, _ = self.env.step(action_t)
+
+            rev_action = np.zeros_like(action)
+            rev_action[:3] = -1.0 * action_pos
+            rev_action[3:-1] = st.Rotation.from_quat(action_quat).inv().as_quat()
+            rev_action[-1] = action[-1]
+            self.reverse_actions.append(rev_action)
+            self.reverse_ee_poses.append(np.concatenate(self.get_ee_pose_np()))
+
+            # Update `start_ee_pos` to interpolate from the new position
+            start_ee_pos = start_ee_pos + action_pos
+
         # get absolute "goal" pose
         goal_ee_pos = start_ee_pos + np.array([dx, dy, dz])
 
@@ -714,22 +761,22 @@ class DataCollectorAugmentor:
         slerp = st.Slerp([0, 1], st.Rotation.from_quat([start_ee_quat, goal_ee_quat]))
         interp_ee_rot = slerp(np.linspace(0, 1, n_back_steps_rot))
 
-        # Do a few no-ops to let the robot settle
-        self.noop_actions(n=10)
+        # # Do a few no-ops to let the robot settle
+        # self.noop_actions(n=10)
 
-        for _ in range(10):
-            self.env.reset_env_to(
-                env_idx=0, state=state["observations"][aug_episode_start]
-            )
-            self.env.refresh()
+        # for _ in range(10):
+        #     self.env.reset_env_to(
+        #         env_idx=0, state=state["observations"][aug_episode_start]
+        #     )
+        #     self.env.refresh()
 
-        # Get current gripper action and apply close gripper action
-        gripper_action = state["actions"][aug_episode_start][-1]
-        # # Apply the close gripper action
-        # print("Applying close gripper action")
-        self.env.step(
-            torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
-        )
+        # # Get current gripper action and apply close gripper action
+        # gripper_action = state["actions"][aug_episode_start][-1]
+        # # # Apply the close gripper action
+        # # print("Applying close gripper action")
+        # self.env.step(
+        #     torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
+        # )
 
         print(f"Start position: {start_ee_pos}, goal position: {goal_ee_pos}")
         print(
@@ -771,8 +818,6 @@ class DataCollectorAugmentor:
             self.reverse_ee_poses.append(np.concatenate(self.get_ee_pose_np()))
 
         stay_pos = self.get_ee_pose_np()[0]
-
-        # After the back action, it seems the leg has drifted up in he hand a bit, meaning that it releases the leg too early
 
         print(f"Executing backward rotation actions with {n_back_steps_rot}... ")
         for i in range(n_back_steps_rot - 1):
@@ -961,12 +1006,16 @@ def main():
     pickle_paths = list(
         Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
     )
+    random.shuffle(pickle_paths)
 
     # Filter out only pickles that have the `augment_states` key
     pickle_paths_aug = []
     for p in tqdm(pickle_paths, desc="Filtering pickles"):
         if "augment_states" in unpickle_data(p).keys():
             pickle_paths_aug.append(p)
+        if len(pickle_paths_aug) > 5:
+            print("testing, breaking after one")
+            break
 
     print("loaded num trajectories", len(pickle_paths))
 
