@@ -1,0 +1,25 @@
+program: src/train/bc_no_rollout.py
+entity: robot-rearrangement
+project: sweeps
+name: squaretable-baseline-sweep
+method: random
+parameters:
+  +seed:
+    values: [0, 1, 2, 3]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_training
+  - vision_encoder=resnet
+  - vision_encoder.pretrained=true
+  - furniture=square_table
+  - data.dataloader_workers=16
+  - obs_horizon=1
+  - pred_horizon=32
+  - control.control_mode=pos
+  - training.batch_size=128
+  - randomness=low
+  - ${args_no_hyphens}
+

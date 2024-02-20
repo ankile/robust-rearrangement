@@ -87,7 +87,7 @@ def main():
 
     pickle_paths = list(
         Path(
-            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop/low/success/3"
+            "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/sim/one_leg/teleop/low/success/5"
         ).rglob("*.pkl*")
     )
 

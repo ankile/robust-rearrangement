@@ -19,7 +19,7 @@ pkl_paths = get_raw_paths(
     demo_source="teleop",
     demo_outcome=annotate,
     randomness="low",
-    task="lamp",
+    task="square_table",
 )
 
 for i, pkl_path in enumerate(pkl_paths, start=0):

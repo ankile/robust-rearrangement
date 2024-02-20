@@ -12,7 +12,7 @@ randomness: [low, med]
 data:
   data_subset: 50
   augment_image: true
-  dataloader_workers: 15
+  dataloader_workers: 16
 
 training:
   batch_size: 128
