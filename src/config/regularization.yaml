@@ -5,6 +5,6 @@ regularization:
   weight_decay: 1e-6
 
   # Ke et al., “Grasping with Chopsticks.”
-  # This is essentially the \eta parameter in the paper.
+  # Right now, we use two different but fixed \sigma of 1 cm and 0.1 rad.
   state_noise: False
   

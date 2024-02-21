@@ -8,6 +8,13 @@ from ipdb import set_trace as bp  # noqa
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.vision import FrontCameraTransform, WristCameraTransform
 
+from pytorch3d.transforms import (
+    rotation_6d_to_matrix,
+    matrix_to_euler_angles,
+    matrix_to_rotation_6d,
+    euler_angles_to_matrix,
+)
+
 
 # Update the PostInitCaller to be compatible
 class PostInitCaller(type(torch.nn.Module)):
@@ -130,12 +137,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             feature1 = self.layernorm1(feature1)
             feature2 = self.layernorm2(feature2)
 
-        if self.feature_dropout:
+        if self.training and self.feature_dropout:
             print("[WARNING] Make sure this is disabled during evaluation")
             feature1 = self.dropout(feature1)
             feature2 = self.dropout(feature2)
 
-        if self.feature_noise:
+        if self.training and self.feature_noise:
             print("[WARNING] Make sure this is disabled during evaluation")
             # Add noise to the features
             feature1 = feature1 + torch.randn_like(feature1) * self.feature_noise
@@ -148,15 +155,28 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         nrobot_state = batch["robot_state"]
         B = nrobot_state.shape[0]
 
-        if self.state_noise:
-            # Add noise to the robot state akin to Ke et al., “Grasping with Chopsticks.”
-            # Calculate the variance of each dimension of the robot state
-            var = nrobot_state.var(dim=0)
+        # Check if we're in training mode and we want to add noise to the robot state
 
-            # Add noise to the robot state proportional to the variance
-            nrobot_state = (
-                nrobot_state + torch.randn_like(nrobot_state) * var * self.state_noise
-            )
+        if self.training and self.state_noise:
+            # Add noise to the robot state akin to Ke et al., “Grasping with Chopsticks.”
+            # Extract only the current position and orientation (x, y, x and 6D rotation)
+            pos = nrobot_state[:, :, :3]
+            rot_mat = rotation_6d_to_matrix(nrobot_state[:, :, 3:9])
+            rot = matrix_to_euler_angles(rot_mat, "XYZ")
+
+            # Add noise to the position with variance of of 1 cm
+            pos = pos + torch.randn_like(pos) * 0.01
+
+            # Sample random rotations in x, y, z Euler angles with variance of 0.1 rad
+            d_rot = torch.randn_like(rot) * 0.1
+
+            # Apply the noise rotation to the current rotation
+            rot = matrix_to_rotation_6d(rot_mat @ euler_angles_to_matrix(d_rot, "XYZ"))
+
+            # In 20% of observations, we now the noised position and rotation to the robot state
+            mask = torch.rand(B) < 0.2
+            nrobot_state[mask, :, :3] = pos[mask]
+            nrobot_state[mask, :, 3:9] = rot[mask]
 
         if self.observation_type == "image":
             image1: torch.Tensor = batch["color_image1"]
