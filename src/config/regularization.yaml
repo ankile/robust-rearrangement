@@ -6,5 +6,5 @@ regularization:
 
   # Ke et al., “Grasping with Chopsticks.”
   # This is essentially the \eta parameter in the paper.
-  state_noise: 0.1
+  state_noise: False
   
