@@ -1,27 +1,27 @@
 # @package _global_
 defaults:
-  - override /vision_encoder: spatial_softmax
+  - override /vision_encoder: resnet
 
 observation_type: image
+
+vision_encoder:
+  pretrained: true
   
-# Override the values for observation type, layernorm, and augmentation
 data:
   data_subset: null
   augment_image: true
-  dataloader_workers: 64
+  dataloader_workers: 32
 
 training:
-  batch_size: 128
+  batch_size: 256
 
 regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
 
-# Override a subset of the rollout parameters
-rollout:
-  max_steps: 2000
-  furniture: lamp
+furniture: [square_table, lamp, round_table]
+randomness: low
 
-furniture: [one_leg, lamp]
-randomness: [low, med]
+wandb:
+  project: multitask-baseline-1

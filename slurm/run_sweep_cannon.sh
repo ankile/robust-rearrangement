@@ -11,4 +11,5 @@
 # Load any modules or set up the environment if needed
 
 # Run the wandb agent command
-wandb agent robot-rearrangement/sweeps/44hsqeuy
+# wandb agent robot-rearrangement/sweeps/44hsqeuy
+python -m src.train.bc_no_rollout +experiment=image_multitask
