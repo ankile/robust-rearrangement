@@ -172,7 +172,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--action-type", type=str, default="delta", choices=["delta", "pos"]
     )
-
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
     args = parser.parse_args()

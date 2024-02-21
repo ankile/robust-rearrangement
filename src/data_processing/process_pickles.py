@@ -15,7 +15,7 @@ from src.common.types import Trajectory
 from src.common.files import get_processed_path, get_raw_paths
 from src.visualization.render_mp4 import unpickle_data
 from src.common.geometry import (
-    np_proprioceptive_to_6d_rotation,
+    np_proprioceptive_quat_to_6d_rotation,
     np_action_quat_to_6d_rotation,
     np_extract_ee_pose_6d,
     np_apply_quat,
@@ -82,10 +82,13 @@ def process_pickle_file(
             [o["robot_state"] for o in obs], dtype=np.float32
         )
 
-    all_robot_state_6d = np_proprioceptive_to_6d_rotation(all_robot_state_quat)
+    all_robot_state_6d = np_proprioceptive_quat_to_6d_rotation(all_robot_state_quat)
 
     robot_state_6d = all_robot_state_6d[:-1]
     parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
+
+    # Get what type of action we have stored (delta or pos)
+    action_type = data.get("action_type", "delta")
 
     # Extract the delta actions from the pickle file and convert to 6D rotation
     action_delta = np.array(data["actions"], dtype=np.float32)

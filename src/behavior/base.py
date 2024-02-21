@@ -5,7 +5,7 @@ import torch.nn as nn
 from src.dataset.normalizer import Normalizer
 
 from ipdb import set_trace as bp  # noqa
-from src.common.geometry import proprioceptive_to_6d_rotation
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.vision import FrontCameraTransform, WristCameraTransform
 
 
@@ -68,7 +68,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
         # Convert the robot_state to use rot_6d instead of quaternion
-        robot_state = proprioceptive_to_6d_rotation(robot_state)
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)

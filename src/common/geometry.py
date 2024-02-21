@@ -150,7 +150,7 @@ def np_rotvec_to_rot_6d(rot_vec: np.ndarray) -> np.ndarray:
     return rot_6d
 
 
-def proprioceptive_to_6d_rotation(robot_state: torch.tensor) -> torch.tensor:
+def proprioceptive_quat_to_6d_rotation(robot_state: torch.tensor) -> torch.tensor:
     """
     Convert the 14D proprioceptive state space to 16D state space.
 
@@ -183,7 +183,7 @@ def proprioceptive_to_6d_rotation(robot_state: torch.tensor) -> torch.tensor:
     return robot_state_6d
 
 
-def np_proprioceptive_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
+def np_proprioceptive_quat_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
     """
     Convert the 14D proprioceptive state space to 16D state space.
 
@@ -201,7 +201,7 @@ def np_proprioceptive_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
     assert robot_state.shape[-1] == 14, "Robot state must be 14D"
 
     robot_state = torch.from_numpy(robot_state)
-    robot_state_6d = proprioceptive_to_6d_rotation(robot_state)
+    robot_state_6d = proprioceptive_quat_to_6d_rotation(robot_state)
     robot_state_6d = robot_state_6d.numpy()
     return robot_state_6d
 

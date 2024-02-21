@@ -243,6 +243,7 @@ def calculate_success_rate(
                 rewards=rewards[:n_steps],
                 success=success,
                 furniture=furniture,
+                action_type=env.action_type,
                 rollout_save_dir=rollout_save_dir,
             )
 

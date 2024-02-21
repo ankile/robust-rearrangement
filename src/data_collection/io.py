@@ -1,20 +1,26 @@
 from datetime import datetime
 from typing import List
+from pathlib import Path
+
+import numpy as np
+from scipy.spatial.transform import Rotation as R
 
 from src.visualization.render_mp4 import pickle_data
 from src.common.types import Trajectory, Observation
+from src.common.geometry import np_action_6d_to_quat
 
 
 def save_raw_rollout(
-    robot_states,
-    imgs1,
-    imgs2,
-    actions,
-    rewards,
-    parts_poses,
-    success,
-    furniture,
-    rollout_save_dir,
+    robot_states: np.ndarray,
+    imgs1: np.ndarray,
+    imgs2: np.ndarray,
+    actions: np.ndarray,
+    rewards: np.ndarray,
+    parts_poses: np.ndarray,
+    success: bool,
+    furniture: str,
+    action_type: str,
+    rollout_save_dir: Path,
 ):
     compress_pickles = False
     observations: List[Observation] = list()
@@ -31,12 +37,38 @@ def save_raw_rollout(
             }
         )
 
+        if action_type == "pos":
+
+            assert actions.shape[1] == 10
+            # IF we've used rot_6d convert to quat
+            actions = np_action_6d_to_quat(actions)
+            assert actions.shape[1] == 8
+
+            # Get the action quat
+            pos_action_quat = R.from_quat(actions[:, 3:7])
+
+            # Get the position quat from the robot state
+            pos_quat = R.from_quat(robot_states[:-1, 3:7])
+
+            # The action quat was calculated as pos_quat * action_quat
+            # Calculate the delta quat between the pos_quat and the action_quat
+            delta_action_quat = pos_quat.inv() * pos_action_quat
+
+            # Also calculate the delta position
+            delta_action_pos = actions[:, :3] - robot_states[:-1, :3]
+
+            # Insert the delta quat into the actions
+            actions = np.concatenate(
+                [delta_action_pos, delta_action_quat.as_quat(), actions[:, -1:]], axis=1
+            )
+
     data: Trajectory = {
         "observations": observations,
         "actions": actions.tolist(),
         "rewards": rewards.tolist(),
         "success": success,
         "furniture": furniture,
+        "action_type": action_type,
     }
 
     output_path = rollout_save_dir / ("success" if success else "failure")
