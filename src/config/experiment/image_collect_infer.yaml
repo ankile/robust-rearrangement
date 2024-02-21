@@ -6,7 +6,12 @@ observation_type: image
 
 vision_encoder:
   pretrained: true
-  
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
 data:
   data_subset: null
   augment_image: true
@@ -25,4 +30,4 @@ randomness: low
 demo_source: [teleop, rollout]
 
 wandb:
-  project: ${furniture}-collectinfer-baseline-1
+  project: ${furniture}-collectinfer-1
