@@ -11,4 +11,4 @@
 # Load any modules or set up the environment if needed
 
 # Run the wandb agent command
-wandb agent robot-rearrangement/sweeps/ikfmvatf
+wandb agent robot-rearrangement/sweeps/44hsqeuy
