@@ -87,15 +87,13 @@ def process_pickle_file(
     robot_state_6d = all_robot_state_6d[:-1]
     parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
 
-    # Get what type of action we have stored (delta or pos)
-    action_type = data.get("action_type", "delta")
-
     # Extract the delta actions from the pickle file and convert to 6D rotation
     action_delta = np.array(data["actions"], dtype=np.float32)
     if action_delta.shape[-1] == 8:
         action_delta_quat = action_delta
         action_delta_6d = np_action_quat_to_6d_rotation(action_delta_quat)
     elif action_delta.shape[-1] == 10:
+        raise Exception("This was unexpected")
         action_delta_6d = action_delta
         action_delta_quat = np_action_6d_to_quat(action_delta_6d)
     else:

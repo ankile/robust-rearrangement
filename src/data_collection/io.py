@@ -9,6 +9,8 @@ from src.visualization.render_mp4 import pickle_data
 from src.common.types import Trajectory, Observation
 from src.common.geometry import np_action_6d_to_quat
 
+from ipdb import set_trace as bp
+
 
 def save_raw_rollout(
     robot_states: np.ndarray,
@@ -37,30 +39,30 @@ def save_raw_rollout(
             }
         )
 
-        if action_type == "pos":
+    if action_type == "pos":
 
-            assert actions.shape[1] == 10
-            # IF we've used rot_6d convert to quat
-            actions = np_action_6d_to_quat(actions)
-            assert actions.shape[1] == 8
+        assert actions.shape[1] == 10
+        # If we've used rot_6d convert to quat
+        actions = np_action_6d_to_quat(actions)
+        assert actions.shape[1] == 8
 
-            # Get the action quat
-            pos_action_quat = R.from_quat(actions[:, 3:7])
+        # Get the action quat
+        pos_action_quat = R.from_quat(actions[:, 3:7])
 
-            # Get the position quat from the robot state
-            pos_quat = R.from_quat(robot_states[:-1, 3:7])
+        # Get the position quat from the robot state
+        pos_quat = R.from_quat(robot_states[:-1, 3:7])
 
-            # The action quat was calculated as pos_quat * action_quat
-            # Calculate the delta quat between the pos_quat and the action_quat
-            delta_action_quat = pos_quat.inv() * pos_action_quat
+        # The action quat was calculated as pos_quat * action_quat
+        # Calculate the delta quat between the pos_quat and the action_quat
+        delta_action_quat = pos_quat.inv() * pos_action_quat
 
-            # Also calculate the delta position
-            delta_action_pos = actions[:, :3] - robot_states[:-1, :3]
+        # Also calculate the delta position
+        delta_action_pos = actions[:, :3] - robot_states[:-1, :3]
 
-            # Insert the delta quat into the actions
-            actions = np.concatenate(
-                [delta_action_pos, delta_action_quat.as_quat(), actions[:, -1:]], axis=1
-            )
+        # Insert the delta quat into the actions
+        actions = np.concatenate(
+            [delta_action_pos, delta_action_quat.as_quat(), actions[:, -1:]], axis=1
+        )
 
     data: Trajectory = {
         "observations": observations,
