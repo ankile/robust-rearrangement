@@ -21,9 +21,13 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
     normalizer: Normalizer
+
+    # Regularization
     feature_noise: bool = False
     feature_dropout: bool = False
     feature_layernorm: bool = False
+    state_noise: bool = False
+
     encoding_dim: int
     augment_image: bool = False
 
@@ -127,10 +131,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             feature2 = self.layernorm2(feature2)
 
         if self.feature_dropout:
+            print("[WARNING] Make sure this is disabled during evaluation")
             feature1 = self.dropout(feature1)
             feature2 = self.dropout(feature2)
 
         if self.feature_noise:
+            print("[WARNING] Make sure this is disabled during evaluation")
             # Add noise to the features
             feature1 = feature1 + torch.randn_like(feature1) * self.feature_noise
             feature2 = feature2 + torch.randn_like(feature2) * self.feature_noise
@@ -141,6 +147,16 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         # The robot state is already normalized in the dataset
         nrobot_state = batch["robot_state"]
         B = nrobot_state.shape[0]
+
+        if self.state_noise:
+            # Add noise to the robot state akin to Ke et al., “Grasping with Chopsticks.”
+            # Calculate the variance of each dimension of the robot state
+            var = nrobot_state.var(dim=0)
+
+            # Add noise to the robot state proportional to the variance
+            nrobot_state = (
+                nrobot_state + torch.randn_like(nrobot_state) * var * self.state_noise
+            )
 
         if self.observation_type == "image":
             image1: torch.Tensor = batch["color_image1"]

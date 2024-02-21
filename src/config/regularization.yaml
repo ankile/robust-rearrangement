@@ -3,3 +3,8 @@ regularization:
   feature_noise: false
   feature_dropout: false
   weight_decay: 1e-6
+
+  # Ke et al., “Grasping with Chopsticks.”
+  # This is essentially the \eta parameter in the paper.
+  state_noise: 0.1
+  
