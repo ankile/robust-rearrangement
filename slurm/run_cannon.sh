@@ -11,4 +11,7 @@
 
 
 # Run the wandb agent command
-wandb agent robot-rearrangement/sweeps/44hsqeuy # Square table baseline
+python -m src.train.bc_no_rollout +experiment=image_multitask
+# python -m src.train.bc_no_rollout +experiment=image_traj_aug furniture=square_table
+# python -m src.train.bc_no_rollout +experiment=image_baseline furniture=square_table
+
