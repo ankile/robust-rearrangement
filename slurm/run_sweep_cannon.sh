@@ -13,3 +13,4 @@
 # Run the wandb agent command
 # wandb agent robot-rearrangement/sweeps/44hsqeuy
 python -m src.train.bc_no_rollout +experiment=image_multitask
+python -m src.train.bc_no_rollout +experiment=image_traj_aug furniture=square_table
