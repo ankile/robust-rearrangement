@@ -11,7 +11,7 @@
 
 
 # Run the wandb agent command
-python -m src.train.bc_no_rollout +experiment=image_multitask
+# python -m src.train.bc_no_rollout +experiment=image_multitask
 # python -m src.train.bc_no_rollout +experiment=image_traj_aug furniture=square_table
 # python -m src.train.bc_no_rollout +experiment=image_baseline furniture=square_table
-
+python -m src.train.bc_no_rollout +experiment=image_collect_infer furniture=square_table
