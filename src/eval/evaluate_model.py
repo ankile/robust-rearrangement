@@ -195,7 +195,7 @@ if __name__ == "__main__":
         furniture=args.furniture,
         num_envs=args.n_envs,
         randomness=args.randomness,
-        max_env_steps=rollout_max_steps,
+        max_env_steps=5_000,
         resize_img=False,
         act_rot_repr="rot_6d",
         ctrl_mode="osc",

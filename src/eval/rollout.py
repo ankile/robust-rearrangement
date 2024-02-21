@@ -78,6 +78,10 @@ def rollout(
         ),
     }[env.act_rot_repr]
 
+    # Before we start, let the environment settle by doing nothing for 1 second
+    for _ in range(10):
+        obs, reward, done, _ = env.step(noop)
+
     step_idx = 0
     while not done.all():
         # Get the next actions from the actor

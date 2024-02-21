@@ -12,7 +12,7 @@ def get_env(
     furniture="one_leg",
     num_envs=1,
     randomness="low",
-    max_env_steps=3000,
+    max_env_steps=5_000,
     resize_img=True,
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
