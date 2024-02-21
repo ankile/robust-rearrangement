@@ -11,4 +11,5 @@
 # Load any modules or set up the environment if needed
 
 # Run the wandb agent command
-wandb agent robot-rearrangement/sweeps/44hsqeuy
+# wandb agent robot-rearrangement/sweeps/44hsqeuy
+python -m src.train.bc +experiment=image_training vision_encoder=resnet rollout=rollout wandb.project=baselines-test wandb.name=50-lamp-teleop-resnet-40 furniture=lamp randomness=low
