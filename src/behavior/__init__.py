@@ -38,6 +38,7 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
+                normalizer=normalizer,
                 config=config,
             )
         else:
