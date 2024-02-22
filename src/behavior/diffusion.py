@@ -245,8 +245,8 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         nobs = super()._training_obs(batch, flatten=True)
 
         # Get the task embedding
-        task_idx = batch["task_idx"]
-        task_embedding = self.task_encoder(task_idx)
+        task_idx: torch.Tensor = batch["task_idx"]
+        task_embedding: torch.Tensor = self.task_encoder(task_idx.squeeze())
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, task_embedding), dim=-1)
