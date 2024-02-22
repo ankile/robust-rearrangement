@@ -107,12 +107,10 @@ class DiffusionPolicy(Actor):
         self.model = get_diffusion_backbone(
             action_dim=self.action_dim,
             obs_dim=self.obs_dim,
-            actor_config=config.actor,
+            actor_config=actor_cfg,
         ).to(device)
 
-        loss_fn_name = (
-            config.actor.loss_fn if hasattr(config.actor, "loss_fn") else "MSELoss"
-        )
+        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
         self.loss_fn = getattr(nn, loss_fn_name)()
 
     # === Inference ===
@@ -219,9 +217,12 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             config=config,
         )
 
-        self.task_dim = config.task_dim
+        multitask_cfg = config.multitask
+        actor_cfg = config.actor
+
+        self.task_dim = multitask_cfg.task_dim
         self.task_encoder = nn.Embedding(
-            num_embeddings=config.num_tasks,
+            num_embeddings=multitask_cfg.num_tasks,
             embedding_dim=self.task_dim,
             padding_idx=None,
             max_norm=None,
@@ -233,13 +234,11 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
 
         self.obs_dim = self.obs_dim + self.task_dim
 
-        self.model = ConditionalUnet1D(
-            input_dim=config.action_dim,
-            global_cond_dim=self.obs_dim,
-            down_dims=config.down_dims,
+        self.model = get_diffusion_backbone(
+            action_dim=self.action_dim,
+            obs_dim=self.obs_dim,
+            actor_config=actor_cfg,
         ).to(device)
-
-        self.augment_image = config.augment_image
 
     def _training_obs(self, batch):
         # Get the standard observation data
