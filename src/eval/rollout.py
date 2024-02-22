@@ -30,6 +30,8 @@ RolloutStats = collections.namedtuple(
         "n_rollouts",
         "epoch_idx",
         "rollout_max_steps",
+        "total_return",
+        "total_reward",
     ],
 )
 
@@ -43,6 +45,12 @@ def rollout(
     # get first observation
     with suppress_all_output(True):
         obs = env.reset()
+
+    if env.furniture_name == "lamp":
+        # Before we start, let the environment settle by doing nothing for 1 second
+        print("TODO: Fix noops for position actions NBNB")
+        for _ in range(30):
+            obs = env.step_noop()
 
     # Resize the images in the observation
     obs["color_image1"] = resize(obs["color_image1"])
@@ -65,31 +73,12 @@ def rollout(
     rewards = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
-    # Define a noop tensor to use when done
-    # It is zero everywhere except for the first element of the rotation
-    # as the quaternion noop is (1, 0, 0, 0)
-    # The elements are: (x, y, z) + (a, b, c, d) + (w,)
-    noop = {
-        "quat": torch.tensor(
-            [0, 0, 0, 1, 0, 0, 0, 0], dtype=torch.float32, device="cuda"
-        ),
-        "rot_6d": torch.tensor(
-            [0, 0, 0, 1, 0, 0, 0, 1, 0, 0], dtype=torch.float32, device="cuda"
-        ),
-    }[env.act_rot_repr]
-
-    # Before we start, let the environment settle by doing nothing for 1 second
-    for _ in range(10):
-        obs, reward, done, _ = env.step(noop)
-
     step_idx = 0
     while not done.all():
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
-        curr_action = action_pred.clone()
-        curr_action[done.nonzero()] = noop
 
-        obs, reward, done, _ = env.step(curr_action)
+        obs, reward, done, _ = env.step(action_pred)
 
         # Resize the images in the observation
         obs["color_image1"] = resize(obs["color_image1"])
@@ -102,7 +91,7 @@ def rollout(
         robot_states.append(obs["robot_state"].cpu())
         imgs1.append(obs["color_image1"].cpu())
         imgs2.append(obs["color_image2"].cpu())
-        actions.append(curr_action.cpu())
+        actions.append(action_pred.cpu())
         rewards.append(reward.cpu())
         parts_poses.append(obs["parts_poses"].cpu())
 
@@ -201,6 +190,7 @@ def calculate_success_rate(
         pbar.pbar_desc(i, n_success)
 
     total_return = 0
+    total_reward = 0
     table_rows = []
     for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
         # Get the rewards and images for this rollout
@@ -221,7 +211,8 @@ def calculate_success_rate(
         video = np.concatenate([video1, video2], axis=2)[:n_steps]
         video = create_in_memory_mp4(video, fps=20)
 
-        # Calculate the return for this rollout
+        # Calculate the reward and return for this rollout
+        total_reward += np.sum(rewards)
         episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
         total_return += episode_return
 
@@ -275,6 +266,8 @@ def calculate_success_rate(
         n_rollouts=n_rollouts,
         epoch_idx=epoch_idx,
         rollout_max_steps=rollout_max_steps,
+        total_return=total_return,
+        total_reward=total_reward,
     )
 
 

@@ -215,8 +215,8 @@ if __name__ == "__main__":
             if args.eval_top_k is not None:
                 # Get the top k runs
                 runs = sorted(
-                    [run for run in runs if run.summary.get("success_rate", 0) > 0],
-                    key=lambda run: run.summary["success_rate"],
+                    run,
+                    key=lambda run: run.summary.get("success_rate", 0),
                     reverse=True,
                 )[: args.eval_top_k]
 
@@ -371,11 +371,34 @@ if __name__ == "__main__":
                         run.summary["success_rate"] = success_rate
                         run.summary["n_success"] = rollout_stats.n_success
                         run.summary["n_rollouts"] = rollout_stats.n_rollouts
+                        run.summary["total_return"] = rollout_stats.total_return
+                        run.summary["average_return"] = (
+                            rollout_stats.total_return / rollout_stats.n_rollouts
+                        )
+                        run.summary["total_reward"] = rollout_stats.total_reward
+                        run.summary["average_reward"] = (
+                            rollout_stats.total_reward / rollout_stats.n_rollouts
+                        )
                     elif how_update == "append":
                         run.summary["n_success"] += rollout_stats.n_success
                         run.summary["n_rollouts"] += rollout_stats.n_rollouts
                         run.summary["success_rate"] = (
                             run.summary["n_success"] / run.summary["n_rollouts"]
+                        )
+
+                        run.summary["total_return"] = (
+                            run.summary.get("total_return", 0)
+                            + rollout_stats.total_return
+                        )
+                        run.summary["average_return"] = (
+                            run.summary["total_return"] / run.summary["n_rollouts"]
+                        )
+                        run.summary["total_reward"] = (
+                            run.summary.get("total_reward", 0)
+                            + rollout_stats.total_reward
+                        )
+                        run.summary["average_reward"] = (
+                            run.summary["total_reward"] / run.summary["n_rollouts"]
                         )
                     else:
                         raise ValueError(f"Invalid how_update: {how_update}")

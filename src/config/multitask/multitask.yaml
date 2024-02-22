@@ -1,4 +1,4 @@
-multi_task: True
+multitask: True
 task_dim: 128
 num_tasks: 9
 language_conditioning: False
