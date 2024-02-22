@@ -240,7 +240,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             actor_config=actor_cfg,
         ).to(device)
 
-    def _training_obs(self, batch):
+    def _training_obs(self, batch, flatten: bool = True):
         # Get the standard observation data
         nobs = super()._training_obs(batch, flatten=True)
 
@@ -256,7 +256,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
     def set_task(self, task):
         self.current_task = task
 
-    def _normalized_obs(self, obs: deque):
+    def _normalized_obs(self, obs: deque, flatten: bool = True):
         assert self.current_task is not None, "Must set current task before calling"
 
         # Get the standard observation data
