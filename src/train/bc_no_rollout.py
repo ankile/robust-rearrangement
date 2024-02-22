@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import wandb
-from wandb_osh.hooks import TriggerWandbSyncHook
+# from wandb_osh.hooks import TriggerWandbSyncHook
 
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import (
@@ -56,7 +56,7 @@ def set_dryrun_params(config: ConfigDict):
         OmegaConf.set_struct(config, True)
 
 
-trigger_sync = TriggerWandbSyncHook()
+# trigger_sync = TriggerWandbSyncHook()
 
 
 @hydra.main(config_path="../config", config_name="base")
@@ -332,7 +332,7 @@ def main(config: DictConfig):
         )
 
         # Trigger sync at the end off all logging in the epoch
-        trigger_sync()
+        # trigger_sync()
 
     tglobal.close()
     wandb.finish()
