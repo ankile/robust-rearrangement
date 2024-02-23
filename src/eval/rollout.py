@@ -49,7 +49,7 @@ def rollout(
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 1 second
         print("TODO: Fix noops for position actions NBNB")
-        for _ in range(30):
+        for _ in range(50):
             obs = env.step_noop()
 
     # Resize the images in the observation
@@ -129,6 +129,7 @@ def calculate_success_rate(
     rollout_save_dir: Union[str, None] = None,
     save_failures: bool = False,
     n_parts_assemble: Union[int, None] = None,
+    compress_pickles: bool = False,
 ) -> RolloutStats:
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
@@ -240,6 +241,7 @@ def calculate_success_rate(
                 furniture=furniture,
                 action_type=env.action_type,
                 rollout_save_dir=rollout_save_dir,
+                compress_pickles=compress_pickles,
             )
 
     # Sort the table rows by return (highest at the top)

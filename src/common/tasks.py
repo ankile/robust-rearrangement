@@ -26,7 +26,7 @@ task_phases = {
 }
 
 
-timesteps_per_part = 1_000
+timesteps_per_part = 750  # Reduced from 1000 to 750 after moving to position actions
 
 task_parts = {
     "one_leg": 1,
