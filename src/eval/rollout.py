@@ -136,7 +136,7 @@ def calculate_success_rate(
         total = rnd * env.num_envs
         success_rate = n_success / total if total > 0 else 0
         self.set_description(
-            f"Performing rollouts: round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
+            f"Performing rollouts ({env.furniture_name}): round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
         )
 
     if n_parts_assemble is None:
