@@ -38,9 +38,13 @@ class DiffusionPolicy(Actor):
 
         self.inference_steps = actor_cfg.inference_steps
         self.observation_type = config.observation_type
+
+        # Regularization
         self.feature_noise = config.regularization.feature_noise
         self.feature_dropout = config.regularization.feature_dropout
         self.feature_layernorm = config.regularization.feature_layernorm
+        self.state_noise = config.regularization.get("state_noise", False)
+
         self.freeze_encoder = freeze_encoder
         self.device = device
 
@@ -245,8 +249,8 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         nobs = super()._training_obs(batch, flatten=True)
 
         # Get the task embedding
-        task_idx = batch["task_idx"]
-        task_embedding = self.task_encoder(task_idx)
+        task_idx: torch.Tensor = batch["task_idx"]
+        task_embedding: torch.Tensor = self.task_encoder(task_idx.squeeze())
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, task_embedding), dim=-1)
