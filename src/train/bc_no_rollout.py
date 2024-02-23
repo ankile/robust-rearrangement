@@ -22,9 +22,6 @@ from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
 
-
-from ml_collections import ConfigDict
-
 from gym import logger
 
 import hydra
@@ -40,7 +37,7 @@ def to_native(obj):
         return obj
 
 
-def set_dryrun_params(config: ConfigDict):
+def set_dryrun_params(config: DictConfig):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
         config.training.steps_per_epoch = 10

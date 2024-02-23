@@ -1,5 +1,5 @@
-import furniture_bench  # noqa: F401
-from ml_collections import ConfigDict
+import furniture_bench
+from omegaconf import DictConfig  # noqa: F401
 import torch
 
 import collections
@@ -274,7 +274,7 @@ def calculate_success_rate(
 
 
 def do_rollout_evaluation(
-    config: ConfigDict,
+    config: DictConfig,
     env: FurnitureSimEnv,
     save_rollouts: bool,
     actor: Actor,
