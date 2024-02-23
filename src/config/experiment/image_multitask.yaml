@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
   - override /vision_encoder: resnet
+  - override /multitask: multitask
 
 observation_type: image
 
@@ -27,6 +28,7 @@ regularization:
 
 furniture: [square_table, lamp, round_table]
 randomness: low
+demo_source: [teleop, rollout, augmentation]
 
 wandb:
   project: multitask-baseline-1

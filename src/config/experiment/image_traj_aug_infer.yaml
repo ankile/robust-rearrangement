@@ -16,6 +16,7 @@ data:
   data_subset: null
   augment_image: true
   dataloader_workers: 32
+  pad_after: false
 
 training:
   batch_size: 256
