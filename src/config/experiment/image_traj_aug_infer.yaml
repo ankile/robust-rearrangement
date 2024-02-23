@@ -30,4 +30,4 @@ randomness: low
 demo_source: [teleop, augmentation, rollout]
 
 wandb:
-  project: ${furniture}-trajauginfer-1
+  project: ${furniture}-trajaug_infer-1
