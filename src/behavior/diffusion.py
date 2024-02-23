@@ -38,9 +38,13 @@ class DiffusionPolicy(Actor):
 
         self.inference_steps = actor_cfg.inference_steps
         self.observation_type = config.observation_type
+
+        # Regularization
         self.feature_noise = config.regularization.feature_noise
         self.feature_dropout = config.regularization.feature_dropout
         self.feature_layernorm = config.regularization.feature_layernorm
+        self.state_noise = config.regularization.get("state_noise", False)
+
         self.freeze_encoder = freeze_encoder
         self.device = device
 
