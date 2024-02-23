@@ -28,7 +28,7 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
     elif actor_name == "diffusion":
         assert not (
             config.multitask.get("multitask", False)
-            and config.success_guidance.get("success_guidance", False)
+            and config.get("success_guidance", {}).get("success_guidance", False)
         ), "Multitask and success guidance cannot be used together"
 
         if config.multitask.multitask:
@@ -38,6 +38,7 @@ def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
                 device=device,
                 encoder_name=config.vision_encoder.model,
                 freeze_encoder=config.vision_encoder.freeze,
+                normalizer=normalizer,
                 config=config,
             )
         else:
