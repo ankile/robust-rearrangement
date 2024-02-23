@@ -172,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--action-type", type=str, default="delta", choices=["delta", "pos"]
     )
+    parser.add_argument("--compress-pickles", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
     args = parser.parse_args()
@@ -351,6 +352,7 @@ if __name__ == "__main__":
                     rollout_save_dir=save_dir,
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,
+                    compress_pickles=args.compress_pickles,
                 )
 
                 if args.store_video_wandb:

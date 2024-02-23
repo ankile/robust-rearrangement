@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+import random
 from typing import List
 
 import numpy as np
@@ -293,6 +294,8 @@ if __name__ == "__main__":
     parser.add_argument("--calculate-pos-action-from-delta", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--max-files", type=int, default=None)
+    parser.add_argument("--randomize-order", action="store_true")
+    parser.add_argument("--random-seed", type=int, default=0)
     args = parser.parse_args()
 
     pickle_paths: List[Path] = sorted(
@@ -303,7 +306,15 @@ if __name__ == "__main__":
             randomness=args.randomness,
             demo_outcome=args.demo_outcome,
         )
-    )[: args.max_files]
+    )
+
+    if args.randomize_order:
+        print(f"Using random seed: {args.random_seed}")
+        random.seed(args.random_seed)
+        random.shuffle(pickle_paths)
+
+    if args.max_files is not None:
+        pickle_paths = pickle_paths[: args.max_files]
 
     print(f"Found {len(pickle_paths)} pickle files")
 

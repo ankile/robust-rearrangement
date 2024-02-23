@@ -23,8 +23,8 @@ def save_raw_rollout(
     furniture: str,
     action_type: str,
     rollout_save_dir: Path,
+    compress_pickles: bool = False,
 ):
-    compress_pickles = False
     observations: List[Observation] = list()
 
     for robot_state, image1, image2, parts_pose in zip(
