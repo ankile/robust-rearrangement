@@ -47,26 +47,17 @@ def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monoton
     return
 
 
-def quaternion_conjugate(q):
-    return np.array([q[0], -q[1], -q[2], -q[3]])
+def difference_in_orientation_deg(q1: np.ndarray, q2: np.ndarray) -> float:
+    ori1 = st.Rotation.from_quat(q1)
+    ori2 = st.Rotation.from_quat(q2)
 
+    diff_mat = ori1.inv() * ori2
 
-def quaternion_multiply(q1, q2):
-    w1, x1, y1, z1 = q1
-    w2, x2, y2, z2 = q2
-    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
-    z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
-    return np.array([w, x, y, z])
+    # Scipy is nice to us and gives us angle in range [0, pi]
+    rotation_rad = diff_mat.magnitude()
 
-
-def difference_in_orientation(q1, q2):
-    q1_conjugate = quaternion_conjugate(q1)
-    q_rel = quaternion_multiply(q2, q1_conjugate)
-    angle = 2 * np.arccos(q_rel[0])
-    angle_degrees = np.degrees(angle)
-    return min(angle_degrees, 360 - angle_degrees)
+    # We want to return the angle in deg
+    return np.rad2deg(rotation_rad)
 
 
 @contextmanager
@@ -96,11 +87,9 @@ class DataCollectorAugmentor:
 
     def __init__(
         self,
-        is_sim: bool,
         data_path: str,
         furniture: str,
         headless: bool,
-        draw_marker: bool,
         manual_label: bool,
         scripted: bool,
         augment_trajectories_paths: Union[List[str], None],
@@ -137,41 +126,25 @@ class DataCollectorAugmentor:
             ee_laser (bool): If True, show a line coming from the end-effector in the viewer
             right_multiply_rot (bool): If True, convert rotation actions (delta rot) assuming they're applied as RIGHT multiplys (local rotations)
         """
-        if is_sim:
-            self.env = gym.make(
-                "FurnitureSimFull-v0",
-                furniture=furniture,
-                # max_env_steps=(
-                #     sim_config["scripted_timeout"][furniture] if scripted else 3000
-                # ),
-                max_env_steps=100,
-                headless=headless,
-                num_envs=1,  # Only support 1 for now.
-                manual_done=False if scripted else True,
-                resize_img=resize_sim_img,
-                np_step_out=False,  # Always output Tensor in this setting. Will change to numpy in this code.
-                channel_first=False,
-                randomness=randomness,
-                compute_device_id=compute_device_id,
-                graphics_device_id=graphics_device_id,
-                ctrl_mode=ctrl_mode,
-                ee_laser=ee_laser,
-            )
-        else:
-            if randomness == "med":
-                randomness = Randomness.MEDIUM_COLLECT
-            elif randomness == "high":
-                randomness = Randomness.HIGH_COLLECT
-
-            self.env: FurnitureSimEnv = gym.make(
-                "FurnitureBench-v0",
-                furniture=furniture,
-                resize_img=False,
-                manual_done=True,
-                with_display=not headless,
-                draw_marker=draw_marker,
-                randomness=randomness,
-            )
+        self.env: FurnitureSimEnv = gym.make(
+            "FurnitureSimFull-v0",
+            furniture=furniture,
+            # max_env_steps=(
+            #     sim_config["scripted_timeout"][furniture] if scripted else 3000
+            # ),
+            max_env_steps=500,
+            headless=headless,
+            num_envs=1,  # Only support 1 for now.
+            manual_done=False if scripted else True,
+            resize_img=resize_sim_img,
+            np_step_out=False,  # Always output Tensor in this setting. Will change to numpy in this code.
+            channel_first=False,
+            randomness=randomness,
+            compute_device_id=compute_device_id,
+            graphics_device_id=graphics_device_id,
+            ctrl_mode=ctrl_mode,
+            ee_laser=ee_laser,
+        )
 
         self.data_path = Path(data_path)
         self.headless = headless
@@ -194,6 +167,7 @@ class DataCollectorAugmentor:
 
         self.iter_idx = 0
         self.open_idx = None
+        self.check_idx_offset = 30
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
@@ -205,6 +179,14 @@ class DataCollectorAugmentor:
 
         # our flags
         self.right_multiply_rot = right_multiply_rot
+
+        # Discuss: is this assumption too strong?
+        self.ignore_part_poses_in_check = dict(
+            lamp={
+                # current_phase_idx -> part_ignore_idxs
+                0: {1},  # Ignore the bulb
+            },
+        )[self.env.furniture_name]
 
         self._reset_collector_buffer()
 
@@ -264,24 +246,12 @@ class DataCollectorAugmentor:
             # args.max_rot_speed = 2.5
             args.max_rot_speed = 4.0
 
-        frequency = args.frequency
-        dt = 1 / frequency
-        command_latency = args.command_latency
-
         obs = self.reset()
         done = False
 
         initial_gripper_action = None
 
-        t_start = time.monotonic()
-
         while self.num_success < self.num_demos:
-
-            # calculate timing
-            t_cycle_end = t_start + (self.iter_idx + 1) * dt
-            t_sample = t_cycle_end - command_latency
-            # t_command_target = t_cycle_end + dt
-            # precise_wait(t_sample)
 
             if not len(self.reverse_actions):
                 collect_enum = CollectEnum.FAIL
@@ -385,6 +355,15 @@ class DataCollectorAugmentor:
                 diff_quat = 0
                 for i in range(len(parts_pos_now)):
 
+                    # For testing purposes, skip checking the bulb for now
+                    if i in self.ignore_part_poses_in_check.get(
+                        self.current_critical_state, {}
+                    ):
+                        print(
+                            "Since we're doing lamp and the first phase, we're ignoring the bulb"
+                        )
+                        continue
+
                     # Calculate the norm of the difference
                     diff_pos = max(
                         diff_pos,
@@ -394,16 +373,24 @@ class DataCollectorAugmentor:
                     )
                     diff_quat = max(
                         diff_quat,
-                        difference_in_orientation(
+                        difference_in_orientation_deg(
                             parts_quat_now[i].cpu().numpy(), self.parts_quat_finish[i]
                         ),
                     )
 
-                # Declare success if within 1.5 cm and 20 degrees
-                print(
-                    f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Iter idx: {self.iter_idx}"
+                # Get the difference in gripper width
+                diff_gripper = abs(
+                    self.gripper_width_finish
+                    - obs["robot_state"]["gripper_width"].item()
                 )
-                success = diff_pos < 0.017 and (diff_quat % 360) < 20
+
+                # Declare success if within certain thresholds
+                print(
+                    f"Diff pos: {diff_pos}, Diff quat: {diff_quat}, Diff gripper: {diff_gripper}, Iter idx: {self.iter_idx}"
+                )
+                success = (
+                    diff_pos < 0.017 and (diff_quat % 360) < 20 and diff_gripper < 0.005
+                )
                 print(f"Success: {success}")
 
                 # If success, store the trajectory and reset
@@ -615,7 +602,9 @@ class DataCollectorAugmentor:
         curr_gripper_action = state["actions"][aug_episode_start][-1]
         for i in range(aug_episode_start, len(state["actions"])):
             if state["actions"][i][-1] != curr_gripper_action:
-                self.check_index = i + 20  # Check 2s after opening/closing gripper
+                self.check_index = (
+                    i + self.check_idx_offset
+                )  # Check 2s after opening/closing gripper
                 self.relative_check_index = self.check_index - aug_episode_start
                 break
 
@@ -657,10 +646,13 @@ class DataCollectorAugmentor:
             start_robot_state["ee_quat"],
         )
 
-        # Parts poses at the skill completion step
+        # Parts poses and gripper width at the skill completion step
         self.parts_poses_finish, self.parts_quat_finish = self.extract_poses_from_state(
             state["observations"][self.check_index]["parts_poses"]
         )
+        self.gripper_width_finish = state["observations"][self.check_index][
+            "robot_state"
+        ]["gripper_width"].item()
 
         # Randomly sample a new goal position using spherical coordinates
         # Samplem x and y as uniformly random on a circle with a random radius between 10 and 25 cm
@@ -686,25 +678,26 @@ class DataCollectorAugmentor:
             np.random.uniform(-np.deg2rad(yawmax), np.deg2rad(yawmax)),
         )
 
-        # Do a few no-ops to let the robot settle
-        self.noop_actions(n=10)
+        # Get current gripper action and apply close gripper action
+        gripper_action = state["actions"][aug_episode_start][-1]
 
+        print("resetting the environment to the start of the trajectory")
         for _ in range(10):
             self.env.reset_env_to(
                 env_idx=0, state=state["observations"][aug_episode_start]
             )
-            self.env.refresh()
 
-        # Get current gripper action and apply close gripper action
-        gripper_action = state["actions"][aug_episode_start][-1]
-        # # Apply the close gripper action
-        # print("Applying close gripper action")
-        self.env.step(
-            torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
-        )
+            # # Apply the close gripper action
+            # print("Applying close gripper action")
+            self.env.step(
+                torch.tensor([0, 0, 0, 0, 0, 0, 1, gripper_action]).to(self.env.device)
+            )
+        print("Environment reset")
 
-        # start by applying one action straight up, then we interpolate the rest
-        for _ in range(5):
+        up_actions = np.random.randint(0, 10)
+        # start by applying a number of actions straight up, then we interpolate the rest
+        print(f"Applying {up_actions} up actions")
+        for _ in range(up_actions):
             # go 2 cm up
             action_pos = np.array([0, 0, 0.02])
 
@@ -1006,7 +999,8 @@ def main():
     pickle_paths = list(
         Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
     )
-    random.shuffle(pickle_paths)
+    # random.shuffle(pickle_paths)
+    pickle_paths = sorted(pickle_paths)[:1]
 
     # Filter out only pickles that have the `augment_states` key
     pickle_paths_aug = []
@@ -1017,11 +1011,9 @@ def main():
     print("loaded num trajectories", len(pickle_paths))
 
     data_collector = DataCollectorAugmentor(
-        is_sim=args.is_sim,
         data_path=data_path,
         furniture=args.furniture,
         headless=args.headless,
-        draw_marker=args.draw_marker,
         manual_label=args.manual_label,
         resize_sim_img=False,
         scripted=args.scripted,
