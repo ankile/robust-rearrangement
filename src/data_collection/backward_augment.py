@@ -164,6 +164,7 @@ class DataCollectorAugmentor:
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
         self.augment_trajectories_paths = augment_trajectories_paths
+        self.currently_loaded_file = None
 
         self.iter_idx = 0
         self.open_idx = None
@@ -558,11 +559,7 @@ class DataCollectorAugmentor:
 
         return parts_pos, parts_quat
 
-    def load_state(
-        self,
-        # Now, we're using the `augment_states` key, which is already offset by hand
-        offset_steps: int = 0,
-    ):
+    def load_state(self):
         """
         Load the state of the environment from a one_leg trajectory
         from the currently first pickle in the resume_trajectory_paths list
@@ -570,6 +567,7 @@ class DataCollectorAugmentor:
 
         # Randomly sample a trajectory and a state
         trajectory_path = random.sample(self.augment_trajectories_paths, 1)[0]
+        self.currently_loaded_file = trajectory_path
 
         print("Loading state from:")
         print(trajectory_path)
@@ -660,7 +658,7 @@ class DataCollectorAugmentor:
         r = np.random.uniform(0.2, 0.5)
 
         # theta controls the size of the cone
-        theta = np.deg2rad(np.random.uniform(15, 75))
+        theta = np.deg2rad(np.random.uniform(5, 80))
 
         # phi controls where on the cone in the x-y plane the goal is
         phi = np.random.uniform(0, 2 * np.pi)
@@ -888,6 +886,8 @@ class DataCollectorAugmentor:
         data["skills"] = [t["skills"] for t in self.transitions][:-1]
         data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
         data["furniture"] = self.furniture
+        data["critical_state"] = self.current_critical_state
+        data["source_file"] = self.currently_loaded_file
 
         if "error" in info:
             data["error_description"] = info["error"].value
@@ -999,8 +999,8 @@ def main():
     pickle_paths = list(
         Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
     )
-    # random.shuffle(pickle_paths)
-    pickle_paths = sorted(pickle_paths)[:3]
+    random.shuffle(pickle_paths)
+    # pickle_paths = sorted(pickle_paths)[:25]
 
     # Filter out only pickles that have the `augment_states` key
     pickle_paths_aug = []

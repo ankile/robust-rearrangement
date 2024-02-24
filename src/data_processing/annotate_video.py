@@ -11,7 +11,7 @@ from src.common.tasks import task_phases
 from ipdb import set_trace as bp
 
 annotate = "success"
-task = "lamp"
+task = "one_leg"
 
 
 # 1. Load the video
@@ -65,6 +65,12 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
         if key == ord("q"):  # Press 'q' to exit
             raise SystemExit
         elif key == ord("s"):
+            # Check if the number of annotations is correct
+            if len(annotations) != n_bottleneck_states[task]:
+                print(
+                    f"Data {path_name} has {sum(data.get('augment_states', []))} annotations, expected {n_bottleneck_states[task]}"
+                )
+                continue
             # Save the annotations to a file
             # Convert the indexes to a list of 0s and 1s
             data["augment_states"] = np.zeros(total_frames)
