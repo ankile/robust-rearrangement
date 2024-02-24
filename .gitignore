@@ -109,3 +109,6 @@ venv
 # Hydra
 outputs/
 multirun/
+
+
+tmp

@@ -172,6 +172,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--action-type", type=str, default="delta", choices=["delta", "pos"]
     )
+    parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
+    parser.add_argument("--multitask", action="store_true")
     parser.add_argument("--compress-pickles", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
@@ -205,6 +207,11 @@ if __name__ == "__main__":
         headless=not args.visualize,
     )
 
+    f: str = env.furniture_name
+
+    # Summary prefix, shoprtened to spf for brevity downstream
+    spf = f"{f}/" + "" if args.multitask else ""
+
     # Start the evaluation loop
     print(f"Starting evaluation loop in continuous mode: {args.continuous_mode}")
     try:
@@ -217,15 +224,15 @@ if __name__ == "__main__":
                 # Get the top k runs
                 runs = sorted(
                     run,
-                    key=lambda run: run.summary.get("success_rate", 0),
+                    key=lambda run: run.summary.get(spf + "success_rate", 0),
                     reverse=True,
                 )[: args.eval_top_k]
 
-                # Also, evaluate the ones with the fewest rollouts first (if they have any)
-                runs = sorted(
-                    runs,
-                    key=lambda run: run.summary.get("n_rollouts", 0),
-                )
+            # Also, evaluate the ones with the fewest rollouts first (if they have any)
+            runs = sorted(
+                runs,
+                key=lambda run: run.summary.get(spf + "n_rollouts", 0),
+            )
 
             print(f"Found {len(runs)} runs to evaluate")
             for run in runs:
@@ -243,7 +250,7 @@ if __name__ == "__main__":
 
                 # Check if the run has already been evaluated
                 how_update = "overwrite"
-                if run.summary.get("success_rate", None) is not None:
+                if run.summary.get(spf + "success_rate", None) is not None:
                     if args.if_exists == "skip":
                         print(f"Run: {run.name} has already been evaluated, skipping")
                         continue
@@ -337,10 +344,8 @@ if __name__ == "__main__":
                         resume="allow",
                     )
 
-                # Set the control mode on the environment
-                # env.action_type = config.control.control_mode
-
                 # Perform the rollouts
+                print(f"Starting rollout of run: {run.name}")
                 actor.set_task(furniture2idx[args.furniture])
                 rollout_stats = calculate_success_rate(
                     actor=actor,
@@ -368,39 +373,39 @@ if __name__ == "__main__":
                 if args.wandb:
                     print("Writing to wandb...")
 
+                    s: dict = run.summary
+
                     # Set the summary fields
                     if how_update == "overwrite":
-                        run.summary["success_rate"] = success_rate
-                        run.summary["n_success"] = rollout_stats.n_success
-                        run.summary["n_rollouts"] = rollout_stats.n_rollouts
-                        run.summary["total_return"] = rollout_stats.total_return
-                        run.summary["average_return"] = (
+                        s[spf + "success_rate"] = success_rate
+                        s[spf + "n_success"] = rollout_stats.n_success
+                        s[spf + "n_rollouts"] = rollout_stats.n_rollouts
+                        s[spf + "total_return"] = rollout_stats.total_return
+                        s[spf + "average_return"] = (
                             rollout_stats.total_return / rollout_stats.n_rollouts
                         )
-                        run.summary["total_reward"] = rollout_stats.total_reward
-                        run.summary["average_reward"] = (
+                        s[spf + "total_reward"] = rollout_stats.total_reward
+                        s[spf + "average_reward"] = (
                             rollout_stats.total_reward / rollout_stats.n_rollouts
                         )
                     elif how_update == "append":
-                        run.summary["n_success"] += rollout_stats.n_success
-                        run.summary["n_rollouts"] += rollout_stats.n_rollouts
-                        run.summary["success_rate"] = (
-                            run.summary["n_success"] / run.summary["n_rollouts"]
+                        s[spf + "n_success"] += rollout_stats.n_success
+                        s[spf + "n_rollouts"] += rollout_stats.n_rollouts
+                        s[spf + "success_rate"] = (
+                            s[spf + "n_success"] / s[spf + "n_rollouts"]
                         )
 
-                        run.summary["total_return"] = (
-                            run.summary.get("total_return", 0)
-                            + rollout_stats.total_return
+                        s[spf + "total_return"] = (
+                            s.get(spf + "total_return", 0) + rollout_stats.total_return
                         )
-                        run.summary["average_return"] = (
-                            run.summary["total_return"] / run.summary["n_rollouts"]
+                        s[spf + "average_return"] = (
+                            s[spf + "total_return"] / s[spf + "n_rollouts"]
                         )
-                        run.summary["total_reward"] = (
-                            run.summary.get("total_reward", 0)
-                            + rollout_stats.total_reward
+                        s[spf + "total_reward"] = (
+                            s.get(spf + "total_reward", 0) + rollout_stats.total_reward
                         )
-                        run.summary["average_reward"] = (
-                            run.summary["total_reward"] / run.summary["n_rollouts"]
+                        s[spf + "average_reward"] = (
+                            s[spf + "total_reward"] / s[spf + "n_rollouts"]
                         )
                     else:
                         raise ValueError(f"Invalid how_update: {how_update}")
@@ -413,6 +418,11 @@ if __name__ == "__main__":
 
                 else:
                     print("Not writing to wandb")
+
+                # If we prioritize the runs with the fewest rollouts, break after the first run
+                # so that we can sort the runs according to the number of rollouts and evaluate them again
+                if args.prioritize_fewest_rollouts:
+                    break
 
             # If not in continuous mode, break
             if not args.continuous_mode:
