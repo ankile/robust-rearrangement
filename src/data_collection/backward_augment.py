@@ -186,7 +186,7 @@ class DataCollectorAugmentor:
                 # current_phase_idx -> part_ignore_idxs
                 0: {1},  # Ignore the bulb
             },
-        )[self.env.furniture_name]
+        ).get(self.env.furniture_name, {})
 
         self._reset_collector_buffer()
 
@@ -357,7 +357,7 @@ class DataCollectorAugmentor:
 
                     # For testing purposes, skip checking the bulb for now
                     if i in self.ignore_part_poses_in_check.get(
-                        self.current_critical_state, {}
+                        self.current_critical_state, set()
                     ):
                         print(
                             "Since we're doing lamp and the first phase, we're ignoring the bulb"
@@ -1000,7 +1000,7 @@ def main():
         Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
     )
     # random.shuffle(pickle_paths)
-    pickle_paths = sorted(pickle_paths)[:1]
+    pickle_paths = sorted(pickle_paths)[:3]
 
     # Filter out only pickles that have the `augment_states` key
     pickle_paths_aug = []

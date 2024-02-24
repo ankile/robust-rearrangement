@@ -11,6 +11,7 @@ from src.common.tasks import task_phases
 from ipdb import set_trace as bp
 
 annotate = "success"
+task = "lamp"
 
 
 # 1. Load the video
@@ -19,8 +20,17 @@ pkl_paths = get_raw_paths(
     demo_source="teleop",
     demo_outcome=annotate,
     randomness="low",
-    task="square_table",
+    task=task,
 )
+
+n_bottleneck_states = dict(
+    lamp=5,
+    one_leg=1,
+    round_table=3,
+    square_table=4,
+)
+
+pkl_paths = sorted(pkl_paths)
 
 for i, pkl_path in enumerate(pkl_paths, start=0):
 
@@ -31,9 +41,7 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
 
     data = unpickle_data(pkl_path)
 
-    # Check if this data has already been annotated
-    # TODO make this be adaptive
-    if ("augment_states" in data) or ("failure_idx" in data):
+    if sum(data.get("augment_states", [])) == n_bottleneck_states[task]:
         print(f"Data {path_name} has already been annotated")
         continue
 
