@@ -172,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--action-type", type=str, default="delta", choices=["delta", "pos"]
     )
+    parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--compress-pickles", action="store_true")
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
@@ -221,11 +222,11 @@ if __name__ == "__main__":
                     reverse=True,
                 )[: args.eval_top_k]
 
-                # Also, evaluate the ones with the fewest rollouts first (if they have any)
-                runs = sorted(
-                    runs,
-                    key=lambda run: run.summary.get("n_rollouts", 0),
-                )
+            # Also, evaluate the ones with the fewest rollouts first (if they have any)
+            runs = sorted(
+                runs,
+                key=lambda run: run.summary.get("n_rollouts", 0),
+            )
 
             print(f"Found {len(runs)} runs to evaluate")
             for run in runs:
@@ -413,6 +414,11 @@ if __name__ == "__main__":
 
                 else:
                     print("Not writing to wandb")
+
+                # If we prioritize the runs with the fewest rollouts, break after the first run
+                # so that we can sort the runs according to the number of rollouts and evaluate them again
+                if args.prioritize_fewest_rollouts:
+                    break
 
             # If not in continuous mode, break
             if not args.continuous_mode:
