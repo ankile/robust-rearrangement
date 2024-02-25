@@ -8,4 +8,4 @@
 #SBATCH -o wandb_output_%j.log  
 #SBATCH -e wandb_error_%j.log   
 
-python -m src.train.bc_no_rollout +experiment=image_curriculum_1 furniture=round_table wandb.name=finetune-partial-1
+python -m src.train.bc_no_rollout +experiment=image_baseline furniture=lamp obs_horizon=3 pred_horizon=16

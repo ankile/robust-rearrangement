@@ -33,4 +33,4 @@ demo_source: [teleop, rollout]
 demo_outcome: [success, partial_success]
 
 wandb:
-  project: ${furniture}-collectinfer-1
+  project: ${furniture}-curriculum-1
