@@ -158,7 +158,7 @@ def process_pickle_file(
         "parts_poses": parts_poses,
         "episode_length": len(action_delta_6d),
         "furniture": data["furniture"],
-        "success": data["success"],
+        "success": 1 if data["success"] == "partial_success" else int(data["success"]),
         "failure_idx": data.get("failure_idx", -1),
         "pickle_file": pickle_file,
     }
@@ -287,7 +287,7 @@ if __name__ == "__main__":
         "--demo-outcome",
         "-d",
         type=str,
-        choices=["success", "failure"],
+        choices=["success", "failure", "partial_success"],
         default=None,
         nargs="+",
     )

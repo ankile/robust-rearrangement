@@ -58,4 +58,4 @@ DemoSources = Literal["scripted", "rollout", "teleop", "augmentation"]
 
 Randomness = Literal["low", "med", "high"]
 
-DemoStatus = Literal["success", "failure"]
+DemoStatus = Literal["success", "failure", "partial_success"]

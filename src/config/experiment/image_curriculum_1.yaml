@@ -1,0 +1,36 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 32
+
+training:
+  batch_size: 256
+  actor_lr: 1e-5
+  load_checkpoint_run_id: round_table-collectinfer-1/runs/p2r481d1
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: ???
+randomness: [low, med]
+demo_source: [teleop, rollout]
+demo_outcome: [success, partial_success]
+
+wandb:
+  project: ${furniture}-collectinfer-1

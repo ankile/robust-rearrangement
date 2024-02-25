@@ -578,7 +578,7 @@ class DataCollectorAugmentor:
             n_critical_states = len(np.where(state["augment_states"] == 1)[0])
             self.count_per_critical_state = np.ones(n_critical_states)
 
-        print(f"Count per critical state: {self.count_per_critical_state}")
+        print(f"Count per critical state: {self.count_per_critical_state - 1}")
 
         # Calculate sampling probabilities inversely proportional to the counts
         inverse_counts = 1.0 / self.count_per_critical_state
@@ -600,9 +600,10 @@ class DataCollectorAugmentor:
         curr_gripper_action = state["actions"][aug_episode_start][-1]
         for i in range(aug_episode_start, len(state["actions"])):
             if state["actions"][i][-1] != curr_gripper_action:
-                self.check_index = (
-                    i + self.check_idx_offset
-                )  # Check 2s after opening/closing gripper
+                # Check some time after opening/closing gripper
+                self.check_index = min(
+                    i + self.check_idx_offset, len(state["actions"]) - 1
+                )
                 self.relative_check_index = self.check_index - aug_episode_start
                 break
 

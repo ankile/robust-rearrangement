@@ -11,6 +11,6 @@ training:
   start_epoch: 0
   steps_per_epoch: 400
   
-  load_checkpoint_path: null
+  load_checkpoint_run_id: null
   checkpoint_model: true
   model_save_dir: models

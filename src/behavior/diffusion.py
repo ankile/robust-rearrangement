@@ -246,11 +246,14 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
 
     def _training_obs(self, batch, flatten: bool = True):
         # Get the standard observation data
-        nobs = super()._training_obs(batch, flatten=True)
+        nobs = super()._training_obs(batch, flatten=flatten)
 
         # Get the task embedding
         task_idx: torch.Tensor = batch["task_idx"]
-        task_embedding: torch.Tensor = self.task_encoder(task_idx.squeeze())
+        task_embedding: torch.Tensor = self.task_encoder(task_idx)
+
+        if flatten:
+            task_embedding = task_embedding.flatten(start_dim=1)
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, task_embedding), dim=-1)
@@ -264,7 +267,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         assert self.current_task is not None, "Must set current task before calling"
 
         # Get the standard observation data
-        nobs = super()._normalized_obs(obs, flatten=True)
+        nobs = super()._normalized_obs(obs, flatten=flatten)
         B = nobs.shape[0]
 
         # Get the task embedding for the current task and repeat it for the batch size
