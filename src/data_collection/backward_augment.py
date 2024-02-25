@@ -578,7 +578,7 @@ class DataCollectorAugmentor:
             n_critical_states = len(np.where(state["augment_states"] == 1)[0])
             self.count_per_critical_state = np.ones(n_critical_states)
 
-        print(f"Count per critical state: {self.count_per_critical_state - 1}")
+        print(f"Count per critical state: {self.count_per_critical_state - 1 }")
 
         # Calculate sampling probabilities inversely proportional to the counts
         inverse_counts = 1.0 / self.count_per_critical_state
