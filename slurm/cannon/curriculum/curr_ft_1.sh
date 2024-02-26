@@ -8,4 +8,8 @@
 #SBATCH -o wandb_output_%j.log  
 #SBATCH -e wandb_error_%j.log   
 
-python -m src.train.bc_no_rollout +experiment=image_curriculum_1 furniture=round_table wandb.name=finetune-partial-1
+python -m src.train.bc_no_rollout \
++experiment=image_curriculum_1 \
+training.load_checkpoint_run_id=round_table-collectinfer-1/runs/p2r481d1 \
+furniture=round_table \
+wandb.name=finetune-partial-2
