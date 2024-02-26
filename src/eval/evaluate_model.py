@@ -234,7 +234,9 @@ if __name__ == "__main__":
                 key=lambda run: run.summary.get(spf + "n_rollouts", 0),
             )
 
-            print(f"Found {len(runs)} runs to evaluate")
+            print(f"Found {len(runs)} runs to evaluate:")
+            for run in runs:
+                print(f"    Run: {run.name}: {run.summary.get(spf + 'n_rollouts', 0)}, {run.summary.get(spf + 'success_rate', None)}")
             for run in runs:
                 # First, we must flush the api and request the run again in case the information is stale
                 api.flush()
