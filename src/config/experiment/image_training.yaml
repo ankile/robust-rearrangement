@@ -5,14 +5,18 @@ defaults:
 # Override the values for observation type, layernorm, and augmentation
 observation_type: image
 
-pred_horizon: 16
-obs_horizon: 2
-randomness: [low, med]
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+pred_horizon: 32
+obs_horizon: 1
+randomness: low
 
 data:
-  data_subset: 50
+  data_subset: null
   augment_image: true
-  dataloader_workers: 32
+  dataloader_workers: 16
 
 training:
   batch_size: 256
@@ -21,6 +25,11 @@ regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
+
+furniture: ???
+randomness: [low, med]
+demo_source: [teleop, rollout]
+demo_outcome: [success, partial_success]
 
 control:
   control_mode: pos

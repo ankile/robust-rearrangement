@@ -12,7 +12,7 @@ action_horizon: 8
 pred_horizon: 16
 obs_horizon: 2
 observation_type: image
-furniture: one_leg
+furniture: ???
 environment: sim
 demo_source: teleop
 randomness: low

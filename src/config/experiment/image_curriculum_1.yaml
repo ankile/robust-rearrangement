@@ -1,26 +1,9 @@
 # @package _global_
-defaults:
-  - override /vision_encoder: resnet
-
-observation_type: image
-
-vision_encoder:
-  pretrained: true
-  freeze: false
-
-action_horizon: 8
-pred_horizon: 32
-obs_horizon: 1
-
-data:
-  data_subset: null
-  augment_image: true
-  dataloader_workers: 32
+_extends_: image_training.yaml
 
 training:
-  batch_size: 256
   actor_lr: 1e-5
-  load_checkpoint_run_id: round_table-collectinfer-1/runs/p2r481d1
+  load_checkpoint_run_id: null
 
 regularization:
   feature_layernorm: false
@@ -34,3 +17,4 @@ demo_outcome: [success, partial_success]
 
 wandb:
   project: ${furniture}-curriculum-1
+  name: ???
