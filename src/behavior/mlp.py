@@ -41,7 +41,6 @@ class MLPActor(Actor):
         self.feature_dropout = config.regularization.feature_dropout
         self.feature_layernorm = config.regularization.feature_layernorm
         self.state_noise = config.regularization.get("state_noise", False)
-        self.noise_augment = config.noise_augment
 
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)
@@ -76,14 +75,13 @@ class MLPActor(Actor):
             self.encoder1_proj = nn.Identity()
             self.encoder2_proj = nn.Identity()
 
-        self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
-        self.obs_dim = self.timestep_obs_dim * self.obs_horizon
+        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
 
         self.model = MLP(
-            input_dim=self.obs_dim,
+            input_dim=self.timestep_obs_dim * self.obs_horizon,
             output_dim=self.action_dim * self.pred_horizon,
-            hidden_dims=config.actor_hidden_dims,
-            dropout=config.actor_dropout,
+            hidden_dims=actor_cfg.hidden_dims,
+            dropout=actor_cfg.dropout,
         ).to(device)
 
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
@@ -119,7 +117,7 @@ class MLPActor(Actor):
     # === Training ===
     def compute_loss(self, batch):
         # State already normalized in the dataset
-        obs_cond = self._training_obs(batch)
+        obs_cond = self._training_obs(batch, flatten=True)
 
         # Action already normalized in the dataset
         naction = batch["action"]
