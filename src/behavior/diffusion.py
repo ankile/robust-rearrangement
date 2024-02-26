@@ -9,7 +9,6 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
 from src.common.control import RotationMode
 from src.models import get_diffusion_backbone, get_encoder
-from src.models.unet import ConditionalUnet1D
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
@@ -47,8 +46,6 @@ class DiffusionPolicy(Actor):
 
         self.freeze_encoder = freeze_encoder
         self.device = device
-
-        print("Using inference steps:", self.inference_steps)
 
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
@@ -270,10 +267,13 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         nobs = super()._normalized_obs(obs, flatten=flatten)
         B = nobs.shape[0]
 
-        # Get the task embedding for the current task and repeat it for the batch size
+        # Get the task embedding for the current task and repeat it for the batch size and observation horizon
         task_embedding = self.task_encoder(
-            torch.tensor(self.current_task).to(self.device).repeat(B)
-        )
+            torch.tensor(self.current_task).to(self.device)
+        ).repeat(B, self.obs_horizon, 1)
+
+        if flatten:
+            task_embedding = task_embedding.flatten(start_dim=1)
 
         # Concatenate the task embedding to the observation
         obs_cond = torch.cat((nobs, task_embedding), dim=-1)

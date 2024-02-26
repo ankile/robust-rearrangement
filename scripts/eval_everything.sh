@@ -25,6 +25,8 @@ projects=(
     ["square_table-cherry-1"]="square_table"
 )
 
+# Define an associative array for sweeps and furniture pairs
+
 # Infinite loop
 while true; do
     # Loop through each project-furniture pair
@@ -32,7 +34,7 @@ while true; do
         furniture="${projects[$project_id]}"
 
         # Construct and execute the command
-        command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f $furniture --project-id $project_id --wandb --if-exists append --action-type pos --run-state finished --prioritize-fewest-rollout"
+        command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f $furniture --project-id $project_id --wandb --if-exists append --action-type pos --run-state finished --prioritize-fewest-rollout  --max-rollouts 100"
         echo "Executing: $command"
         
         # Execute the command; redirect output to log file and stderr to a separate file
@@ -48,7 +50,7 @@ while true; do
     done
 
      # Construct and execute the command
-    command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f round_table --sweep-id sweeps/sweeps/sw6ryrnf --wandb --if-exists append --action-type pos --prioritize-fewest-rollout"
+    command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f round_table --sweep-id sweeps/sweeps/sw6ryrnf --wandb --if-exists append --action-type pos --prioritize-fewest-rollout --max-rollouts 100"
     echo "Executing: $command"
     
     # Execute the command; redirect output to log file and stderr to a separate file
@@ -63,7 +65,7 @@ while true; do
     fi
 
      # Construct and execute the command
-    command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f square_table --sweep-id sweeps/sweeps/44hsqeuy --wandb --if-exists append --action-type pos --prioritize-fewest-rollout"
+    command="python -m src.eval.evaluate_model --n-envs 10 --n-rollouts 10 --randomness low -f square_table --sweep-id sweeps/sweeps/44hsqeuy --wandb --if-exists append --action-type pos --prioritize-fewest-rollout --max-rollouts 100"
     echo "Executing: $command"
     
     # Execute the command; redirect output to log file and stderr to a separate file

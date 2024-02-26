@@ -7,7 +7,7 @@ parameters:
   +seed:
     values: [0, 1, 2]
   data.data_subset:
-    values: [100, 500, null]
+    values: [100, 500, 1000]
   pred_horizon:
     values: [16, 32]
   obs_horizon:

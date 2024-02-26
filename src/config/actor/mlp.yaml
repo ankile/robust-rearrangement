@@ -1,0 +1,9 @@
+name: mlp
+action_horizon: ${action_horizon}
+pred_horizon: ${pred_horizon}
+obs_horizon: ${obs_horizon}
+first_action_index: 0
+
+loss_fn: MSELoss  # MSELoss | L1Loss
+
+projection_dim: 128

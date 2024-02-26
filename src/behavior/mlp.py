@@ -1,3 +1,4 @@
+from omegaconf import OmegaConf
 import torch
 import torch.nn as nn
 from typing import Union
@@ -7,6 +8,7 @@ from ipdb import set_trace as bp  # noqa
 from src.behavior.base import Actor
 from src.models.mlp import MLP
 from src.models import get_encoder
+from src.common.control import RotationMode
 from src.dataset.normalizer import Normalizer
 
 
@@ -20,30 +22,60 @@ class MLPActor(Actor):
         config,
     ) -> None:
         super().__init__()
-        self.action_dim = config.action_dim
-        self.pred_horizon = config.pred_horizon
-        self.action_horizon = config.action_horizon
+        self.device = device
+
+        actor_cfg = config.actor
+        self.obs_horizon = actor_cfg.obs_horizon
+        self.action_dim = (
+            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
+        )
+        self.pred_horizon = actor_cfg.pred_horizon
+        self.action_horizon = actor_cfg.action_horizon
+        self.observation_type = config.observation_type
 
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.obs_horizon = config.obs_horizon
-        self.observation_type = config.observation_type
+        # Regularization
+        self.feature_noise = config.regularization.feature_noise
+        self.feature_dropout = config.regularization.feature_dropout
+        self.feature_layernorm = config.regularization.feature_layernorm
+        self.state_noise = config.regularization.get("state_noise", False)
         self.noise_augment = config.noise_augment
-        self.freeze_encoder = freeze_encoder
-        self.device = device
 
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)
 
-        self.encoder1 = get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+        self.encoder1 = get_encoder(
+            encoder_name,
+            device=device,
+            **encoder_kwargs,
+        )
         self.encoder2 = (
             self.encoder1
             if freeze_encoder
-            else get_encoder(encoder_name, freeze=freeze_encoder, device=device)
+            else get_encoder(
+                encoder_name,
+                device=device,
+                **encoder_kwargs,
+            )
         )
 
-        self.encoding_dim = self.encoder1.encoding_dim + self.encoder2.encoding_dim
+        self.encoding_dim = self.encoder1.encoding_dim
+
+        if actor_cfg.get("projection_dim") is not None:
+            self.encoder1_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
+            ).to(device)
+            self.encoder2_proj = nn.Linear(
+                self.encoding_dim, actor_cfg.projection_dim
+            ).to(device)
+            self.encoding_dim = actor_cfg.projection_dim
+        else:
+            self.encoder1_proj = nn.Identity()
+            self.encoder2_proj = nn.Identity()
+
         self.timestep_obs_dim = config.robot_state_dim + self.encoding_dim
         self.obs_dim = self.timestep_obs_dim * self.obs_horizon
 
@@ -54,9 +86,8 @@ class MLPActor(Actor):
             dropout=config.actor_dropout,
         ).to(device)
 
-        self.dropout = (
-            nn.Dropout(config.actor_dropout) if config.actor_dropout else None
-        )
+        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
+        self.loss_fn = getattr(nn, loss_fn_name)()
 
     # === Inference ===
     @torch.no_grad()
@@ -98,6 +129,6 @@ class MLPActor(Actor):
             naction.shape[0], self.pred_horizon, self.action_dim
         )
 
-        loss = nn.functional.mse_loss(naction_pred, naction)
+        loss = self.loss_fn(naction_pred, naction)
 
         return loss

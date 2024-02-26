@@ -175,6 +175,7 @@ if __name__ == "__main__":
     parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--multitask", action="store_true")
     parser.add_argument("--compress-pickles", action="store_true")
+    parser.add_argument("--max-rollouts", type=int, default=None)
     parser.add_argument("--verbose", "-v", action="store_true")
     # Parse the arguments
     args = parser.parse_args()
@@ -216,6 +217,7 @@ if __name__ == "__main__":
     print(f"Starting evaluation loop in continuous mode: {args.continuous_mode}")
     try:
         while True:
+            api.flush()
             # Get the run(s) to test
             runs = get_runs(args)
 
@@ -236,7 +238,9 @@ if __name__ == "__main__":
 
             print(f"Found {len(runs)} runs to evaluate:")
             for run in runs:
-                print(f"    Run: {run.name}: {run.summary.get(spf + 'n_rollouts', 0)}, {run.summary.get(spf + 'success_rate', None)}")
+                print(
+                    f"    Run: {run.name}: {run.summary.get(spf + 'n_rollouts', 0)}, {run.summary.get(spf + 'success_rate', None)}"
+                )
             for run in runs:
                 # First, we must flush the api and request the run again in case the information is stale
                 api.flush()
@@ -249,6 +253,14 @@ if __name__ == "__main__":
                 ):
                     print(f"Run: {run.name} is currently being evaluated, skipping")
                     continue
+
+                # Check if the number of rollouts this run has is greater than the max_rollouts
+                if args.max_rollouts is not None:
+                    if run.summary.get(spf + "n_rollouts", 0) >= args.max_rollouts:
+                        print(
+                            f"Run: {run.name} has already been evaluated {run.summary.get(spf + 'n_rollouts', 0)} times, skipping"
+                        )
+                        continue
 
                 # Check if the run has already been evaluated
                 how_update = "overwrite"
