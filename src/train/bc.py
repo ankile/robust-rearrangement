@@ -33,6 +33,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from wandb_osh.hooks import TriggerWandbSyncHook
+
 trigger_sync = TriggerWandbSyncHook()
 
 logger.set_level(logger.DISABLED)
@@ -139,9 +140,16 @@ def main(config: DictConfig):
     config.timestep_obs_dim = actor.timestep_obs_dim
     OmegaConf.set_struct(config, True)
 
-    if config.training.load_checkpoint_path is not None:
-        print(f"Loading checkpoint from {config.training.load_checkpoint_path}")
-        actor.load_state_dict(torch.load(config.training.load_checkpoint_path))
+    if config.training.load_checkpoint_run_id is not None:
+        api = wandb.Api()
+        run = api.run(config.training.load_checkpoint_run_id)
+        model_path = (
+            [f for f in run.files() if f.name.endswith(".pt")][0]
+            .download(exist_ok=True)
+            .name
+        )
+        print(f"Loading checkpoint from {config.training.load_checkpoint_run_id}")
+        actor.load_state_dict(torch.load(model_path))
 
     # Create dataloaders
     trainloader = FixedStepsDataloader(

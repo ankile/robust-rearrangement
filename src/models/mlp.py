@@ -2,7 +2,7 @@ import torch.nn as nn
 
 
 class MLP(nn.Module):
-    """A simple MLP with a single hidden layer."""
+    """A simple MLP."""
 
     def __init__(self, input_dim, hidden_dims, output_dim, dropout=0.0):
         super().__init__()
