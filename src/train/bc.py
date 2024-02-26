@@ -32,6 +32,9 @@ from gym import logger
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from wandb_osh.hooks import TriggerWandbSyncHook
+trigger_sync = TriggerWandbSyncHook()
+
 logger.set_level(logger.DISABLED)
 
 
@@ -360,6 +363,7 @@ def main(config: DictConfig):
                 best_success_rate,
                 epoch_idx,
             )
+        trigger_sync()
 
     tglobal.close()
     wandb.finish()
