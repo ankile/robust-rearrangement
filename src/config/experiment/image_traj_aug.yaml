@@ -15,7 +15,7 @@ obs_horizon: 1
 data:
   data_subset: null
   augment_image: true
-  dataloader_workers: 32
+  dataloader_workers: 16
   pad_after: false
 
 training:

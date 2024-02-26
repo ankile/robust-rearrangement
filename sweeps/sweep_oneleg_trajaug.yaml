@@ -1,0 +1,30 @@
+program: src/train/bc_no_rollout.py
+entity: robot-rearrangement
+project: sweeps
+name: oneleg-trajaug-sweep
+method: random
+parameters:
+  +seed:
+    values: [0, 1, 2]
+  data.data_subset:
+    values: [100, 500, null]
+  pred_horizon:
+    values: [16, 32]
+  obs_horizon:
+    values: [1, 2]
+  vision_encoder:
+    values: [resnet, dino]
+  actor/diffusion_model:
+    values: [unet, transformer]
+  data.pad_after:
+    values: [true, false]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - +experiment=image_traj_aug
+  - furniture=one_leg
+  - training.batch_size=128
+  - ${args_no_hyphens}
+
