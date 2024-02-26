@@ -1,5 +1,6 @@
 # @package _global_
-_extends_: image_training.yaml
+defaults:
+  - image_training
 
 training:
   actor_lr: 1e-5

@@ -296,6 +296,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--randomize-order", action="store_true")
     parser.add_argument("--random-seed", type=int, default=0)
+    parser.add_argument("--n-cpus", type=int, default=1)
     args = parser.parse_args()
 
     pickle_paths: List[Path] = sorted(
@@ -336,8 +337,7 @@ if __name__ == "__main__":
     # Process all pickle files
     chunksize = 1_000
     noop_threshold = 0.0
-    # n_cpus = min(os.cpu_count(), 64)
-    n_cpus = 1
+    n_cpus = min(os.cpu_count(), args.n_cpus)
 
     print(
         f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"

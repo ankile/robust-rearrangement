@@ -50,7 +50,7 @@ def rollout(
         # Before we start, let the environment settle by doing nothing for 1 second
         print("TODO: Fix noops for position actions NBNB")
         for _ in range(50):
-            obs = env.step_noop()
+            obs, reward, done, _ = env.step_noop()
 
     # Resize the images in the observation
     obs["color_image1"] = resize(obs["color_image1"])

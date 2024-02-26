@@ -26,10 +26,5 @@ regularization:
   feature_noise: false
   feature_dropout: false
 
-furniture: ???
-randomness: [low, med]
-demo_source: [teleop, rollout]
-demo_outcome: [success, partial_success]
-
 control:
   control_mode: pos
