@@ -30,7 +30,10 @@ from gym import logger
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+OmegaConf.register_new_resolver("eval", eval)
+
 from wandb_osh.hooks import TriggerWandbSyncHook
+
 trigger_sync = TriggerWandbSyncHook()
 
 logger.set_level(logger.DISABLED)
@@ -137,6 +140,7 @@ def main(config: DictConfig):
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.n_episodes = len(dataset.episode_ends)
+    config.n_samples = len(dataset)
     # Update the config object with the observation dimension
     config.timestep_obs_dim = actor.timestep_obs_dim
     OmegaConf.set_struct(config, True)
@@ -214,9 +218,9 @@ def main(config: DictConfig):
     # save stats to wandb and update the config object
     wandb.log(
         {
-            "num_samples": len(train_dataset),
+            "num_samples_train": len(train_dataset),
             "num_samples_test": len(test_dataset),
-            "num_episodes": int(
+            "num_episodes_train": int(
                 len(dataset.episode_ends) * (1 - config.data.test_split)
             ),
             "num_episodes_test": int(
