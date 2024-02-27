@@ -24,16 +24,16 @@ projects=(
     # ["lamp-trajaug_infer-1"]="lamp"
     # ["lamp-cherry-1"]="lamp"
     
-    # # square_table
-    # ["square_table-baseline-1"]="square_table"
-    # ["square_table-trajaug-1"]="square_table"
-    # ["square_table-collectinfer-1"]="square_table"
-    # ["square_table-trajaug_infer-1"]="square_table"
-    # ["square_table-cherry-1"]="square_table"
+    # square_table
+    ["square_table-baseline-1"]="square_table"
+    ["square_table-trajaug-1"]="square_table"
+    ["square_table-collectinfer-1"]="square_table"
+    ["square_table-trajaug_infer-1"]="square_table"
+    ["square_table-cherry-1"]="square_table"
     
-    # MLP
-    ["one_leg-mlp-10M-baseline-1"]="one_leg"
-    ["round_table-mlp-10M-baseline-1"]="round_table"
+    # # MLP
+    # ["one_leg-mlp-10M-baseline-1"]="one_leg"
+    # ["round_table-mlp-10M-baseline-1"]="round_table"
 )
 
 # Define an associative array for sweeps and furniture pairs

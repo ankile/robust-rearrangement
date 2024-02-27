@@ -97,7 +97,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         normalizer = normalizer.cpu()
 
         # Read from zarr dataset
-        combined_data = combine_zarr_datasets(
+        combined_data, metadata = combine_zarr_datasets(
             dataset_paths,
             [
                 "color_image1",
@@ -112,7 +112,12 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # (N, D)
         # Get only the first data_subset episodes
         self.episode_ends = combined_data["episode_ends"]
-        print(f"Loading dataset of {len(self.episode_ends)} episodes")
+        self.metadata = metadata
+        print(f"Loading dataset of {len(self.episode_ends)} episodes:")
+        for path, data in metadata.items():
+            print(
+                f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
+            )
 
         self.train_data = {
             "color_image1": combined_data["color_image1"],

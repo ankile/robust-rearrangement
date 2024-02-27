@@ -396,3 +396,4 @@ if __name__ == "__main__":
     z.attrs["calculated_pos_action_from_delta"] = args.calculate_pos_action_from_delta
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
+    z.attrs["demo_source"] = args.source[0]

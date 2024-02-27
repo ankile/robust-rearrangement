@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Union
+from typing import List, Tuple, Union
 
 import numpy as np
 import zarr
@@ -35,7 +35,9 @@ class ZarrSubsetView:
         return [(key, self.zarr_group[key]) for key in self.observation_keys()]
 
 
-def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=None):
+def combine_zarr_datasets(
+    zarr_paths: Union[List[str], str], keys, max_episodes=None
+) -> Tuple[dict, dict]:
     """
     Combine multiple zarr datasets into a single dataset.
 
@@ -56,11 +58,24 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
     total_frames = 0
     total_episodes = 0
 
+    metadata = {}
+
     # First pass to calculate total shapes
     for path in zarr_paths:
         dataset = zarr.open(path, mode="r")
-        total_frames += dataset["episode_ends"][:max_episodes][-1]
-        total_episodes += len(dataset["episode_ends"][:max_episodes])
+        n_frames_in_dataset = dataset["episode_ends"][:max_episodes][-1]
+        n_ep_in_dataset = len(dataset["episode_ends"][:max_episodes])
+
+        # Add the metadata
+        metadata[str(path)] = {
+            "n_episodes_used": n_ep_in_dataset,
+            "n_frames_used": n_frames_in_dataset,
+            "attrs": dataset.attrs.asdict(),
+        }
+
+        # Add the counts to the totals
+        total_frames += n_frames_in_dataset
+        total_episodes += n_ep_in_dataset
 
     combined_data = {
         "episode_ends": np.zeros(total_episodes, dtype=np.int64),
@@ -107,7 +122,7 @@ def combine_zarr_datasets(zarr_paths: Union[List[str], str], keys, max_episodes=
         last_episode_end += end_idxs[-1]
         n_episodes += len(end_idxs)
 
-    return combined_data
+    return combined_data, metadata
 
 
 if __name__ == "__main__":

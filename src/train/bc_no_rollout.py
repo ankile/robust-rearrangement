@@ -105,6 +105,7 @@ def main(config: DictConfig):
             pad_after=config.data.get("pad_after", True),
         )
     elif config.observation_type == "feature":
+        raise ValueError("Feature observation type is not supported")
         dataset = FurnitureFeatureDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
@@ -226,6 +227,7 @@ def main(config: DictConfig):
             "num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
+            "dataset_metadata": dataset.metadata,
         }
     )
 
