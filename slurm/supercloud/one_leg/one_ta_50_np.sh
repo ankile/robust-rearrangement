@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -p xeon-g6-volta
-#SBATCH -t 0-15:00
+#SBATCH -t 0-20:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH -c 20
 #SBATCH -o wandb_output_%j.log
@@ -19,6 +19,10 @@ export WANDB_ENTITY="robot-rearrangement"
 alias aws='/home/gridsan/asimeono/aws-cli/v2/current/bin/aws'
 cd ~/repos/research/furniture-diffusion
 
-# Run (default - with chunking)
-# python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=one_leg data.dataloader_workers=20 
-python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=round_table data.dataloader_workers=20 
+# Launch the run
+python -m src.train.bc_no_rollout \
+    +experiment=image_traj_aug \
+    furniture=one_leg \
+    data.data_subset=50 \
+    data.dataloader_workers=20 \
+    data.pad_after=false
