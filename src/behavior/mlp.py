@@ -82,6 +82,7 @@ class MLPActor(Actor):
             output_dim=self.action_dim * self.pred_horizon,
             hidden_dims=actor_cfg.hidden_dims,
             dropout=actor_cfg.dropout,
+            residual=actor_cfg.residual
         ).to(device)
 
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
