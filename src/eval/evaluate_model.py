@@ -288,7 +288,11 @@ if __name__ == "__main__":
                     run.update()
 
                 model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
-                model_path = model_file.download(exist_ok=True).name
+                model_path = model_file.download(
+                    root=f"./models/{run.name}", exist_ok=True, replace=True
+                ).name
+
+                print(f"Model path: {model_path}")
 
                 # Get the current `test_epoch_loss` from the run
                 test_epoch_loss = run.summary.get("test_epoch_loss", None)
