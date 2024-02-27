@@ -17,7 +17,7 @@ furniture: ???
 demo_source: teleop
 
 actor:
-  hidden_dims: ${eval:[1024] * 5}
+  hidden_dims: [1024, 1024, 1024, 1024, 1024]
   residual: true
 
 data:
