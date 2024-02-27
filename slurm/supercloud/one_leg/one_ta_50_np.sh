@@ -25,4 +25,6 @@ python -m src.train.bc_no_rollout \
     furniture=one_leg \
     data.data_subset=50 \
     data.dataloader_workers=20 \
-    data.pad_after=false
+    data.pad_after=false \
+    wandb.mode=offline
+
