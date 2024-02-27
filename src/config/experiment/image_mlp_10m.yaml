@@ -37,4 +37,4 @@ control:
   control_mode: pos
 
 wandb:
-  project: mlp-10M-baseline-1
+  project: ${furniture}-mlp-10M-baseline-1
