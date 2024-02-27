@@ -2,6 +2,7 @@
 defaults:
   - override /vision_encoder: resnet
   - override /multitask: multitask
+  - override /actor/diffusion_model: unet
 
 observation_type: image
 
