@@ -394,3 +394,5 @@ if __name__ == "__main__":
     z.attrs["n_episodes"] = len(z["episode_ends"])
     z.attrs["n_timesteps"] = len(z["action/delta"])
     z.attrs["calculated_pos_action_from_delta"] = args.calculate_pos_action_from_delta
+    z.attrs["randomize_order"] = args.randomize_order
+    z.attrs["random_seed"] = args.random_seed
