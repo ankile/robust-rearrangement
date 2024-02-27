@@ -13,7 +13,7 @@ pred_horizon: 32
 obs_horizon: 1
 
 data:
-  data_subset: null
+  data_subset: 50
   augment_image: true
   dataloader_workers: 32
 
