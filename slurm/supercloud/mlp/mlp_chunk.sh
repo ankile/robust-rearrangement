@@ -20,5 +20,5 @@ alias aws='/home/gridsan/asimeono/aws-cli/v2/current/bin/aws'
 cd ~/repos/research/furniture-diffusion
 
 # Run (default - with chunking)
-# python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=one_leg data.dataloader_workers=20 
-python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=round_table data.dataloader_workers=20 
+python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=one_leg data.dataloader_workers=20 
+# python -m src.train.bc_no_rollout +experiment=image_mlp_10m wandb.mode=offline furniture=round_table data.dataloader_workers=20 
