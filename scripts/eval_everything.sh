@@ -3,26 +3,27 @@
 # Define associative array for project and furniture pairs
 declare -A projects
 projects=(
-    # # one_leg
-    # ["one_leg-baseline-1"]="one_leg"
+    # one_leg
+    ["one_leg-baseline-1"]="one_leg"
     # ["one_leg-trajaug-1"]="one_leg"
-    # ["one_leg-collectinfer-1"]="one_leg"
-    # ["one_leg-trajaug_infer-1"]="one_leg"
-    # ["one_leg-cherry-1"]="one_leg"
+    ["one_leg-trajaug-ratio-1"]="one_leg"
+    ["one_leg-collectinfer-1"]="one_leg"
+    ["one_leg-trajaug_infer-1"]="one_leg"
+    ["one_leg-cherry-1"]="one_leg"
     
-    # # round_table
-    # ["round_table-baseline-1"]="round_table"
-    # ["round_table-trajaug-1"]="round_table"
-    # ["round_table-collectinfer-1"]="round_table"
-    # ["round_table-trajaug_infer-1"]="round_table"
-    # ["round_table-cherry-1"]="round_table"
+    # round_table
+    ["round_table-baseline-1"]="round_table"
+    ["round_table-trajaug-1"]="round_table"
+    ["round_table-collectinfer-1"]="round_table"
+    ["round_table-trajaug_infer-1"]="round_table"
+    ["round_table-cherry-1"]="round_table"
     
-    # # lamp
-    # ["lamp-baseline-1"]="lamp"
-    # ["lamp-trajaug-1"]="lamp"
-    # ["lamp-collectinfer-1"]="lamp"
-    # ["lamp-trajaug_infer-1"]="lamp"
-    # ["lamp-cherry-1"]="lamp"
+    # lamp
+    ["lamp-baseline-1"]="lamp"
+    ["lamp-trajaug-1"]="lamp"
+    ["lamp-collectinfer-1"]="lamp"
+    ["lamp-trajaug_infer-1"]="lamp"
+    ["lamp-cherry-1"]="lamp"
     
     # square_table
     ["square_table-baseline-1"]="square_table"
@@ -31,9 +32,14 @@ projects=(
     ["square_table-trajaug_infer-1"]="square_table"
     ["square_table-cherry-1"]="square_table"
     
-    # # MLP
-    # ["one_leg-mlp-10M-baseline-1"]="one_leg"
-    # ["round_table-mlp-10M-baseline-1"]="round_table"
+    # Curriculum
+    ["round_table-curriculum-1"]="round_table"
+
+    # MLP
+    ["one_leg-mlp-10M-baseline-1"]="one_leg"
+    ["round_table-mlp-10M-baseline-1"]="round_table"
+    ["lamp-mlp-10M-baseline-1"]="lamp"
+    ["square_table-mlp-10M-baseline-1"]="square_table"
 )
 
 # Define an associative array for sweeps and furniture pairs
