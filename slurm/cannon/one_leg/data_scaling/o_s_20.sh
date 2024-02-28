@@ -14,5 +14,4 @@ python -m src.train.bc_no_rollout \
     furniture=one_leg \
     data.dataloader_workers=20 \
     data.data_subset=16 \
-    wandb.project=one_leg-data-scaling-1 \
-    wandb.mode=offline
+    wandb.project=one_leg-data-scaling-1

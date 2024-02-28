@@ -9,10 +9,7 @@
 #SBATCH -e wandb_error_%j.log
 
 # Run (default - with chunking)
-# furniture=one_leg \
-# furniture=round_table \
-# furniture=square_table \
 python -m src.train.bc_no_rollout \
     +experiment=image_mlp_10m \
-    furniture=square_table \
+    furniture=one_leg \
     data.dataloader_workers=16 
