@@ -10,6 +10,6 @@
 
 # data.data_subset=200 \
 python -m src.train.bc_no_rollout \
-    +experiment=image_multitask \
+    +experiment=image_multitask_unet_big \
     training.num_epochs=1000 \
     wandb.project=multitask-everything-1

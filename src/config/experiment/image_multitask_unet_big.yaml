@@ -1,0 +1,35 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+  - override /multitask: multitask
+  - override /actor/diffusion_model: unet_big
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 32
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: [square_table, lamp, round_table]
+randomness: low
+demo_source: [teleop, rollout, augmentation]
+
+wandb:
+  project: multitask-baseline-1
