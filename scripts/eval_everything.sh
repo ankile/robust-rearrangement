@@ -32,14 +32,18 @@ projects=(
     ["square_table-trajaug_infer-1"]="square_table"
     ["square_table-cherry-1"]="square_table"
     
-    # Curriculum
-    ["round_table-curriculum-1"]="round_table"
+    # # Curriculum
+    # ["round_table-curriculum-1"]="round_table"
 
     # MLP
     ["one_leg-mlp-10M-baseline-1"]="one_leg"
     ["round_table-mlp-10M-baseline-1"]="round_table"
     ["lamp-mlp-10M-baseline-1"]="lamp"
     ["square_table-mlp-10M-baseline-1"]="square_table"
+
+    # Scaling analysis
+    ["one_leg-data-scaling-1"]="one_leg"
+    
 )
 
 # Define an associative array for sweeps and furniture pairs
