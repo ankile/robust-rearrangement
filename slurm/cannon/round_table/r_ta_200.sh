@@ -13,4 +13,4 @@ python -m src.train.bc_no_rollout \
     furniture=round_table \
     data.dataloader_workers=16 \
     data.pad_after=False \
-    data.data_subset=100
+    data.data_subset=200
