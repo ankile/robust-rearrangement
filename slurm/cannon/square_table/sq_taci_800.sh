@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p gpu
-#SBATCH -t 2-00:00
+#SBATCH -t 3-00:00
 #SBATCH --mem=256G
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
@@ -9,8 +9,7 @@
 #SBATCH -e wandb_error_%j.log
 
 python -m src.train.bc_no_rollout \
-    +experiment=image_traj_aug \
-    furniture=square_table \
-    data.dataloader_workers=16 \
+    +experiment=image_traj_aug_infer \
+    data.data_subset=800 \
     data.pad_after=True \
-    data.data_subset=400
+    furniture=square_table

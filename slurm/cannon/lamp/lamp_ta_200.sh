@@ -12,5 +12,5 @@ python -m src.train.bc_no_rollout \
     +experiment=image_traj_aug \
     furniture=lamp \
     data.dataloader_workers=16 \
-    data.pad_after=True \
+    data.pad_after=False \
     data.data_subset=200

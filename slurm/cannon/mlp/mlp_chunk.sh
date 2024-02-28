@@ -14,5 +14,5 @@
 # furniture=square_table \
 python -m src.train.bc_no_rollout \
     +experiment=image_mlp_10m \
-    furniture=lamp \
+    furniture=square_table \
     data.dataloader_workers=16 
