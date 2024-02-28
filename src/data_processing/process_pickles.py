@@ -299,6 +299,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-cpus", type=int, default=1)
     args = parser.parse_args()
 
+    print("NBNB: IMplemented hack for balancing lamp demos")
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
             environment=args.env,
@@ -306,6 +307,7 @@ if __name__ == "__main__":
             demo_source=args.source,
             randomness=args.randomness,
             demo_outcome=args.demo_outcome,
+            # demo_outcome="balanced",
         )
     )
 
@@ -397,3 +399,4 @@ if __name__ == "__main__":
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
     z.attrs["demo_source"] = args.source[0]
+    # z.attrs["balanced"] = True

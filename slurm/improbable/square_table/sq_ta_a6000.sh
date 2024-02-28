@@ -11,4 +11,9 @@
 
 source /data/scratch/ankile/.config/.slurm.env
 
-python -m src.train.bc_no_rollout +experiment=image_baseline furniture=square_table data.dataloader_workers=32
+python -m src.train.bc_no_rollout \
+    +experiment=image_traj_aug \
+    furniture=square_table \
+    data.dataloader_workers=32 \
+    data.pad_after=True \
+    data.data_subset=250

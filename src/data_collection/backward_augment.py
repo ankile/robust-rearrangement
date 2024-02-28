@@ -1008,6 +1008,7 @@ def main():
     for p in tqdm(pickle_paths, desc="Filtering pickles"):
         if "augment_states" in unpickle_data(p).keys():
             pickle_paths_aug.append(p)
+            break
 
     print("loaded num trajectories", len(pickle_paths))
 

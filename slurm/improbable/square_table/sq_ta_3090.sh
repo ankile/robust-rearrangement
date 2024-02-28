@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000
+#SBATCH -p vision-pulkitag-3090
 #SBATCH -q vision-pulkitag-main
 #SBATCH -t 1-08:00
 #SBATCH --mem=128G
@@ -11,4 +11,9 @@
 
 source /data/scratch/ankile/.config/.slurm.env
 
-python -m src.train.bc_no_rollout +experiment=image_baseline furniture=square_table data.dataloader_workers=32
+python -m src.train.bc_no_rollout \
+    +experiment=image_traj_aug \
+    furniture=square_table \
+    data.dataloader_workers=16 \
+    data.pad_after=True \
+    data.data_subset=250
