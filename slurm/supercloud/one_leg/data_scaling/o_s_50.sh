@@ -21,9 +21,9 @@ cd ~/repos/research/furniture-diffusion
 
 # Launch the run
 python -m src.train.bc_no_rollout \
-    +experiment=image_baseline \
+    +experiment=image_collect_infer \
     furniture=one_leg \
     data.dataloader_workers=20 \
-    data.data_subset=50 \
+    data.data_subset=25 \
     wandb.project=one_leg-data-scaling-1 \
     wandb.mode=offline
