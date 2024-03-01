@@ -2,17 +2,17 @@
 
 #SBATCH -p gpu
 #SBATCH -t 1-00:00
-#SBATCH --mem=256G
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
 #SBATCH -o wandb_output_%j.log
 #SBATCH -e wandb_error_%j.log
 
-
 # Launch the run
 python -m src.train.bc_no_rollout \
-    +experiment=image_collect_infer \
+    +experiment=image_traj_aug \
     furniture=one_leg \
+    data.data_subset=100 \
     data.dataloader_workers=16 \
-    data.data_subset=150 \
-    wandb.project=one_leg-data-scaling-1
+    data.pad_after=true \
+    wandb.mode=offline

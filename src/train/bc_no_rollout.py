@@ -72,7 +72,7 @@ def main(config: DictConfig):
     set_dryrun_params(config)
     OmegaConf.resolve(config)
     print(OmegaConf.to_yaml(config))
-    env = None
+
     device = torch.device(
         f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )

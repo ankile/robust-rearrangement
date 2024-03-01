@@ -8,4 +8,8 @@
 #SBATCH -o wandb_output_%j.log  
 #SBATCH -e wandb_error_%j.log   
 
-python -m src.train.bc_no_rollout +experiment=image_traj_aug_infer furniture=round_table data.dataloader_workers=16
+python -m src.train.bc_no_rollout \
+    +experiment=image_traj_aug_infer \
+    furniture=round_table \
+    data.data_subset=400 \
+    data.dataloader_workers=16
