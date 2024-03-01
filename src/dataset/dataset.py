@@ -88,6 +88,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,
+        max_episode_count: Union[dict, None] = None,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -107,6 +108,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 "skill",
             ],
             max_episodes=data_subset,
+            max_ep_cnt=max_episode_count,
         )
 
         # (N, D)

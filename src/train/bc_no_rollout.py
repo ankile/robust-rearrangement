@@ -103,6 +103,7 @@ def main(config: DictConfig):
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
+            max_episode_count=config.data.get("max_episode_count", None),
         )
     elif config.observation_type == "feature":
         raise ValueError("Feature observation type is not supported")

@@ -35,8 +35,18 @@ class ZarrSubsetView:
         return [(key, self.zarr_group[key]) for key in self.observation_keys()]
 
 
+def dataset_tuple(path: Path) -> Tuple[str, str, str, str]:
+    """
+    Extract the furniture, source, randomness, and outcome from a zarr path.
+    """
+    return path.with_name(path.stem).parts[-4:]
+
+
 def combine_zarr_datasets(
-    zarr_paths: Union[List[str], str], keys, max_episodes=None
+    zarr_paths: Union[List[Path], Path],
+    keys,
+    max_episodes=None,
+    max_ep_cnt=None,
 ) -> Tuple[dict, dict]:
     """
     Combine multiple zarr datasets into a single dataset.
@@ -49,7 +59,7 @@ def combine_zarr_datasets(
     These are all of the same length, i.e., the number of episodes.
     """
 
-    if isinstance(zarr_paths, str):
+    if not isinstance(zarr_paths, list):
         zarr_paths = [zarr_paths]
 
     last_episode_end = 0
@@ -62,12 +72,20 @@ def combine_zarr_datasets(
 
     # First pass to calculate total shapes
     for path in zarr_paths:
+        # [F]urniture, [S]ource, [R]andomness, [O]utcome
+        f, s, r, o = dataset_tuple(path)
         dataset = zarr.open(path, mode="r")
-        n_frames_in_dataset = dataset["episode_ends"][:max_episodes][-1]
-        n_ep_in_dataset = len(dataset["episode_ends"][:max_episodes])
+
+        if max_ep_cnt is not None:
+            max_ep = max_ep_cnt.get(f, {}).get(s, {}).get(r, {}).get(o, max_episodes)
+        else:
+            max_ep = max_episodes
+
+        n_frames_in_dataset = dataset["episode_ends"][:max_ep][-1]
+        n_ep_in_dataset = len(dataset["episode_ends"][:max_ep])
 
         # Add the metadata
-        metadata[str(path)] = {
+        metadata[dataset_tuple(path)] = {
             "n_episodes_used": n_ep_in_dataset,
             "n_frames_used": n_frames_in_dataset,
             "attrs": dataset.attrs.asdict(),
@@ -89,6 +107,8 @@ def combine_zarr_datasets(
 
     for path in tqdm(zarr_paths, desc="Loading zarr files"):
         dataset = zarr.open(path, mode="r")
+        # Get the max_episodes for this dataset
+        max_episodes = metadata[dataset_tuple(path)]["n_episodes_used"]
         end_idxs = dataset["episode_ends"][:max_episodes]
 
         # Add the frame-based data

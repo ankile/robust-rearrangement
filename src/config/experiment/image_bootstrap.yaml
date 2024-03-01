@@ -13,9 +13,22 @@ pred_horizon: 32
 obs_horizon: 1
   
 data:
-  data_subset: null
   augment_image: true
   dataloader_workers: 32
+  
+  data_subset: null
+
+  max_episode_count:
+    one_leg:
+      teleop:
+        low:
+          success: 10
+      rollout:
+        low:
+          success: 90
+      augmentation:
+        low:
+          success: 100
 
 training:
   batch_size: 256
@@ -27,7 +40,7 @@ regularization:
 
 furniture: ???
 randomness: low
-demo_source: teleop
+demo_source: [teleop, rollout, augmentation]
 
 wandb:
-  project: ${furniture}-baseline-1
+  project: ${furniture}-bootstrap-1
