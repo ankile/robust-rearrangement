@@ -1,0 +1,27 @@
+# @package _global_
+defaults:
+  - image_training
+
+training:
+  actor_lr: 1e-4
+  load_checkpoint_run_id: null
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+data:
+  data_subset: 200
+  augment_image: true
+  dataloader_workers: 16
+  pad_after: false
+
+furniture: ???
+randomness: [low, med]
+demo_source: [teleop, rollout, augmentation]
+demo_outcome: [success, partial_success]
+
+wandb:
+  project: ${furniture}-curriculum-1
+  name: ???

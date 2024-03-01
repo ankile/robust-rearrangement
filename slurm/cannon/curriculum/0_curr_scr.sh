@@ -9,9 +9,9 @@
 #SBATCH -e wandb_error_%j.log
 
 python -m src.train.bc_no_rollout \
-+experiment=image_curriculum_1 \
-training.load_checkpoint_run_id=null \
-furniture=round_table \
-randomness=low \
-demo_outcome=success \
-wandb.name=scratch-initial-1
+    +experiment=image_curriculum_1 \
+    training.load_checkpoint_run_id=null \
+    furniture=round_table \
+    randomness=low \
+    demo_outcome=success \
+    wandb.name=scratch-initial-1

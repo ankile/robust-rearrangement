@@ -9,8 +9,7 @@
 #SBATCH -e wandb_error_%j.log   
 
 python -m src.train.bc_no_rollout \
-    +experiment=image_curriculum_2 \
+    +experiment=image_curriculum_1 \
     training.load_checkpoint_run_id=null \
-    training.actor_lr=1e-4 \
     furniture=round_table \
-    wandb.name=scratch-partial-2
+    wandb.name=scratch-partial-1

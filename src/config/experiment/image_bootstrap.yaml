@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+  
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 32
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: ???
+randomness: low
+demo_source: teleop
+
+wandb:
+  project: ${furniture}-baseline-1
