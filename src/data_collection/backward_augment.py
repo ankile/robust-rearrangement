@@ -976,6 +976,10 @@ def main():
         choices=["osc", "diffik"],
         default="osc",
     )
+    parser.add_argument(
+        "--no-filter-pickles",
+        action="store_true",
+    )
 
     parser.add_argument(
         "--no-ee-laser",
@@ -1004,11 +1008,11 @@ def main():
     # pickle_paths = sorted(pickle_paths)[:25]
 
     # Filter out only pickles that have the `augment_states` key
-    pickle_paths_aug = []
-    for p in tqdm(pickle_paths, desc="Filtering pickles"):
-        if "augment_states" in unpickle_data(p).keys():
-            pickle_paths_aug.append(p)
-            break
+    pickle_paths_aug = [
+        p
+        for p in tqdm(pickle_paths, desc="Filtering pickles")
+        if args.no_filter_pickles or "augment_states" in unpickle_data(p).keys()
+    ]
 
     print("loaded num trajectories", len(pickle_paths))
 

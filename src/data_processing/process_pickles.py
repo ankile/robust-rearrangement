@@ -94,7 +94,7 @@ def process_pickle_file(
         action_delta_quat = action_delta
         action_delta_6d = np_action_quat_to_6d_rotation(action_delta_quat)
     elif action_delta.shape[-1] == 10:
-        raise Exception("This was unexpected")
+        raise Exception("Expecting 8D actions, not 10D actions.")
         action_delta_6d = action_delta
         action_delta_quat = np_action_6d_to_quat(action_delta_6d)
     else:
@@ -160,6 +160,7 @@ def process_pickle_file(
         "furniture": data["furniture"],
         "success": 1 if data["success"] == "partial_success" else int(data["success"]),
         "failure_idx": data.get("failure_idx", -1),
+        "critical_state_idx": data.get("critical_state", -1),
         "pickle_file": pickle_file,
     }
 
@@ -189,6 +190,7 @@ def parallel_process_pickle_files(
         "furniture": [],
         "success": [],
         "failure_idx": [],  # This will be -1 if no failure
+        "critical_state_idx": [],  # This will be -1 if not augmentation trajectory or no label
         "pickle_file": [],
     }
 
@@ -299,7 +301,6 @@ if __name__ == "__main__":
     parser.add_argument("--n-cpus", type=int, default=1)
     args = parser.parse_args()
 
-    print("NBNB: IMplemented hack for balancing lamp demos")
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
             environment=args.env,
@@ -307,6 +308,7 @@ if __name__ == "__main__":
             demo_source=args.source,
             randomness=args.randomness,
             demo_outcome=args.demo_outcome,
+            # print("NBNB: IMplemented hack for balancing lamp demos")
             # demo_outcome="balanced",
         )
     )
@@ -368,6 +370,7 @@ if __name__ == "__main__":
         ("furniture", (len(all_data["furniture"]),), str),
         ("success", (len(all_data["success"]),), np.uint8),
         ("failure_idx", (len(all_data["failure_idx"]),), np.int32),
+        ("critical_state_idx", (len(all_data["critical_state_idx"]),), np.int32),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 
@@ -395,6 +398,9 @@ if __name__ == "__main__":
     z.attrs["rotation_mode"] = "rot_6d"
     z.attrs["n_episodes"] = len(z["episode_ends"])
     z.attrs["n_timesteps"] = len(z["action/delta"])
+    z.attrs["mean_episode_length"] = round(
+        len(z["action/delta"]) / len(z["episode_ends"])
+    )
     z.attrs["calculated_pos_action_from_delta"] = args.calculate_pos_action_from_delta
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
