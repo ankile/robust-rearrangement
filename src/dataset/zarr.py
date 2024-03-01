@@ -85,7 +85,7 @@ def combine_zarr_datasets(
         n_ep_in_dataset = len(dataset["episode_ends"][:max_ep])
 
         # Add the metadata
-        metadata[dataset_tuple(path)] = {
+        metadata[str(dataset_tuple(path))] = {
             "n_episodes_used": n_ep_in_dataset,
             "n_frames_used": n_frames_in_dataset,
             "attrs": dataset.attrs.asdict(),
@@ -108,7 +108,7 @@ def combine_zarr_datasets(
     for path in tqdm(zarr_paths, desc="Loading zarr files"):
         dataset = zarr.open(path, mode="r")
         # Get the max_episodes for this dataset
-        max_episodes = metadata[dataset_tuple(path)]["n_episodes_used"]
+        max_episodes = metadata[str(dataset_tuple(path))]["n_episodes_used"]
         end_idxs = dataset["episode_ends"][:max_episodes]
 
         # Add the frame-based data

@@ -1,12 +1,16 @@
 #!/bin/bash
 
-#SBATCH -p gpu
-#SBATCH -t 1-00:00
-#SBATCH --mem=256G
-#SBATCH --gres=gpu:1
-#SBATCH -c 16
-#SBATCH -o wandb_output_%j.log
+#SBATCH -p vision-pulkitag-a6000
+#SBATCH -q vision-pulkitag-main
+#SBATCH -t 1-16:00
+#SBATCH --mem=120G            
+#SBATCH --gres=gpu:1          
+#SBATCH -c 32
+#SBATCH -o wandb_output_%j.log  
 #SBATCH -e wandb_error_%j.log
+
+source /data/scratch/ankile/.config/.slurm.env
+
 
 python -m src.train.bc_no_rollout \
     +experiment=image_curriculum_3 \
@@ -14,5 +18,4 @@ python -m src.train.bc_no_rollout \
     training.actor_lr=1e-5 \
     furniture=round_table \
     data.dataloader_workers=16 \
-    demo_source='[teleop, rollout]' \
-    wandb.name=finetune-partial-noaug-3
+    wandb.name=finetune-partial-3
