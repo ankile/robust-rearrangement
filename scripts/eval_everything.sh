@@ -5,7 +5,7 @@ declare -A projects
 projects=(
     # one_leg
     ["one_leg-baseline-1"]="one_leg"
-    # ["one_leg-trajaug-1"]="one_leg"
+    ["one_leg-trajaug-1"]="one_leg"
     ["one_leg-trajaug-ratio-1"]="one_leg"
     ["one_leg-collectinfer-1"]="one_leg"
     ["one_leg-trajaug_infer-1"]="one_leg"
@@ -44,7 +44,7 @@ projects=(
     # Scaling analysis
     ["one_leg-data-scaling-1"]="one_leg"
     
-)
+) 
 
 # Define an associative array for sweeps and furniture pairs
 

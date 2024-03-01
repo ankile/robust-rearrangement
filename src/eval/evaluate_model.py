@@ -225,7 +225,7 @@ if __name__ == "__main__":
             if args.eval_top_k is not None:
                 # Get the top k runs
                 runs = sorted(
-                    run,
+                    runs,
                     key=lambda run: run.summary.get(spf + "success_rate", 0),
                     reverse=True,
                 )[: args.eval_top_k]

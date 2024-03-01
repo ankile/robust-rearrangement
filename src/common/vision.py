@@ -8,12 +8,6 @@ from torchvision.transforms import v2 as transforms
 from ipdb import set_trace as bp  # noqa
 
 
-# Set image transforms
-margin = 15
-crop_size = (224, 224)
-input_size = (240, 320)
-
-
 class FrontCameraTransform(nn.Module):
     def __init__(self, mode="train"):
         super().__init__()
