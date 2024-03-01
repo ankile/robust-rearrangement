@@ -9,6 +9,10 @@ defaults:
   - data
   - multitask: default
 
+hydra:
+  run:
+    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+
 action_horizon: 8
 pred_horizon: 16
 obs_horizon: 2

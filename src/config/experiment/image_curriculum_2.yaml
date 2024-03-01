@@ -14,7 +14,7 @@ regularization:
 furniture: ???
 randomness: [low, med]
 demo_source: [teleop, rollout]
-demo_outcome: success
+demo_outcome: [success, partial_success]
 
 wandb:
   project: ${furniture}-curriculum-1

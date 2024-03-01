@@ -12,4 +12,7 @@
 python -m src.train.bc_no_rollout \
     +experiment=image_multitask_unet_big \
     training.num_epochs=1000 \
-    wandb.project=multitask-everything-1
+    wandb.project=multitask-everything-1 \
+    data.dataloader_workers=32 \
+    data.pad_after=false \
+    data.data_subset=400
