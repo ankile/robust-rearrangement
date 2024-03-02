@@ -13,6 +13,9 @@ source /data/scratch/ankile/.config/.slurm.env
 
 python -m src.train.bc_no_rollout \
     +experiment=image_bootstrap \
-    training.load_checkpoint_run_id=one_leg-bootstrap-1/runs/i1tk19j9 \
-    training.actor_lr=1e-5 \
-    furniture=one_leg
+    training.load_checkpoint_run_id=null \
+    furniture=one_leg \
+    demo_source='[teleop, rollout]' \
+    wandb.name=one_bootstrap-10-90-noaug \
+    data.max_episode_count.rollout.low.success=40
+
