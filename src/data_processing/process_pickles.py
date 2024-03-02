@@ -147,6 +147,11 @@ def process_pickle_file(
     # Extract the pickle file name as the path after `raw` in the path
     pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
+    if "augment_states" in data:
+        critical_state_idxs = np.where(np.array(data["augment_states"]) == 1)[0]
+    else:
+        critical_state_idxs = np.zeros(0, dtype=np.int32)
+
     processed_data = {
         "robot_state": robot_state_6d,
         "color_image1": color_image1,
@@ -160,7 +165,8 @@ def process_pickle_file(
         "furniture": data["furniture"],
         "success": 1 if data["success"] == "partial_success" else int(data["success"]),
         "failure_idx": data.get("failure_idx", -1),
-        "critical_state_idx": data.get("critical_state", -1),
+        "critical_state_id": data.get("critical_state", -1),
+        "critical_state_idxs": critical_state_idxs,
         "pickle_file": pickle_file,
     }
 
@@ -190,7 +196,8 @@ def parallel_process_pickle_files(
         "furniture": [],
         "success": [],
         "failure_idx": [],  # This will be -1 if no failure
-        "critical_state_idx": [],  # This will be -1 if not augmentation trajectory or no label
+        "critical_state_id": [],  # This will be -1 if not augmentation trajectory or no label
+        "critical_state_idxs": [],  # This will be -1 if not augmentation trajectory or no label
         "pickle_file": [],
     }
 
@@ -370,7 +377,15 @@ if __name__ == "__main__":
         ("furniture", (len(all_data["furniture"]),), str),
         ("success", (len(all_data["success"]),), np.uint8),
         ("failure_idx", (len(all_data["failure_idx"]),), np.int32),
-        ("critical_state_idx", (len(all_data["critical_state_idx"]),), np.int32),
+        ("critical_state_id", (len(all_data["critical_state_id"]),), np.int32),
+        (
+            "critical_state_idxs",
+            (
+                len(all_data["critical_state_idxs"]),
+                len(all_data["critical_state_idxs"][0]),
+            ),
+            np.int32,
+        ),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 
