@@ -1,0 +1,64 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: ???
+randomness: low
+demo_source: [teleop, augmentation, rollout]
+
+wandb:
+  project: ${furniture}-trajaug_infer-1
+
+data:
+  augment_image: true
+  dataloader_workers: 16
+  pad_after: false
+  data_subset: null
+  max_episode_count:
+    one_leg:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+    round_table:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+    lamp:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+    square_table:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50

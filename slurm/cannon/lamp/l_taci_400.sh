@@ -9,7 +9,7 @@
 #SBATCH -e wandb_error_%j.log
 
 python -m src.train.bc_no_rollout \
-    +experiment=image_traj_aug_infer \
+    +experiment=image_traj_aug_infer_ep_limit \
     furniture=lamp \
     data.dataloader_workers=16 \
     data.pad_after=False \

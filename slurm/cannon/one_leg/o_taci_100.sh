@@ -9,7 +9,9 @@
 #SBATCH -e wandb_error_%j.log
 
 python -m src.train.bc_no_rollout \
-    +experiment=image_traj_aug_infer \
+    +experiment=image_traj_aug_infer_one_leg \
     furniture=one_leg \
     data.data_subset=100 \
-    data.dataloader_workers=16
+    data.dataloader_workers=16 \
+    wandb.name=taci-100-aug-1
+

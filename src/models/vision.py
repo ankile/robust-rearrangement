@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 import torchvision
@@ -260,7 +262,8 @@ class MAEEncoder(torch.nn.Module):
         super().__init__()
         self.device = device
 
-        wts = "/data/pulkitag/models/ankile/furniture-diffusion/mae/mae_pretrain_vit_base.pth"
+        # Get the home folder
+        wts = Path("~").expanduser() / ".mae" / "mae_pretrain_vit_base.pth"
 
         # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
         vit = vit_base_patch16()
@@ -305,7 +308,7 @@ class VoltronEncoder(torch.nn.Module):
             "v-cond",
             device=device,
             freeze=freeze,
-            cache="/data/scratch/ankile/.voltron",
+            # cache="/data/scratch/ankile/.voltron",
         )
         vector_extractor = instantiate_extractor(vcond)().to(device)
 

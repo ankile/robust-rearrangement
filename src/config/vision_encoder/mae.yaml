@@ -1,4 +1,4 @@
 model: mae
-freeze: true
+freeze: false
 pretrained: true
 backbone: vitb16

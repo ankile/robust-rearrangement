@@ -2,15 +2,16 @@
 
 #SBATCH -p gpu
 #SBATCH -t 1-16:00
-#SBATCH --mem=250G
+#SBATCH --mem=128G
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
 #SBATCH -o wandb_output_%j.log
 #SBATCH -e wandb_error_%j.log
 
 python -m src.train.bc_no_rollout \
-    +experiment=image_traj_aug_infer_ep_limit \
-    furniture=lamp \
+    +experiment=image_traj_aug_infer_one_leg \
+    furniture=one_leg \
+    data.data_subset=200 \
     data.dataloader_workers=16 \
-    data.pad_after=False \
-    data.data_subset=200
+    vision_encoder=r3m \
+    wandb.name=taci-200-aug-r3m-1
