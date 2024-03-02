@@ -43,6 +43,7 @@ projects=(
 
     # Scaling analysis
     ["one_leg-data-scaling-1"]="one_leg"
+    ["one_leg-bootstrap-1"]="one_leg"
     
 ) 
 

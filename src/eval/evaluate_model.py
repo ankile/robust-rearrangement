@@ -194,21 +194,9 @@ if __name__ == "__main__":
     print(
         f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env: FurnitureSimEnv = get_env(
-        gpu_id=args.gpu,
-        furniture=args.furniture,
-        num_envs=args.n_envs,
-        randomness=args.randomness,
-        max_env_steps=5_000,
-        resize_img=False,
-        act_rot_repr="rot_6d",
-        ctrl_mode="osc",
-        action_type=args.action_type,
-        verbose=args.verbose,
-        headless=not args.visualize,
-    )
+    env: FurnitureSimEnv = None
 
-    f: str = env.furniture_name
+    f: str = args.furniture
 
     # Summary prefix, shoprtened to spf for brevity downstream
     spf = f"{f}/" + "" if args.multitask else ""
@@ -278,6 +266,22 @@ if __name__ == "__main__":
                     elif args.if_exists == "append":
                         print(f"Run: {run.name} has already been evaluated, appending")
                         how_update = "append"
+
+                # Only actually load the environment after we know we've got at least one run to evaluate
+                if env is None:
+                    env: FurnitureSimEnv = get_env(
+                        gpu_id=args.gpu,
+                        furniture=args.furniture,
+                        num_envs=args.n_envs,
+                        randomness=args.randomness,
+                        max_env_steps=5_000,
+                        resize_img=False,
+                        act_rot_repr="rot_6d",
+                        ctrl_mode="osc",
+                        action_type=args.action_type,
+                        verbose=args.verbose,
+                        headless=not args.visualize,
+                    )
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if args.wandb:
