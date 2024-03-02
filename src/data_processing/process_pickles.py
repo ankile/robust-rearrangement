@@ -1,4 +1,5 @@
 import argparse
+import array
 import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,7 +11,7 @@ import numpy as np
 import torch
 import zarr
 from furniture_bench.robot.robot_state import filter_and_concat_robot_state
-from numcodecs import Blosc, blosc
+from numcodecs import Blosc, JSON
 from tqdm import tqdm, trange
 from src.common.types import Trajectory
 from src.common.files import get_processed_path, get_raw_paths
@@ -48,6 +49,14 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
                 dtype=dtype,
                 chunks=(chunksize,) + shape[1:],
                 compressor=compressor,
+            )
+        elif dtype == object:
+            z.create_dataset(
+                name,
+                shape=shape,
+                dtype=dtype,
+                chunks=(chunksize,),
+                object_codec=JSON(),
             )
         else:
             z.create_dataset(
@@ -148,9 +157,9 @@ def process_pickle_file(
     pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
     if "augment_states" in data:
-        critical_state_idxs = np.where(np.array(data["augment_states"]) == 1)[0]
+        critical_state_idxs = list(np.where(np.array(data["augment_states"]) == 1)[0])
     else:
-        critical_state_idxs = np.zeros(0, dtype=np.int32)
+        critical_state_idxs = []
 
     processed_data = {
         "robot_state": robot_state_6d,
@@ -244,6 +253,12 @@ def parallel_process_pickle_files(
         desc="Converting lists to numpy arrays",
     ):
         aggregated_data[key] = np.concatenate(aggregated_data[key])
+
+    # Convert lists to numpy arrays for variable-length object data
+    for key in tqdm(["critical_state_idxs"]):
+        arr = np.empty(len(aggregated_data[key]), dtype=object)
+        arr[:] = aggregated_data[key]
+        aggregated_data[key] = arr
 
     return aggregated_data
 
@@ -380,11 +395,8 @@ if __name__ == "__main__":
         ("critical_state_id", (len(all_data["critical_state_id"]),), np.int32),
         (
             "critical_state_idxs",
-            (
-                len(all_data["critical_state_idxs"]),
-                len(all_data["critical_state_idxs"][0]),
-            ),
-            np.int32,
+            (len(all_data["critical_state_idxs"]),),
+            object,
         ),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
@@ -396,15 +408,13 @@ if __name__ == "__main__":
     it = tqdm(all_data)
     for name in it:
         it.set_description(f"Writing data to zarr: {name}")
+        # if name == "critical_state_idxs":
+        #     bp()
         dataset = z[name]
         data = all_data[name]
-        for i in trange(
-            0, len(all_data[name]), chunksize, desc="Writing chunks", leave=False
-        ):
-            dataset[i : i + chunksize] = all_data[name][i : i + chunksize]
 
-        # Free memory
-        # del all_data[name]
+        for i in trange(0, len(data), chunksize, desc="Writing chunks", leave=False):
+            dataset[i : i + chunksize] = data[i : i + chunksize]
 
     # Update final metadata
     z.attrs["time_finished"] = datetime.now().astimezone().isoformat()
