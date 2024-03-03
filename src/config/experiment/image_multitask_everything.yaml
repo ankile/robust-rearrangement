@@ -1,0 +1,78 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+  - override /multitask: multitask
+  - override /actor/diffusion_model: unet_big
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: [square_table, lamp, round_table]
+randomness: low
+demo_source: [teleop, rollout, augmentation]
+
+wandb:
+  project: multitask-everyhthing-1
+  name: mt-unet-big-rn-1
+
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 32
+  pad_after: false
+  max_episode_count:
+    one_leg:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+      augmentation:
+        low:
+          success: 100
+    round_table:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+      augmentation:
+        low:
+          success: 200
+    lamp:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+      augmentation:
+        low:
+          success: 200
+    square_table:
+      teleop:
+        low:
+          success: 50
+      rollout:
+        low:
+          success: 50
+      augmentation:
+        low:
+          success: 400
