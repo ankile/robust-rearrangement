@@ -620,18 +620,18 @@ class DataCollectorAugmentor:
         # Add all the data so far in the trajectory to the collect buffer, but stop when we reach the transition to hit
         for i in trange(original_episode_horizon, desc="Hydrating state"):
             action = state["actions"][i] if i < len(state["actions"]) else None
-            skill_complete = state["skills"][i] if i < len(state["skills"]) else None
+            # skill_complete = state["skills"][i] if i < len(state["skills"]) else None
 
             original_episode_actions.append(action)
             original_episode_ee_poses.append(
                 ee_pose_from_robot_state(state["observations"][i]["robot_state"])
             )
 
-            if skill_complete:
-                skill_transition_indices.append(i)
-                print(
-                    f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}'
-                )
+            # if skill_complete:
+            #     skill_transition_indices.append(i)
+            #     print(
+            #         f'Step: {i}, Skill complete: {skill_complete}, Skills: {state["skills"][i]}, Rewards: {state["rewards"][i]}'
+            #     )
 
         # log the actions in reverse, starting at the end and going to our reset state
         for i in range(original_episode_horizon - 1, aug_episode_start, -1):
@@ -980,6 +980,13 @@ def main():
         "--no-filter-pickles",
         action="store_true",
     )
+    parser.add_argument(
+        "--demo-source",
+        type=str,
+        help="Source of the demonstration data",
+        choices=["teleop", "rollout"],
+        default="teleop",
+    )
 
     parser.add_argument(
         "--no-ee-laser",
@@ -1002,17 +1009,30 @@ def main():
     data_dir = os.environ["DATA_DIR_RAW"]
 
     pickle_paths = list(
-        Path(f"{data_dir}/raw/sim/{args.furniture}/teleop").rglob("**/success/*.pkl")
+        Path(
+            f"{data_dir}/raw/sim/{args.furniture}/{args.demo_source}/{args.randomness}"
+        ).rglob("success/*.pkl.*")
     )
+    print("loaded num trajectories", len(pickle_paths))
     random.shuffle(pickle_paths)
     # pickle_paths = sorted(pickle_paths)[:25]
 
     # Filter out only pickles that have the `augment_states` key
-    pickle_paths_aug = [
-        p
-        for p in tqdm(pickle_paths, desc="Filtering pickles")
-        if args.no_filter_pickles or "augment_states" in unpickle_data(p).keys()
-    ]
+    # pickle_paths_aug = [
+    #     p
+    #     for p in tqdm(pickle_paths, desc="Filtering pickles")
+    #     if args.no_filter_pickles or "augment_states" in unpickle_data(p).keys()
+    # ]
+    pickle_paths_aug = []
+    for p in tqdm(pickle_paths, desc="Filtering pickles"):
+        try:
+            data = unpickle_data(p)
+            if "augment_states" in data.keys():
+                pickle_paths_aug.append(p)
+                break
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
 
     print("loaded num trajectories", len(pickle_paths))
 

@@ -11,15 +11,15 @@ from src.common.tasks import task_phases
 from ipdb import set_trace as bp
 
 annotate = "success"
-task = "one_leg"
+task = "round_table"
 
 
 # 1. Load the video
 pkl_paths = get_raw_paths(
     environment="sim",
-    demo_source="teleop",
+    demo_source="rollout",
     demo_outcome=annotate,
-    randomness="low",
+    randomness="med",
     task=task,
 )
 
@@ -71,6 +71,7 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
                     f"Data {path_name} has {sum(data.get('augment_states', []))} annotations, expected {n_bottleneck_states[task]}"
                 )
                 continue
+            print(f"Saving annotations to {pkl_path}")
             # Save the annotations to a file
             # Convert the indexes to a list of 0s and 1s
             data["augment_states"] = np.zeros(total_frames)
@@ -81,7 +82,7 @@ for i, pkl_path in enumerate(pkl_paths, start=0):
                 data["failure_idx"] = failure_idx
 
             pickle_data(data, pkl_path)
-            print(f"Saved annotations to {pkl_path}")
+            print(f"Done")
 
             break
 

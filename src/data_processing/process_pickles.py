@@ -147,6 +147,9 @@ def process_pickle_file(
         if "skills" in data
         else np.zeros_like(reward)
     )
+    augment_states = (
+        data["augment_states"] if "augment_states" in data else np.zeros_like(reward)
+    )
 
     # Sanity check that all arrays are the same length
     assert len(robot_state_6d) == len(
@@ -156,11 +159,6 @@ def process_pickle_file(
     # Extract the pickle file name as the path after `raw` in the path
     pickle_file = "/".join(pickle_path.parts[pickle_path.parts.index("raw") + 1 :])
 
-    if "augment_states" in data:
-        critical_state_idxs = list(np.where(np.array(data["augment_states"]) == 1)[0])
-    else:
-        critical_state_idxs = []
-
     processed_data = {
         "robot_state": robot_state_6d,
         "color_image1": color_image1,
@@ -169,13 +167,13 @@ def process_pickle_file(
         "action/pos": action_pos_6d,
         "reward": reward,
         "skill": skill,
+        "augment_states": augment_states,
         "parts_poses": parts_poses,
         "episode_length": len(action_delta_6d),
         "furniture": data["furniture"],
         "success": 1 if data["success"] == "partial_success" else int(data["success"]),
         "failure_idx": data.get("failure_idx", -1),
         "critical_state_id": data.get("critical_state", -1),
-        "critical_state_idxs": critical_state_idxs,
         "pickle_file": pickle_file,
     }
 
@@ -200,13 +198,13 @@ def parallel_process_pickle_files(
         "action/pos": [],
         "reward": [],
         "skill": [],
+        "augment_states": [],
         "parts_poses": [],
         "episode_ends": [],
         "furniture": [],
         "success": [],
         "failure_idx": [],  # This will be -1 if no failure
         "critical_state_id": [],  # This will be -1 if not augmentation trajectory or no label
-        "critical_state_idxs": [],  # This will be -1 if not augmentation trajectory or no label
         "pickle_file": [],
     }
 
@@ -249,16 +247,11 @@ def parallel_process_pickle_files(
             "reward",
             "skill",
             "parts_poses",
+            "augment_states",
         ],
         desc="Converting lists to numpy arrays",
     ):
         aggregated_data[key] = np.concatenate(aggregated_data[key])
-
-    # Convert lists to numpy arrays for variable-length object data
-    for key in tqdm(["critical_state_idxs"]):
-        arr = np.empty(len(aggregated_data[key]), dtype=object)
-        arr[:] = aggregated_data[key]
-        aggregated_data[key] = arr
 
     return aggregated_data
 
@@ -384,20 +377,16 @@ if __name__ == "__main__":
         ("color_image2", all_data["color_image2"].shape, np.uint8),
         ("action/delta", all_data["action/delta"].shape, np.float32),
         ("action/pos", all_data["action/pos"].shape, np.float32),
-        ("skill", all_data["skill"].shape, np.float32),
-        ("reward", all_data["reward"].shape, np.float32),
         ("parts_poses", all_data["parts_poses"].shape, np.float32),
+        ("reward", all_data["reward"].shape, np.float32),
+        ("skill", all_data["skill"].shape, np.float32),
+        ("augment_states", all_data["augment_states"].shape, np.float32),
         # These are of length: number of episodes
         ("episode_ends", (len(all_data["episode_ends"]),), np.uint32),
         ("furniture", (len(all_data["furniture"]),), str),
         ("success", (len(all_data["success"]),), np.uint8),
         ("failure_idx", (len(all_data["failure_idx"]),), np.int32),
         ("critical_state_id", (len(all_data["critical_state_id"]),), np.int32),
-        (
-            "critical_state_idxs",
-            (len(all_data["critical_state_idxs"]),),
-            object,
-        ),
         ("pickle_file", (len(all_data["pickle_file"]),), str),
     ]
 
@@ -408,8 +397,6 @@ if __name__ == "__main__":
     it = tqdm(all_data)
     for name in it:
         it.set_description(f"Writing data to zarr: {name}")
-        # if name == "critical_state_idxs":
-        #     bp()
         dataset = z[name]
         data = all_data[name]
 
