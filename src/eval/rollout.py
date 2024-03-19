@@ -41,6 +41,7 @@ def rollout(
     actor: Actor,
     rollout_max_steps: int,
     pbar: tqdm = None,
+    resize_video: bool = True,
 ):
     # get first observation
     with suppress_all_output(True):
@@ -48,9 +49,10 @@ def rollout(
 
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 1 second
-        print("TODO: Fix noops for position actions NBNB")
         for _ in range(50):
             obs, reward, done, _ = env.step_noop()
+
+    video_obs = obs.copy()
 
     # Resize the images in the observation
     obs["color_image1"] = resize(obs["color_image1"])
@@ -64,11 +66,15 @@ def rollout(
         maxlen=obs_horizon,
     )
 
+    if resize_video:
+        video_obs["color_image1"] = resize(video_obs["color_image1"])
+        video_obs["color_image2"] = resize_crop(video_obs["color_image2"])
+
     # save visualization and rewards
-    robot_states = [obs["robot_state"].cpu()]
-    imgs1 = [obs["color_image1"].cpu()]
-    imgs2 = [obs["color_image2"].cpu()]
-    parts_poses = [obs["parts_poses"].cpu()]
+    robot_states = [video_obs["robot_state"].cpu()]
+    imgs1 = [video_obs["color_image1"].cpu()]
+    imgs2 = [video_obs["color_image2"].cpu()]
+    parts_poses = [video_obs["parts_poses"].cpu()]
     actions = list()
     rewards = list()
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
@@ -80,6 +86,8 @@ def rollout(
 
         obs, reward, done, _ = env.step(action_pred)
 
+        video_obs = obs.copy()
+
         # Resize the images in the observation
         obs["color_image1"] = resize(obs["color_image1"])
         obs["color_image2"] = resize_crop(obs["color_image2"])
@@ -87,13 +95,17 @@ def rollout(
         # Save observations for the policy
         obs_deque.append(obs)
 
+        if resize_video:
+            video_obs["color_image1"] = resize(video_obs["color_image1"])
+            video_obs["color_image2"] = resize_crop(video_obs["color_image2"])
+
         # Store the results for visualization and logging
-        robot_states.append(obs["robot_state"].cpu())
-        imgs1.append(obs["color_image1"].cpu())
-        imgs2.append(obs["color_image2"].cpu())
+        robot_states.append(video_obs["robot_state"].cpu())
+        imgs1.append(video_obs["color_image1"].cpu())
+        imgs2.append(video_obs["color_image2"].cpu())
         actions.append(action_pred.cpu())
         rewards.append(reward.cpu())
-        parts_poses.append(obs["parts_poses"].cpu())
+        parts_poses.append(video_obs["parts_poses"].cpu())
 
         # update progress bar
         step_idx += 1
@@ -130,6 +142,7 @@ def calculate_success_rate(
     save_failures: bool = False,
     n_parts_assemble: Union[int, None] = None,
     compress_pickles: bool = False,
+    resize_video: bool = True,
 ) -> RolloutStats:
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
@@ -172,6 +185,7 @@ def calculate_success_rate(
             actor,
             rollout_max_steps,
             pbar=pbar,
+            resize_video=resize_video,
         )
 
         # Calculate the success rate
