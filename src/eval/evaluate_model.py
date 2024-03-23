@@ -134,6 +134,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--save-rollouts", action="store_true")
     parser.add_argument("--save-failures", action="store_true")
+    parser.add_argument("--store-full-resolution-video", action="store_true")
 
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--leaderboard", action="store_true")
@@ -177,6 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--compress-pickles", action="store_true")
     parser.add_argument("--max-rollouts", type=int, default=None)
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--max-rollout-steps", type=int, default=None)
     # Parse the arguments
     args = parser.parse_args()
 
@@ -187,7 +189,11 @@ if __name__ == "__main__":
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     # Set the timeout
-    rollout_max_steps = task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+    rollout_max_steps = (
+        task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+        if args.max_rollout_steps is None
+        else args.max_rollout_steps
+    )
 
     # Get the environment
     # TODO: This needs to be changed to enable recreation the env for each run
@@ -380,6 +386,7 @@ if __name__ == "__main__":
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,
                     compress_pickles=args.compress_pickles,
+                    resize_video=not args.store_full_resolution_video,
                 )
 
                 if args.store_video_wandb:

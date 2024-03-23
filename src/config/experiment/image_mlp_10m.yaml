@@ -10,9 +10,10 @@ vision_encoder:
   freeze: false
 
 pred_horizon: 32
+action_horizon: 8
 obs_horizon: 1
-randomness: low
 
+randomness: low
 furniture: ???
 demo_source: teleop
 
