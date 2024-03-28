@@ -263,6 +263,7 @@ class MAEEncoder(torch.nn.Module):
         self.device = device
 
         # Get the home folder
+        # Weights downloaded from: https://github.com/facebookresearch/mae?tab=readme-ov-file#fine-tuning-with-pre-trained-checkpoints
         wts = Path("~").expanduser() / ".mae" / "mae_pretrain_vit_base.pth"
 
         # Model wants a batch of images of shape (batch_size, 3, 224, 224) and normalized
