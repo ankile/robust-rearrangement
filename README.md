@@ -1,4 +1,4 @@
-# JUICER: 
+# JUICER: Data-Efficient Imitation Learning for Robotic Assembly
 
 ## Installation Instructions
 
