@@ -1,0 +1,3 @@
+[submodule "furniture-bench"]
+	path = furniture-bench
+	url = git@github.com:ankile/furniture-bench.git
