@@ -53,7 +53,7 @@ pip install --upgrade pip==22.2.2
 
 ### Install IsaacGym
 
-Download the IsaacGym installer from the ![IsaacGym website](https://developer.nvidia.com/isaac-gym) and follow the instructions to download the package by running (also refer to the ![FurnitureBench installlation instructions](https://clvrai.github.io/furniture-bench/docs/getting_started/installing_furniture_sim.html#download-isaac-gym)):
+Download the IsaacGym installer from the [IsaacGym website](https://developer.nvidia.com/isaac-gym) and follow the instructions to download the package by running (also refer to the [FurnitureBench installlation instructions](https://clvrai.github.io/furniture-bench/docs/getting_started/installing_furniture_sim.html#download-isaac-gym)):
 
 - Click "Join now" and log into your NVIDIA account.
 - Click "Member area".
@@ -70,7 +70,7 @@ pip install -e python --no-cache-dir --force-reinstall
 
 ### Install FurnitureBench
 
-To allow for data collection with the SpaceMouse, etc. we used a ![custom fork](https://github.com/ankile/furniture-bench/tree/iros-2024-release-v1) of the ![FurnitureBench code](https://github.com/clvrai/furniture-bench). The fork is included in this codebase as a submodule. To install the FurnitureBench package, first run:
+To allow for data collection with the SpaceMouse, etc. we used a [custom fork](https://github.com/ankile/furniture-bench/tree/iros-2024-release-v1) of the [FurnitureBench code](https://github.com/clvrai/furniture-bench). The fork is included in this codebase as a submodule. To install the FurnitureBench package, first run:
 
 ```bash
 git clone --recursive git@github.com:ankile/imitation-juicer.git
