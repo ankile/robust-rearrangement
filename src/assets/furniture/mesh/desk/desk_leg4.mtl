@@ -19,7 +19,6 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 2
-map_Kd ../apriltag/tag36_11_00125.png
 
 newmtl Material.002
 Ns 250.000000
@@ -29,7 +28,6 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 2
-map_Kd ../apriltag/tag36_11_00126.png
 
 newmtl Material.003
 Ns 250.000000
@@ -39,7 +37,6 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 2
-map_Kd ../apriltag/tag36_11_00127.png
 
 newmtl Material.004
 Ns 250.000000
@@ -49,4 +46,3 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.450000
 d 1.000000
 illum 2
-map_Kd ../apriltag/tag36_11_00128.png
