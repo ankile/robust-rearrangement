@@ -1,3 +1,4 @@
+from pathlib import Path
 import furniture_bench  # noqa: F401
 from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
@@ -17,9 +18,16 @@ def get_env(
     act_rot_repr="quat",
     ctrl_mode: str = "osc",
     action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
+    april_tags=True,
     verbose=False,
     headless=True,
 ) -> FurnitureSimEnv:
+    if not april_tags:
+        from furniture_bench.envs import furniture_sim_env
+
+        furniture_sim_env.ASSET_ROOT = str(
+            Path(__file__).parent.parent.absolute() / "assets"
+        )
     with suppress_all_output(not verbose):
         env = gym.make(
             "FurnitureSim-v0",

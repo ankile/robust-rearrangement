@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="stool_leg1">
+    <link name="stool_leg1">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/stool/stool_leg1.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../mesh/stool/stool_leg1.obj" scale="1 1 1"/>
+            </geometry>
+            <sdf resolution="512"/>
+        </collision>
+    </link>
+</robot>

@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot name="background">
+    <link name="background">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/background.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+    </link>
+</robot>
