@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="lamp_base">
+    <link name="lamp_base">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/lamp/lamp_base.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../mesh/lamp/lamp_base.obj" scale="1 1 1"/>
+            </geometry>
+            <sdf resolution="512"/>
+        </collision>
+    </link>
+</robot>

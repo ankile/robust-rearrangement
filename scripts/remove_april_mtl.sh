@@ -1,0 +1,1 @@
+find . -type f -name "*.mtl" -exec sed -i '/apriltag/d' {} +

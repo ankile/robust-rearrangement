@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot name="obstacle">
+    <link name="obstacle">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/obstacle2.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../mesh/obstacle2.obj" scale="1 1 1"/>
+            </geometry>
+        </collision>
+    </link>
+</robot>

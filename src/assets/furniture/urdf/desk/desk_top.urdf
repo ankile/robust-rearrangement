@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="desk_top">
+    <link name="desk_top">
+        <visual>
+            <geometry>
+                <mesh filename="../../mesh/desk/desk_top.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../../mesh/desk/desk_top.obj" scale="1 1 1"/>
+            </geometry>
+            <sdf resolution="512"/>
+        </collision>
+    </link>
+</robot>

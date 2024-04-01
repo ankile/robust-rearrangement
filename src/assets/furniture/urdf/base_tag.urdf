@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot name="base_tag">
+    <link name="base_tag">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/base_tag.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+    </link>
+</robot>

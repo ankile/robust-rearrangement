@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<robot name="chair_nut2">
+    <link name="chair_nut2">
+        <visual>
+            <geometry>
+                <mesh filename="../../mesh/chair/chair_nut2.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../../mesh/chair/chair_nut2.obj" scale="1 1 1"/>
+            </geometry>
+            <sdf resolution="512"/>
+        </collision>
+        <!-- <inertial>
+            <mass value="1."/>
+            <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001"/>
+        </inertial> -->
+    </link>
+</robot>
