@@ -11,5 +11,5 @@ setup(
     description="Building furniture with diffusion",
     author="ankile",
     license="MIT",
-#    install_requires=required,
+    install_requires=required,
 )
