@@ -5,7 +5,7 @@
 
 ### Install Conda
 
-First, install Conda by following the instructions on the ![Conda website](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) or the ![Miniconda website](https://docs.conda.io/en/latest/miniconda.html) (here using Miniconda).
+First, install Conda by following the instructions on the [Conda website](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) or the [Miniconda website](https://docs.conda.io/en/latest/miniconda.html) (here using Miniconda).
 
 ```bash
 mkdir -p ~/miniconda3
