@@ -45,9 +45,9 @@ conda activate imitation-juicer
 Once installed and activated, make some compatibility changes to the environment by running:
 
 ```bash
-pip install --upgrade pip wheel
-pip install setuptools==58
-pip install --upgrade pip==22.2.2
+pip install setuptools==65.5.0
+pip install --upgrade pip wheel==0.38.4
+pip install termcolor
 ```
 
 
@@ -72,6 +72,10 @@ Now, you can install the IsaacGym package by navigating to the `isaacgym` direct
 ```bash
 pip install -e python --no-cache-dir --force-reinstall
 ```
+
+_Note: The `--no-cache-dir` and `--force-reinstall` flags are used to avoid potential issues with the installation that we encountered._
+
+_Note: Please ignore Pip's notice that `[notice] To update, run: pip install --upgrade pip` as the current version of Pip is necessary for compatibility with the codebase._
 
 _Tip: The documentation for IsaacGym  is located inside the `docs` directory in the unzipped folder and is not available online. You can open the `index.html` file in your browser to access the documentation._
 
