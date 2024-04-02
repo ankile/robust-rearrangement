@@ -85,6 +85,14 @@ cd imitation-juicer/furniture-bench
 pip install -e .
 ```
 
+To test the installation of FurnitureBench, run:
+
+```bash
+python -m furniture_bench.scripts.run_sim_env --furniture one_leg --scripted
+```
+
+This should open a window with the simulated environment and the robot in it.
+
 ### Install the ImitationJuicer Package
 
 Finally, install the ImitationJuicer package by running:
