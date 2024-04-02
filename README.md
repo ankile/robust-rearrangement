@@ -107,6 +107,12 @@ python -m furniture_bench.scripts.run_sim_env --furniture one_leg --scripted
 
 This should open a window with the simulated environment and the robot in it.
 
+If you encounter the error `ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory` this might be remedied by adding the conda environment's library path to the `LD_LIBRARY_PATH` environment variable. This can be done by, e.g., running:
+
+```bash
+export LD_LIBRARY_PATH=YOUR_CONDA_PATH/envs/YOUR_CONDA_ENV_NAME/lib
+```
+
 ### Install the ImitationJuicer Package
 
 Finally, install the ImitationJuicer package by running:
@@ -115,6 +121,11 @@ Finally, install the ImitationJuicer package by running:
 cd ..
 pip install -e .
 ```
+
+### Data Collection: Install the SpaceMouse Driver
+
+TODO: Write this up.
+
 
 ### Install Additional Dependencies
 
@@ -134,10 +145,29 @@ pip install -e .
 ```
 
 
-
 ## Download the Data
 
-TODO: Write this up.
+We provide a Google Drive folder that contains a zip file with the raw data and a zip file with the processed data. [Download the data](https://drive.google.com/drive/folders/13UqtMLXY1_8JCQOZf3j-YbZyMRTsgZ2K?usp=sharing).
+
+The data files can be unzipped by running:
+
+```bash
+tar -xzvf imitation-juicer-data-raw.tar.gz
+tar -xzvf imitation-juicer-data-processed.tar.gz
+```
+
+Then, for the code to know where to look for the data, please set the environment variables `DATA_DIR_RAW` and `DATA_DIR_PROCESSED` to the paths of the raw and processed data directories, respectively. This can be done by running or adding the following lines to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
+
+```bash
+export DATA_DIR_RAW=/path/to/raw-data
+export DATA_DIR_PROCESSED=/path/to/processed-data
+```
+
+In the above example the folders contained in the twro zipped files, `raw` and `processed`, should be placed immediately inside the above folder, e.g., `/path/to/raw-data/raw` and `/path/to/processed-data/processed`.
+
+All parts of the code (data collection, training, evaluation rollout storage, data processing, etc.) uise these environment variables to locate the data.
+
+_Note: The code uses the directory structure in the folders to locate the data. If you change the directory structure, you may need to update the code accordingly._
 
 
 
@@ -148,6 +178,8 @@ annotating them, augmenting trajectories, training models, and
 evaluating the trained models. Below are the steps involved in the
 process.
 
+The below instructions assume that the user has set environment variables for the raw data directory (`DATA_DIR_RAW`) and the processed data directory (`DATA_DIR_PROCESSED`). The raw data directory contains the raw demonstration data as one `.pkl` (possibly `.pkl.xz` if compressed, which is handled automatically) file per trajectory, while the processed data directory contain `.zarr` files with the processed data ready for training with multiple trajectories for each dataset. 
+
 ### Collect Demonstrations
 
 To collect data, start by invoking the simulated environment. Input
@@ -156,11 +188,14 @@ and command line arguments are available in
 `src/data_collection/teleop.py`. An example command for collecting
 demonstrations for the `one_leg` task is:
 
-    python -m src.data_collection.teleop --furniture one_leg --pkl-only --num-demos 10 --randomness low [--save-failure --no-ee-laser]
+```bash
+python -m src.data_collection.teleop --furniture one_leg --pkl-only --num-demos 10 --randomness low [--save-failure --no-ee-laser]
+```
 
 Demonstrations are saved as `.pkl` files at:
-
-    $DATA_DIR_RAW/raw/sim/one_leg/teleop/low/success/
+```bash
+$DATA_DIR_RAW/raw/sim/one_leg/teleop/low/success/
+```
 
 By default, only successful demonstrations are stored. Failures can be
 stored by using the `--save-failure` flag. The `--no-ee-laser` flag
@@ -176,8 +211,9 @@ off, use `c` and `p`, respectively.
 Before trajectory augmentation, demos must be annotated at bottleneck
 states. Use `src/data_collection/annotate_demo.py` for this purpose.
 Here\'s how to invoke the tool:
-
-    python -m src.data_collection.annotate_demo --furniture one_leg --rest-of-arguments-tbd
+```bash
+python -m src.data_collection.annotate_demo --furniture one_leg --rest-of-arguments-tbd
+```
 
 Use `k` and `j` to navigate frames, and `l` and `h` for faster
 navigation. Press `space` to mark a frame and `u` to undo a mark. Press
@@ -188,11 +224,15 @@ navigation. Press `space` to mark a frame and `u` to undo a mark. Press
 After annotation, use `src/data_collection/backward_augment.py` to
 generate counterfactual snippets. Example command:
 
-    python -m src.data_collection.backward_augment --furniture one_leg --randomness low --demo-source teleop [--no-filter-pickles]
+```bash
+python -m src.data_collection.backward_augment --furniture one_leg --randomness low --demo-source teleop [--no-filter-pickles]
+```
 
 New demonstrations are stored at:
 
-    $DATA_DIR_RAW/raw/sim/one_leg/augmentation/low/success/
+```bash
+$DATA_DIR_RAW/raw/sim/one_leg/augmentation/low/success/
+```
 
 ### Train Models
 
@@ -201,7 +241,9 @@ hyperparameter management. Ensure WandB authentication before starting.
 
 To train for the `one_leg` task:
 
-    python -m src.train.bc +experiment=image_baseline furniture=one_leg
+```bash
+python -m src.train.bc +experiment=image_baseline furniture=one_leg
+```
 
 For a debug run, add `dryrun=true`. For rollouts during training, add
 `rollout=rollout`.
@@ -210,7 +252,9 @@ For a debug run, add `dryrun=true`. For rollouts during training, add
 
 Evaluate trained models with `src/eval/evaluate_model.py`. For example:
 
-    python -m src.eval.evaluate_model --run-id entity/project/run-id --furniture one_leg --n-envs 10 --n-rollouts 10 --randomness low [--save-rollouts --wandb --if-exists append --run-state finished]
+```bash
+python -m src.eval.evaluate_model --run-id entity/project/run-id --furniture one_leg --n-envs 10 --n-rollouts 10 --randomness low [--save-rollouts --wandb --if-exists append --run-state finished]
+```
 
 To save rollout results, use `--save-rollouts`. For WandB logging, add
 `--wandb`.
@@ -218,49 +262,9 @@ To save rollout results, use `--save-rollouts`. For WandB logging, add
 
 
 
+## Citation
 
-
-## Project Organization
-------------
-
-    ├── LICENSE
-    ├── README.md          <- The top-level README for developers using this project.
-    │
-    ├── notebooks          <- Jupyter notebooks. Naming convention is a number (for ordering),
-    │                         the creator's initials, and a short `-` delimited description, e.g.
-    │                         `1.0-jqp-initial-data-exploration`.
-    │
-    ├── references         <- Data dictionaries, manuals, and all other explanatory materials.
-    │
-    ├── reports            <- Generated analysis as HTML, PDF, LaTeX, etc.
-    │   └── figures        <- Generated graphics and figures to be used in reporting
-    │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
-    │
-    ├── setup.py           <- makes project pip installable (pip install -e .) so src can be imported
-    └── src                <- Source code for use in this project.
-        ├── __init__.py    <- Makes src a Python module
-        │
-        ├── data           <- Scripts to download or generate data
-        │   └── make_dataset.py
-        │
-        ├── features       <- Scripts to turn raw data into features for modeling
-        │   └── build_features.py
-        │
-        ├── models         <- Scripts to train models and then use trained models to make
-        │   │                 predictions
-        │   ├── predict_model.py
-        │   └── train_model.py
-        │
-        └── visualization  <- Scripts to create exploratory and results oriented visualizations
-            └── visualize.py
-
-
---------
-
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
-
+If you find the paper or the code useful, please consider citing the paper:
 
 ```tex      
 @article{ankile2024juicer,
@@ -270,3 +274,6 @@ To save rollout results, use `--save-rollouts`. For WandB logging, add
     year      = {2024},
 }
 ```
+
+
+<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
