@@ -60,13 +60,23 @@ Download the IsaacGym installer from the [IsaacGym website](https://developer.nv
 - Read and check the box for the license agreement.
 - Download and unzip `Isaac Gym - Ubuntu Linux 18.04 / 20.04 Preview 4 release`.
 
-
-Now, you can install the IsaacGym package by running:
+Once the zipped file is downloaded, move it to the desired location and unzip it by running:
 
 ```bash
-cd <path/to/isaacgym>
+tar -xzf IsaacGym_Preview_4_Package.tar.gz
+```
+
+
+Now, you can install the IsaacGym package by navigating to the `isaacgym` directory and running:
+
+```bash
 pip install -e python --no-cache-dir --force-reinstall
 ```
+
+_Tip: The documentation for IsaacGym  is located inside the `docs` directory in the unzipped folder and is not available online. You can open the `index.html` file in your browser to access the documentation._
+
+You can now safely delete the downloaded zipped file and navigate back to the root directory for your project. 
+
 
 ### Install FurnitureBench
 
