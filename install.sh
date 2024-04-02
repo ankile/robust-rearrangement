@@ -2,8 +2,8 @@
 cd ..
 
 # Download Isaac Gym
-curl -c ./cookie.txt -s -L "https://drive.google.com/uc?export=download&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" > /dev/null
-curl -Lb ./cookie.txt "https://drive.google.com/uc?export=download&confirm=$(awk '/confirm/ {print $NF}' ./cookie.txt)&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" -o isaacgym.tar.gz
+# curl -c ./cookie.txt -s -L "https://drive.google.com/uc?export=download&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" > /dev/null
+# curl -Lb ./cookie.txt "https://drive.google.com/uc?export=download&confirm=$(awk '/confirm/ {print $NF}' ./cookie.txt)&id=1J4bb5SfY-8H05xXiyF4N1xUOas390tll" -o isaacgym.tar.gz
 
 # Extract Isaac Gym
 tar -xzf isaacgym.tar.gz
@@ -22,26 +22,29 @@ source ~/.bashrc
 
 # Create conda environment
 conda create -n rlgpu python=3.8 -y
-pip install --upgrade pip wheel
-pip install setuptools==58
-pip install --upgrade pip==22.2.2
+# some manual fixes
+pip install setuptools==65.5.0
+pip install --upgrade pip wheel==0.38.4
+
 
 # Activate conda environment
 conda activate rlgpu
 
 # Install dependencies
+# isaac gym (fresh)
 cd isaacgym
-pip install -e python
+pip install -e python --no-cache-dir --force-reinstall
 
 cd ../furniture-bench
 pip install -e .
+
 # pip install -e r3m
 # pip install -e vip
 
 # Install AWS CLI
-cd ~
-curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-unzip awscliv2.zip
+# cd ~
+# curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+# unzip awscliv2.zip
 # Do this if you have sudo access
 # sudo ./aws/install
 
