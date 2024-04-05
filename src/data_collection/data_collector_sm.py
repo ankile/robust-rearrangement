@@ -21,10 +21,7 @@ from src.visualization.render_mp4 import pickle_data, unpickle_data
 
 from src.data_collection.collect_enum import CollectEnum
 
-import os
-import sys
 import time
-from contextlib import contextmanager
 from multiprocessing.managers import SharedMemoryManager
 
 import numpy as np
@@ -62,7 +59,6 @@ class DataCollectorSpaceMouse:
         randomness: Randomness.LOW,
         compute_device_id: int,
         graphics_device_id: int,
-        pkl_only: bool = False,
         save_failure: bool = False,
         num_demos: int = 100,
         resize_sim_img: bool = True,
@@ -86,13 +82,19 @@ class DataCollectorSpaceMouse:
             scripted (bool): Whether to use scripted function for getting action.
             randomness (str): Initialization randomness level.
             gpu_id (int): GPU ID.
-            pkl_only (bool): Whether to save only `pkl` files (i.e., exclude *.mp4 and *.png).
             save_failure (bool): Whether to save failure trajectories.
             num_demos (int): The maximum number of demonstrations to collect in this run. Internal loop will be terminated when this number is reached.
             ctrl_mode (str): 'osc' (joint torque, with operation space control) or 'diffik' (joint impedance, with differential inverse kinematics control)
             ee_laser (bool): If True, show a line coming from the end-effector in the viewer
             right_multiply_rot (bool): If True, convert rotation actions (delta rot) assuming they're applied as RIGHT multiplys (local rotations)
         """
+        if not draw_marker:
+            from furniture_bench.envs import furniture_sim_env
+
+            furniture_sim_env.ASSET_ROOT = str(
+                Path(__file__).parent.parent.absolute() / "assets"
+            )
+
         if is_sim:
             self.env = gym.make(
                 "FurnitureSimFull-v0",
@@ -141,7 +143,6 @@ class DataCollectorSpaceMouse:
         self.num_success = 0
         self.num_fail = 0
 
-        self.pkl_only = pkl_only
         self.save_failure = save_failure
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
@@ -162,7 +163,7 @@ class DataCollectorSpaceMouse:
         self.starttime = datetime.now()
 
         # Variable controlling if we're currently in recording mode
-        self.recording = False
+        self.recording = True
 
         # our flags
         self.right_multiply_rot = right_multiply_rot

@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 from pathlib import Path
 from src.common.context import suppress_stdout
@@ -36,6 +37,7 @@ from wandb_osh.hooks import TriggerWandbSyncHook
 trigger_sync = TriggerWandbSyncHook()
 
 logger.set_level(logger.DISABLED)
+OmegaConf.register_new_resolver("eval", eval)
 
 
 def to_native(obj):
@@ -60,6 +62,10 @@ def set_dryrun_params(config: DictConfig):
         config.wandb.mode = "disabled"
 
         OmegaConf.set_struct(config, True)
+
+
+def now():
+    return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
 @hydra.main(config_path="../config", config_name="base")
@@ -98,6 +104,7 @@ def main(config: DictConfig):
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
+            max_episode_count=config.data.get("max_episode_count", None),
         )
     elif config.observation_type == "state":
         print("normalizer.stats.keys()", normalizer.stats.keys())
@@ -112,6 +119,7 @@ def main(config: DictConfig):
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
+            max_episode_count=config.data.get("max_episode_count", None),
         )
         print("normalizer.stats.keys()", normalizer.stats.keys())
     else:
@@ -139,6 +147,8 @@ def main(config: DictConfig):
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.n_episodes = len(dataset.episode_ends)
+    config.n_samples = len(dataset)
+
     # Update the config object with the observation dimension
     config.timestep_obs_dim = actor.timestep_obs_dim
     OmegaConf.set_struct(config, True)
@@ -216,14 +226,15 @@ def main(config: DictConfig):
     # save stats to wandb and update the config object
     wandb.log(
         {
-            "num_samples": len(train_dataset),
+            "num_samples_train": len(train_dataset),
             "num_samples_test": len(test_dataset),
-            "num_episodes": int(
+            "num_episodes_train": int(
                 len(dataset.episode_ends) * (1 - config.data.test_split)
             ),
             "num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
+            "dataset_metadata": dataset.metadata,
         }
     )
 
@@ -235,6 +246,8 @@ def main(config: DictConfig):
     best_test_loss = float("inf")
     test_loss_mean = float("inf")
     best_success_rate = 0
+
+    print(f"Job started at: {now()}")
 
     tglobal = trange(
         config.training.start_epoch,
@@ -289,7 +302,6 @@ def main(config: DictConfig):
             test_loss=test_loss_mean,
             best_success_rate=best_success_rate,
         )
-        wandb.log({"epoch_loss": np.mean(epoch_loss), "epoch": epoch_idx})
 
         # Evaluation loop
         actor.eval_mode()
@@ -311,13 +323,6 @@ def main(config: DictConfig):
         test_tepoch.close()
 
         test_loss_mean = np.mean(test_loss)
-        tglobal.set_postfix(
-            loss=train_loss_mean,
-            test_loss=test_loss_mean,
-            best_success_rate=best_success_rate,
-        )
-
-        wandb.log({"test_epoch_loss": test_loss_mean, "epoch": epoch_idx})
 
         # Save the model if the test loss is the best so far
         if config.training.checkpoint_model and test_loss_mean < best_test_loss:
@@ -336,13 +341,22 @@ def main(config: DictConfig):
             )
             break
 
-        # Log the early stopping stats
+        # Log epoch stats
         wandb.log(
             {
+                "epoch": epoch_idx,
+                "epoch_loss": np.mean(epoch_loss),
+                "test_epoch_loss": test_loss_mean,
                 "early_stopper/counter": early_stopper.counter,
                 "early_stopper/best_loss": early_stopper.best_loss,
                 "early_stopper/ema_loss": early_stopper.ema_loss,
             }
+        )
+        tglobal.set_postfix(
+            time=now(),
+            loss=train_loss_mean,
+            test_loss=test_loss_mean,
+            stopper_counter=early_stopper.counter,
         )
 
         if (
@@ -374,7 +388,9 @@ def main(config: DictConfig):
                 best_success_rate,
                 epoch_idx,
             )
-        trigger_sync()
+
+        if config.wandb.mode == "offline":
+            trigger_sync()
 
     tglobal.close()
     wandb.finish()
