@@ -49,12 +49,8 @@ class DiffusionPolicy(Actor):
 
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
-            # the choise of beta schedule has big impact on performance
-            # squared cosine is found to work the best
             beta_schedule=actor_cfg.beta_schedule,
-            # clip output to [-1,1] to improve stability
             clip_sample=actor_cfg.clip_sample,
-            # our network predicts noise (instead of denoised action)
             prediction_type=actor_cfg.prediction_type,
         )
 
