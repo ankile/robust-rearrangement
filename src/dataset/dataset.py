@@ -289,8 +289,13 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             "action": combined_data[f"action/{control_mode}"],
         }
 
+        normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
+
         # Normalize data to [-1,1]
         for key in normalizer.keys():
+            if key not in self.train_data:
+                continue
+
             self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
 
         # compute start and end of each state-action sequence
@@ -302,15 +307,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1 if pad_after else 0,
         )
 
-        # Add image augmentation
-        self.augment_image = augment_image
-        self.image1_transform = WristCameraTransform(
-            mode="train" if augment_image else "eval"
-        )
-        self.image2_transform = FrontCameraTransform(
-            mode="train" if augment_image else "eval"
-        )
-
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
@@ -318,22 +314,18 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.skills = combined_data["skill"].astype(np.uint8)
         self.failure_idx = combined_data["failure_idx"]
 
-        # Add action and observation dimensions to the dataset
+        # Add action, robot_state, and parts_poses dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
+        self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
 
         # Take into account possibility of predicting an action that doesn't align with the first observation
-        # TODO: Verify this works with the BC_RNN baseline
+        # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
         self.first_action_idx = first_action_idx
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
 
         self.final_action_idx = self.first_action_idx + self.pred_horizon
-
-        if self.augment_image:
-            self.train()
-        else:
-            self.eval()
 
     def __len__(self):
         return len(self.indices)
@@ -359,8 +351,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         )
 
         # Discard unused observations
-        nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
-        nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = torch.from_numpy(
             nsample["robot_state"][: self.obs_horizon, :]
         )
@@ -370,19 +360,10 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             nsample["action"][self.first_action_idx : self.final_action_idx, :]
         )
 
-        # Apply the image augmentation
-        nsample["color_image1"] = torch.stack(
-            [
-                self.image1_transform(img)
-                for img in torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
-        nsample["color_image2"] = torch.stack(
-            [
-                self.image2_transform(img)
-                for img in torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
+        # Discard unused parts poses
+        nsample["parts_poses"] = torch.from_numpy(
+            nsample["parts_poses"][: self.obs_horizon, :]
+        )
 
         # Add the task index and success flag to the sample
         nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
@@ -391,12 +372,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         return nsample
 
     def train(self):
-        if self.augment_image:
-            self.image1_transform.train()
-            self.image2_transform.train()
-        else:
-            self.eval()
+        pass
 
     def eval(self):
-        self.image1_transform.eval()
-        self.image2_transform.eval()
+        pass
