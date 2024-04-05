@@ -1,4 +1,4 @@
-# JUICER: Data-Efficient Imitation Learning for Robotic Assembly
+# Robust Rearrangement
 
 ## Installation Instructions
 
@@ -73,7 +73,7 @@ Now, you can install the IsaacGym package by navigating to the `isaacgym` direct
 pip install -e python --no-cache-dir --force-reinstall
 ```
 
-_Note: The `--no-cache-dir` and `--force-reinstall` flags are used to avoid potential issues with the installation that we encountered._
+_Note: The `--no-cache-dir` and `--force-reinstall` flags are used to avoid potential issues with the installation we encountered._
 
 _Note: Please ignore Pip's notice that `[notice] To update, run: pip install --upgrade pip` as the current version of Pip is necessary for compatibility with the codebase._
 
@@ -107,13 +107,13 @@ python -m furniture_bench.scripts.run_sim_env --furniture one_leg --scripted
 
 This should open a window with the simulated environment and the robot in it.
 
-If you encounter the error `ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory` this might be remedied by adding the conda environment's library path to the `LD_LIBRARY_PATH` environment variable. This can be done by, e.g., running:
+If you encounter the error `ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory`, this might be remedied by adding the conda environment's library path to the `LD_LIBRARY_PATH` environment variable. This can be done by, e.g., running:
 
 ```bash
 export LD_LIBRARY_PATH=YOUR_CONDA_PATH/envs/YOUR_CONDA_ENV_NAME/lib
 ```
 
-### Install the ImitationJuicer Package
+### Install the robust-rearrangement Package
 
 Finally, install the ImitationJuicer package by running:
 
@@ -136,7 +136,7 @@ pip install -e imitation-juicer/furniture-bench/r3m
 pip install -e imitation-juicer/furniture-bench/vip
 ```
 
-The Spatial Softmax encoder and BC_RNN policy requires the `robomimic` package to be installed:
+The Spatial Softmax encoder and BC_RNN policy require the `robomimic` package to be installed:
 
 ```bash
 git clone https://github.com/ARISE-Initiative/robomimic.git
@@ -163,9 +163,9 @@ export DATA_DIR_RAW=/path/to/raw-data
 export DATA_DIR_PROCESSED=/path/to/processed-data
 ```
 
-In the above example the folders contained in the twro zipped files, `raw` and `processed`, should be placed immediately inside the above folder, e.g., `/path/to/raw-data/raw` and `/path/to/processed-data/processed`.
+In the above example, the folders `raw` and `processed` in the two zipped files should be placed immediately inside the above folder, e.g., `/path/to/raw-data/raw` and `/path/to/processed-data/processed.`
 
-All parts of the code (data collection, training, evaluation rollout storage, data processing, etc.) uise these environment variables to locate the data.
+All parts of the code (data collection, training, evaluation rollout storage, data processing, etc.) use these environment variables to locate the data.
 
 _Note: The code uses the directory structure in the folders to locate the data. If you change the directory structure, you may need to update the code accordingly._
 
@@ -173,92 +173,8 @@ _Note: The code uses the directory structure in the folders to locate the data. 
 
 ## Guide to Project Workflow
 
-This README outlines the workflow for collecting demonstrations,
-annotating them, augmenting trajectories, training models, and
-evaluating the trained models. Below are the steps involved in the
-process.
 
-The below instructions assume that the user has set environment variables for the raw data directory (`DATA_DIR_RAW`) and the processed data directory (`DATA_DIR_PROCESSED`). The raw data directory contains the raw demonstration data as one `.pkl` (possibly `.pkl.xz` if compressed, which is handled automatically) file per trajectory, while the processed data directory contain `.zarr` files with the processed data ready for training with multiple trajectories for each dataset. 
-
-### Collect Demonstrations
-
-To collect data, start by invoking the simulated environment. Input
-actions are recorded using the 3DConnextion SpaceMouse. The source code
-and command line arguments are available in
-`src/data_collection/teleop.py`. An example command for collecting
-demonstrations for the `one_leg` task is:
-
-```bash
-python -m src.data_collection.teleop --furniture one_leg --pkl-only --num-demos 10 --randomness low [--save-failure --no-ee-laser]
-```
-
-Demonstrations are saved as `.pkl` files at:
-```bash
-$DATA_DIR_RAW/raw/sim/one_leg/teleop/low/success/
-```
-
-By default, only successful demonstrations are stored. Failures can be
-stored by using the `--save-failure` flag. The `--no-ee-laser` flag
-disables the assistive red light.
-
-To collect data, control the robot with the SpaceMouse. To store an
-episode and reset the environment, press `t`. To discard an episode,
-press `n`. To \"undo\" actions, press `b`. To toggle recording on and
-off, use `c` and `p`, respectively.
-
-### Annotate Demonstrations
-
-Before trajectory augmentation, demos must be annotated at bottleneck
-states. Use `src/data_collection/annotate_demo.py` for this purpose.
-Here\'s how to invoke the tool:
-```bash
-python -m src.data_collection.annotate_demo --furniture one_leg --rest-of-arguments-tbd
-```
-
-Use `k` and `j` to navigate frames, and `l` and `h` for faster
-navigation. Press `space` to mark a frame and `u` to undo a mark. Press
-`s` to save and move to the next trajectory.
-
-### Augment Trajectories
-
-After annotation, use `src/data_collection/backward_augment.py` to
-generate counterfactual snippets. Example command:
-
-```bash
-python -m src.data_collection.backward_augment --furniture one_leg --randomness low --demo-source teleop [--no-filter-pickles]
-```
-
-New demonstrations are stored at:
-
-```bash
-$DATA_DIR_RAW/raw/sim/one_leg/augmentation/low/success/
-```
-
-### Train Models
-
-Train models using `src/train/bc.py`. We use Hydra and OmegaConf for
-hyperparameter management. Ensure WandB authentication before starting.
-
-To train for the `one_leg` task:
-
-```bash
-python -m src.train.bc +experiment=image_baseline furniture=one_leg
-```
-
-For a debug run, add `dryrun=true`. For rollouts during training, add
-`rollout=rollout`.
-
-### Evaluate Models
-
-Evaluate trained models with `src/eval/evaluate_model.py`. For example:
-
-```bash
-python -m src.eval.evaluate_model --run-id entity/project/run-id --furniture one_leg --n-envs 10 --n-rollouts 10 --randomness low [--save-rollouts --wandb --if-exists append --run-state finished]
-```
-
-To save rollout results, use `--save-rollouts`. For WandB logging, add
-`--wandb`.
-
+To be researched...
 
 
 
@@ -267,12 +183,7 @@ To save rollout results, use `--save-rollouts`. For WandB logging, add
 If you find the paper or the code useful, please consider citing the paper:
 
 ```tex      
-@article{ankile2024juicer,
-    author    = {Ankile, Lars and Simeonov, Anthony and Shenfeld, Idan and Agrawal, Pulkit},
-    title     = {JUICER: Data-Efficient Imitation Learning for Robotic Assembly},
-    journal   = {arXiv},
-    year      = {2024},
-}
+TBA
 ```
 
 
