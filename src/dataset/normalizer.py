@@ -1,13 +1,17 @@
-from typing import Union
+from typing import Dict, Union
 import torch
 import torch.nn as nn
 import numpy as np
 
-from src.dataset.data_stats import get_data_stats
+from src.dataset.data_stats import get_stats_for_field, get_data_stats
 
 
 # Define a normalizer base class
 class Normalizer(nn.Module):
+
+    stats: nn.ParameterDict
+    normalization_mode: str
+
     def __init__(self, control_mode="delta"):
         super().__init__()
         assert control_mode in ["delta", "pos"]
@@ -64,7 +68,9 @@ class Normalizer(nn.Module):
         return stats
 
     @staticmethod
-    def create_parameter_dict(stats, action_key, normalization_mode):
+    def create_parameter_dict(
+        stats, action_key, normalization_mode
+    ) -> nn.ParameterDict:
         param_dict = nn.ParameterDict()
         for key, value in stats.items():
             # Skip the action type that is not chosen
@@ -98,12 +104,31 @@ class Normalizer(nn.Module):
                         f"Normalization mode {normalization_mode} not recognized."
                     )
             elif isinstance(value, dict):
-                param_dict[key] = create_parameter_dict(
+                param_dict[key] = Normalizer.create_parameter_dict(
                     value, action_key, normalization_mode
                 )
             else:
                 raise ValueError(f"Value {value} of type {type(value)} not recognized.")
         return param_dict
+
+    def fit(
+        self,
+        data_dict: Dict[str, np.ndarray],
+    ):
+        stats = {}
+        for key, data in data_dict.items():
+            if key not in self.stats:
+                stats[key] = get_stats_for_field(data)
+
+        if stats:
+            action_key = (
+                "action/delta" if self.control_mode == "delta" else "action/pos"
+            )
+            new_stats = self.create_parameter_dict(
+                stats, action_key, self.normalization_mode
+            )
+            self.stats.update(new_stats)
+            self._turn_off_gradients()
 
     def _turn_off_gradients(self):
         # Turn off gradients for the stats
@@ -119,12 +144,13 @@ class Normalizer(nn.Module):
 class LinearNormalizer(Normalizer):
     def __init__(self, control_mode="delta"):
         super().__init__(control_mode=control_mode)
+        self.normalization_mode = "min_max"
 
         stats = get_data_stats()
         self.stats = self.create_parameter_dict(
             stats=stats,
             action_key=f"action/{control_mode}",
-            normalization_mode="min_max",
+            normalization_mode=self.normalization_mode,
         )
 
         # Turn off gradients for the stats
@@ -146,12 +172,13 @@ class LinearNormalizer(Normalizer):
 class GaussianNormalizer(Normalizer):
     def __init__(self, control_mode="delta"):
         super().__init__(control_mode=control_mode)
+        self.normalization_mode = "mean_std"
 
         stats = get_data_stats()
         self.stats = self.create_parameter_dict(
             stats=stats,
             action_key=f"action/{control_mode}",
-            normalization_mode="mean_std",
+            normalization_mode=self.normalization_mode,
         )
 
         # Turn off gradients for the stats
@@ -179,3 +206,18 @@ if __name__ == "__main__":
 
     print("Gaussian normalizer stats:")
     print(gaussian_normalizer.stats_dict)
+
+    # Test the fit function for the LinearNormalizer
+    # Create fake parts_poses data of shape (64, 35)
+    data = {
+        "parts_poses": np.random.randint(0, 100, (64, 35)).astype(np.float32),
+    }
+
+    # Fit the data
+    linear_normalizer.fit(data)
+
+    # Print the stats
+    print("Linear normalizer stats after fitting:")
+    print(linear_normalizer.stats_dict.keys())
+    print(linear_normalizer.stats_dict["parts_poses"])
+    print(linear_normalizer.stats_dict["parts_poses"]["min"].shape)
