@@ -135,7 +135,7 @@ class MLPActor(Actor):
         return loss
 
 
-class MLPStateActor:
+class MLPStateActor(nn.Module):
     def __init__(
         self,
         device: Union[str, torch.device],
@@ -261,3 +261,15 @@ class MLPStateActor:
         loss = self.loss_fn(naction_pred, naction)
 
         return loss
+
+    def train_mode(self):
+        """
+        Set models to train mode
+        """
+        pass
+
+    def eval_mode(self):
+        """
+        Set models to eval mode
+        """
+        pass

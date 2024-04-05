@@ -291,6 +291,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
 
+        print("normalizer.stats.keys()", normalizer.stats.keys())
+
         # Normalize data to [-1,1]
         for key in normalizer.keys():
             if key not in self.train_data:

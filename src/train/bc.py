@@ -100,6 +100,8 @@ def main(config: DictConfig):
             pad_after=config.data.get("pad_after", True),
         )
     elif config.observation_type == "state":
+        print("normalizer.stats.keys()", normalizer.stats.keys())
+
         dataset = FurnitureStateDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
@@ -111,6 +113,7 @@ def main(config: DictConfig):
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
         )
+        print("normalizer.stats.keys()", normalizer.stats.keys())
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
@@ -124,6 +127,7 @@ def main(config: DictConfig):
     config.robot_state_dim = dataset.robot_state_dim
 
     # Create the policy network
+    print("normalizer.get_copy()", normalizer.get_copy())
     actor = get_actor(
         config,
         normalizer.get_copy(),

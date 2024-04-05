@@ -2,6 +2,8 @@ from typing import Dict, Union
 import torch
 import torch.nn as nn
 import numpy as np
+import copy
+
 
 from src.dataset.data_stats import get_stats_for_field, get_data_stats
 
@@ -138,7 +140,7 @@ class Normalizer(nn.Module):
 
     # Make a method that let's you get a copy of the class instance
     def get_copy(self):
-        return self.__class__(control_mode=self.control_mode)
+        return copy.deepcopy(self)
 
 
 class LinearNormalizer(Normalizer):
