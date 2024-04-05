@@ -1,7 +1,6 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
 
 import time
-import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
@@ -32,7 +31,7 @@ import torch
 
 from furniture_bench.config import config
 
-from src.common.files import trajectory_save_dir
+from src.common.files import trajectory_save_dir, get_raw_paths
 
 
 def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monotonic):
@@ -92,11 +91,11 @@ class DataCollectorAugmentor:
         headless: bool,
         manual_label: bool,
         scripted: bool,
+        draw_marker: bool,
         augment_trajectories_paths: Union[List[str], None],
         randomness: Randomness.LOW,
         compute_device_id: int,
         graphics_device_id: int,
-        pkl_only: bool = False,
         save_failure: bool = False,
         num_demos: int = 100,
         resize_sim_img: bool = True,
@@ -119,13 +118,19 @@ class DataCollectorAugmentor:
             scripted (bool): Whether to use scripted function for getting action.
             randomness (str): Initialization randomness level.
             gpu_id (int): GPU ID.
-            pkl_only (bool): Whether to save only `pkl` files (i.e., exclude *.mp4 and *.png).
             save_failure (bool): Whether to save failure trajectories.
             num_demos (int): The maximum number of demonstrations to collect in this run. Internal loop will be terminated when this number is reached.
             ctrl_mode (str): 'osc' (joint torque, with operation space control) or 'diffik' (joint impedance, with differential inverse kinematics control)
             ee_laser (bool): If True, show a line coming from the end-effector in the viewer
             right_multiply_rot (bool): If True, convert rotation actions (delta rot) assuming they're applied as RIGHT multiplys (local rotations)
         """
+        if not draw_marker:
+            from furniture_bench.envs import furniture_sim_env
+
+            furniture_sim_env.ASSET_ROOT = str(
+                Path(__file__).parent.parent.absolute() / "assets"
+            )
+
         self.env: FurnitureSimEnv = gym.make(
             "FurnitureSimFull-v0",
             furniture=furniture,
@@ -159,7 +164,6 @@ class DataCollectorAugmentor:
         self.count_per_critical_state = None
         self.current_critical_state = None
 
-        self.pkl_only = pkl_only
         self.save_failure = save_failure
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
@@ -924,10 +928,7 @@ class DataCollectorAugmentor:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Collect IL data")
-    # parser.add_argument(
-    #     "--out-data-path", help="Path to directory to save the data", required=True
-    # )
+    parser = argparse.ArgumentParser(description="Augment Annotated Data")
     parser.add_argument(
         "--furniture",
         help="Name of the furniture",
@@ -935,40 +936,16 @@ def main():
         required=True,
     )
     parser.add_argument(
-        "--is-sim",
-        action="store_true",
-        help="Use simulator, else use real world environment.",
-    )
-    parser.add_argument(
-        "--scripted",
-        action="store_true",
-        help="Use scripted function for getting action.",
-    )
-    parser.add_argument(
-        "--pkl-only",
-        action="store_true",
-        help="Only save the pickle file, not .mp4 and .pngs",
-    )
-    parser.add_argument(
         "--save-failure",
         action="store_true",
         help="Save failure trajectories.",
     )
-    parser.add_argument(
-        "--headless", help="With front camera view", action="store_true"
-    )
-    parser.add_argument(
-        "--draw-marker", action="store_true", help="Draw AprilTag marker"
-    )
-    parser.add_argument(
-        "--manual-label",
-        action="store_true",
-        help="Manually label the reward",
-    )
     parser.add_argument("--randomness", default="low", choices=["low", "med", "high"])
     parser.add_argument("--gpu-id", default=0, type=int)
     parser.add_argument("--num-demos", default=100, type=int)
-
+    parser.add_argument(
+        "--headless", help="With front camera view", action="store_true"
+    )
     parser.add_argument(
         "--ctrl-mode",
         type=str,
@@ -987,14 +964,13 @@ def main():
         choices=["teleop", "rollout"],
         default="teleop",
     )
-
     parser.add_argument(
-        "--no-ee-laser",
-        action="store_false",
-        help="If set, will not show the laser coming from the end effector",
-        dest="ee_laser",
+        "--compress-pickles",
+        action="store_true",
     )
-
+    parser.add_argument(
+        "--draw-marker", action="store_true", help="Draw AprilTag marker"
+    )
     args = parser.parse_args()
 
     data_path = trajectory_save_dir(
@@ -1004,35 +980,29 @@ def main():
         randomness=args.randomness,
     )
 
-    from pathlib import Path
-
-    data_dir = os.environ["DATA_DIR_RAW"]
-
-    pickle_paths = list(
-        Path(
-            f"{data_dir}/raw/sim/{args.furniture}/{args.demo_source}/{args.randomness}"
-        ).rglob("success/*.pkl.*")
+    pickle_paths = get_raw_paths(
+        environment="sim",
+        task=args.furniture,
+        demo_source=args.demo_source,
+        randomness=args.randomness,
+        demo_outcome="success",
     )
     print("loaded num trajectories", len(pickle_paths))
     random.shuffle(pickle_paths)
-    # pickle_paths = sorted(pickle_paths)[:25]
 
-    # Filter out only pickles that have the `augment_states` key
-    # pickle_paths_aug = [
-    #     p
-    #     for p in tqdm(pickle_paths, desc="Filtering pickles")
-    #     if args.no_filter_pickles or "augment_states" in unpickle_data(p).keys()
-    # ]
     pickle_paths_aug = []
-    for p in tqdm(pickle_paths, desc="Filtering pickles"):
-        try:
-            data = unpickle_data(p)
-            if "augment_states" in data.keys():
-                pickle_paths_aug.append(p)
-                break
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
+    if args.no_filter_pickles:
+        pickle_paths_aug = pickle_paths
+    else:
+        for p in tqdm(pickle_paths, desc="Filtering pickles"):
+            try:
+                data = unpickle_data(p)
+                if "augment_states" in data.keys():
+                    pickle_paths_aug.append(p)
+                    break
+            except Exception as e:
+                print(f"Error: {e}")
+                continue
 
     print("loaded num trajectories", len(pickle_paths))
 
@@ -1040,19 +1010,18 @@ def main():
         data_path=data_path,
         furniture=args.furniture,
         headless=args.headless,
-        manual_label=args.manual_label,
+        manual_label=True,
+        draw_marker=args.draw_marker,
         resize_sim_img=False,
-        scripted=args.scripted,
+        scripted=False,
         randomness=args.randomness,
         compute_device_id=args.gpu_id,
         graphics_device_id=args.gpu_id,
-        pkl_only=args.pkl_only,
         save_failure=args.save_failure,
         num_demos=args.num_demos,
         ctrl_mode=args.ctrl_mode,
-        compress_pickles=True,
+        compress_pickles=args.compress_pickles,
         augment_trajectories_paths=pickle_paths_aug,
-        ee_laser=args.ee_laser,
     )
     data_collector.collect()
 
