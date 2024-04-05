@@ -17,5 +17,3 @@ def get_normalizer(
 
     if normalizer_type == "mean_std":
         return GaussianNormalizer(control_mode=control_mode)
-
-    raise ValueError(f"Normalizer type {normalizer_type} not recognized.")

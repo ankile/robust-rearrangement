@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
-from src.common.context import suppress_all_output, suppress_stdout
-
+from src.common.context import suppress_stdout
 
 with suppress_stdout():
     import furniture_bench
@@ -12,7 +11,7 @@ import wandb
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import (
     FurnitureImageDataset,
-    FurnitureFeatureDataset,
+    FurnitureStateDataset,
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
@@ -93,24 +92,24 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer.get_copy(),
+            normalizer=normalizer,
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
         )
-    elif config.observation_type == "feature":
-        dataset = FurnitureFeatureDataset(
+    elif config.observation_type == "state":
+        dataset = FurnitureStateDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer.get_copy(),
-            encoder_name=config.vision_encoder.model,
+            normalizer=normalizer,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
+            pad_after=config.data.get("pad_after", True),
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -200,7 +199,7 @@ def main(config: DictConfig):
         name=config.wandb.name,
         resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
-        entity="robot-rearrangement",
+        entity="robust-rearrangement",
         config=config_dict,
         mode=config.wandb.mode,
         notes=config.wandb.notes,
