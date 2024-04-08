@@ -161,7 +161,9 @@ class MLPStateActor(nn.Module):
         self.normalizer = normalizer.to(device)
 
         # Get the dimension of the parts poses
-        self.parts_poses_dim = self.normalizer.stats["parts_poses"]["min"].shape[0]
+        self.parts_poses_dim = (
+            35  # self.normalizer.stats["parts_poses"]["min"].shape[0]
+        )
 
         self.timestep_obs_dim = config.robot_state_dim + self.parts_poses_dim
 
@@ -196,12 +198,17 @@ class MLPStateActor(nn.Module):
         # Convert parts_poses from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
         parts_poses = torch.cat([o["parts_poses"].unsqueeze(1) for o in obs], dim=1)
 
+        # Normalize the parts_poses
+        nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+
         # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, parts_poses], dim=-1)
+        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
 
         if flatten:
             # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
             nobs = nobs.flatten(start_dim=1)
+
+        return nobs
 
     @torch.no_grad()
     def action(self, obs: deque):
@@ -271,5 +278,11 @@ class MLPStateActor(nn.Module):
     def eval_mode(self):
         """
         Set models to eval mode
+        """
+        pass
+
+    def set_task(self, *args, **kwargs):
+        """
+        Set the task for the actor
         """
         pass

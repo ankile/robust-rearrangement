@@ -213,7 +213,7 @@ def main(config: DictConfig):
         name=config.wandb.name,
         resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
-        entity="robust-rearrangement",
+        entity="ankile",
         config=config_dict,
         mode=config.wandb.mode,
         notes=config.wandb.notes,
@@ -374,6 +374,7 @@ def main(config: DictConfig):
                     num_envs=config.rollout.num_envs,
                     randomness=config.rollout.randomness,
                     # Now using full size images in sim and resizing to be consistent
+                    # observation_space=config.observation_type,
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode="osc",

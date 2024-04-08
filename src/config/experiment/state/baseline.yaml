@@ -15,10 +15,10 @@ obs_horizon: 1
 data:
   data_subset: null
   augment_image: true
-  dataloader_workers: 32
+  dataloader_workers: 20
 
 training:
-  batch_size: 256
+  batch_size: 1024
 
 furniture: ???
 randomness: low
