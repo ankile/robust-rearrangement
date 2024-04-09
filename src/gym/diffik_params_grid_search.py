@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     # Hardcode the necessary variables here
     gpu = 0
-    n_envs = 1
+    n_envs = 1024
     n_rollouts = n_envs
     randomness = "low"
     furniture = "one_leg"
