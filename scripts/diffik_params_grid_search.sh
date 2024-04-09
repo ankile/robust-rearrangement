@@ -1,16 +1,17 @@
 #!/bin/bash
 
 # Define the parameter ranges
-pos_scalars="0.5 1 2 3"
-rot_scalars="1 2 4"
-stiffnesses="800 1000 1200"
+pos_scalars="1"
+rot_scalars="1"
+stiffnesses="500 600 700 800 900"
 dampenings="50 150 250 350"
 
 # Create the CSV file and add the header
-echo "pos_scalar,rot_scalar,stiffness,damping,success_rate" > results.csv
+# NOTE: Uncomment the following line if you want to overwrite the existing results.csv file
+# echo "pos_scalar,rot_scalar,stiffness,damping,success_rate" > results.csv
 
 # Calculate the total number of parameter combinations
-total_combinations=144
+total_combinations=20
 
 current_combination=1
 
