@@ -78,7 +78,7 @@ def main():
         data_path=data_path,
         device_interface=keyboard_device_interface,
         furniture=args.furniture,
-        headless=args.headless,
+        headless=False,
         draw_marker=args.draw_marker,
         manual_label=True,
         resize_sim_img=False,
