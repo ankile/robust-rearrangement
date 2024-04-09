@@ -107,8 +107,6 @@ def main(config: DictConfig):
             max_episode_count=config.data.get("max_episode_count", None),
         )
     elif config.observation_type == "state":
-        print("normalizer.stats.keys()", normalizer.stats.keys())
-
         dataset = FurnitureStateDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
@@ -121,7 +119,6 @@ def main(config: DictConfig):
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
         )
-        print("normalizer.stats.keys()", normalizer.stats.keys())
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
 
@@ -134,8 +131,10 @@ def main(config: DictConfig):
     OmegaConf.set_struct(config, False)
     config.robot_state_dim = dataset.robot_state_dim
 
+    if config.observation_type == "state":
+        config.parts_poses_dim = dataset.parts_poses_dim
+
     # Create the policy network
-    print("normalizer.get_copy()", normalizer.get_copy())
     actor = get_actor(
         config,
         normalizer.get_copy(),
@@ -144,6 +143,7 @@ def main(config: DictConfig):
 
     # Set the data path in the config object
     config.data_path = [str(f) for f in data_path]
+
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.n_episodes = len(dataset.episode_ends)
@@ -249,12 +249,14 @@ def main(config: DictConfig):
 
     print(f"Job started at: {now()}")
 
+    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder_model}' if config.observation_type == 'image' else ''})"
+
     tglobal = trange(
         config.training.start_epoch,
         config.training.num_epochs,
         initial=config.training.start_epoch,
         total=config.training.num_epochs,
-        desc=f"Epoch ({config.rollout.furniture if config.rollout.rollouts else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
+        desc=pbar_desc,
     )
     for epoch_idx in tglobal:
         epoch_loss = list()

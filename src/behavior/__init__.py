@@ -10,9 +10,6 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
     obs_type = cfg.observation_type
 
     assert obs_type in ["image", "state"], f"Invalid observation type: {obs_type}"
-    assert (
-        obs_type == "image" or actor_name == "mlp"
-    ), "Only MLP actor supports state observation"
 
     if actor_name == "mlp":
 
@@ -21,8 +18,6 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
 
             return MLPActor(
                 device=device,
-                encoder_name=cfg.vision_encoder.model,
-                freeze_encoder=cfg.vision_encoder.freeze,
                 normalizer=normalizer,
                 config=cfg,
             )
@@ -37,6 +32,7 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
             )
 
     elif actor_name == "rnn":
+        assert False, "RNN actor is not supported at the moment."
         from src.behavior.rnn import RNNActor
 
         return RNNActor(
@@ -53,6 +49,7 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
         ), "Multitask and success guidance cannot be used together"
 
         if cfg.multitask.multitask:
+            assert False, "Multitask diffusion actor is not supported at the moment."
             from src.behavior.diffusion import MultiTaskDiffusionPolicy
 
             return MultiTaskDiffusionPolicy(
@@ -67,12 +64,11 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
 
             return DiffusionPolicy(
                 device=device,
-                encoder_name=cfg.vision_encoder.model,
-                freeze_encoder=cfg.vision_encoder.freeze,
                 normalizer=normalizer,
                 config=cfg,
             )
     elif actor_name == "guided_diffusion":
+        assert False, "Guided diffusion actor is not supported at the moment."
         from src.behavior.diffusion import SuccessGuidedDiffusionPolicy
 
         return SuccessGuidedDiffusionPolicy(

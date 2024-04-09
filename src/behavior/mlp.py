@@ -18,8 +18,6 @@ class MLPActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        encoder_name: str,
-        freeze_encoder: bool,
         normalizer: Normalizer,
         config,
     ) -> None:
@@ -48,6 +46,9 @@ class MLPActor(Actor):
         self.normalizer = normalizer.to(device)
 
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+        encoder_name = encoder_kwargs.model
+        freeze_encoder = encoder_kwargs.freeze
+
         self.encoder1 = get_encoder(
             encoder_name,
             device=device,
