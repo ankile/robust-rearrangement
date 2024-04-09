@@ -22,6 +22,7 @@ def get_env(
     april_tags=True,
     verbose=False,
     headless=True,
+    **kwargs,
 ) -> FurnitureSimEnv:
     if not april_tags:
         from furniture_bench.envs import furniture_sim_env
@@ -60,6 +61,7 @@ def get_env(
             ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
             action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
             verbose=verbose,  # If true, prints debug information.
+            **kwargs,
         )
 
     return env

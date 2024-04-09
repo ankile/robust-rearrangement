@@ -36,6 +36,20 @@ RolloutStats = collections.namedtuple(
 )
 
 
+def resize_image(obs, key):
+    try:
+        obs[key] = resize(obs[key])
+    except KeyError:
+        pass
+
+
+def resize_crop_image(obs, key):
+    try:
+        obs[key] = resize_crop(obs[key])
+    except KeyError:
+        pass
+
+
 def rollout(
     env: FurnitureSimEnv,
     actor: Actor,
@@ -54,9 +68,9 @@ def rollout(
 
     video_obs = obs.copy()
 
-    # Resize the images in the observation
-    obs["color_image1"] = resize(obs["color_image1"])
-    obs["color_image2"] = resize_crop(obs["color_image2"])
+    # Resize the images in the observation if they exist
+    resize_image(obs, "color_image1")
+    resize_crop_image(obs, "color_image2")
 
     obs_horizon = actor.obs_horizon
 
@@ -67,13 +81,13 @@ def rollout(
     )
 
     if resize_video:
-        video_obs["color_image1"] = resize(video_obs["color_image1"])
-        video_obs["color_image2"] = resize_crop(video_obs["color_image2"])
+        resize_image(video_obs, "color_image1")
+        resize_crop_image(video_obs, "color_image2")
 
     # save visualization and rewards
     robot_states = [video_obs["robot_state"].cpu()]
-    imgs1 = [video_obs["color_image1"].cpu()]
-    imgs2 = [video_obs["color_image2"].cpu()]
+    imgs1 = [] if "color_image1" not in video_obs else [video_obs["color_image1"].cpu()]
+    imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
     actions = list()
     rewards = list()
@@ -88,21 +102,23 @@ def rollout(
 
         video_obs = obs.copy()
 
-        # Resize the images in the observation
-        obs["color_image1"] = resize(obs["color_image1"])
-        obs["color_image2"] = resize_crop(obs["color_image2"])
+        # Resize the images in the observation if they exist
+        resize_image(obs, "color_image1")
+        resize_crop_image(obs, "color_image2")
 
         # Save observations for the policy
         obs_deque.append(obs)
 
         if resize_video:
-            video_obs["color_image1"] = resize(video_obs["color_image1"])
-            video_obs["color_image2"] = resize_crop(video_obs["color_image2"])
+            resize_image(video_obs, "color_image1")
+            resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
         robot_states.append(video_obs["robot_state"].cpu())
-        imgs1.append(video_obs["color_image1"].cpu())
-        imgs2.append(video_obs["color_image2"].cpu())
+        if "color_image1" in video_obs:
+            imgs1.append(video_obs["color_image1"].cpu())
+        if "color_image2" in video_obs:
+            imgs2.append(video_obs["color_image2"].cpu())
         actions.append(action_pred.cpu())
         rewards.append(reward.cpu())
         parts_poses.append(video_obs["parts_poses"].cpu())
@@ -121,8 +137,8 @@ def rollout(
 
     return (
         torch.stack(robot_states, dim=1),
-        torch.stack(imgs1, dim=1),
-        torch.stack(imgs2, dim=1),
+        torch.stack(imgs1, dim=1) if imgs1 else [],
+        torch.stack(imgs2, dim=1) if imgs2 else [],
         torch.stack(actions, dim=1),
         # Using cat here removes the singleton dimension
         torch.cat(rewards, dim=1),
@@ -204,75 +220,80 @@ def calculate_success_rate(
         # Update the progress bar
         pbar.pbar_desc(i, n_success)
 
-    total_return = 0
-    total_reward = 0
-    table_rows = []
-    for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
-        # Get the rewards and images for this rollout
-        robot_states = all_robot_states[rollout_idx].numpy()
-        video1 = all_imgs1[rollout_idx].numpy()
-        video2 = all_imgs2[rollout_idx].numpy()
-        actions = all_actions[rollout_idx].numpy()
-        rewards = all_rewards[rollout_idx].numpy()
-        parts_poses = all_parts_poses[rollout_idx].numpy()
-        success = all_success[rollout_idx].item()
-        furniture = env.furniture_name
+    total_reward = np.sum([np.sum(rewards.numpy()) for rewards in all_rewards])
+    episode_returns = [
+        np.sum(rewards.numpy() * gamma ** np.arange(len(rewards)))
+        for rewards in all_rewards
+    ]
 
-        # Number of steps until success, i.e., the index of the final reward received
-        n_steps = np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
+    if rollout_save_dir is not None:
+        total_reward = 0
+        table_rows = []
+        for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
+            # Get the rewards and images for this rollout
+            robot_states = all_robot_states[rollout_idx].numpy()
+            video1 = all_imgs1[rollout_idx].numpy()
+            video2 = all_imgs2[rollout_idx].numpy()
+            actions = all_actions[rollout_idx].numpy()
+            rewards = all_rewards[rollout_idx].numpy()
+            parts_poses = all_parts_poses[rollout_idx].numpy()
+            success = all_success[rollout_idx].item()
+            furniture = env.furniture_name
 
-        # Stack the two videos side by side into a single video
-        # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
-        video = np.concatenate([video1, video2], axis=2)[:n_steps]
-        video = create_in_memory_mp4(video, fps=20)
-
-        # Calculate the reward and return for this rollout
-        total_reward += np.sum(rewards)
-        episode_return = np.sum(rewards * gamma ** np.arange(len(rewards)))
-        total_return += episode_return
-
-        table_rows.append(
-            [
-                wandb.Video(video, fps=20, format="mp4"),
-                success,
-                epoch_idx,
-                np.sum(rewards),
-                episode_return,
-                n_steps,
-            ]
-        )
-
-        if rollout_save_dir is not None and (save_failures or success):
-            # Save the raw rollout data
-            save_raw_rollout(
-                robot_states=robot_states[: n_steps + 1],
-                imgs1=video1[: n_steps + 1],
-                imgs2=video2[: n_steps + 1],
-                parts_poses=parts_poses[: n_steps + 1],
-                actions=actions[:n_steps],
-                rewards=rewards[:n_steps],
-                success=success,
-                furniture=furniture,
-                action_type=env.action_type,
-                rollout_save_dir=rollout_save_dir,
-                compress_pickles=compress_pickles,
+            # Number of steps until success, i.e., the index of the final reward received
+            n_steps = (
+                np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
             )
 
-    # Sort the table rows by return (highest at the top)
-    table_rows = sorted(table_rows, key=lambda x: x[4], reverse=True)
+            # Stack the two videos side by side into a single video
+            # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
+            video = np.concatenate([video1, video2], axis=2)[:n_steps]
+            video = create_in_memory_mp4(video, fps=20)
 
-    for row in table_rows:
-        tbl.add_data(*row)
+            # Calculate the reward and return for this rollout
+            episode_return = episode_returns[rollout_idx]
 
-    # Log the videos to wandb table if a run is active
-    if wandb.run is not None:
-        wandb.log(
-            {
-                "rollouts": tbl,
-                "epoch": epoch_idx,
-                "epoch_mean_return": total_return / n_rollouts,
-            }
-        )
+            table_rows.append(
+                [
+                    wandb.Video(video, fps=20, format="mp4"),
+                    success,
+                    epoch_idx,
+                    np.sum(rewards),
+                    episode_return,
+                    n_steps,
+                ]
+            )
+
+            if save_failures or success:
+                # Save the raw rollout data
+                save_raw_rollout(
+                    robot_states=robot_states[: n_steps + 1],
+                    imgs1=video1[: n_steps + 1],
+                    imgs2=video2[: n_steps + 1],
+                    parts_poses=parts_poses[: n_steps + 1],
+                    actions=actions[:n_steps],
+                    rewards=rewards[:n_steps],
+                    success=success,
+                    furniture=furniture,
+                    action_type=env.action_type,
+                    rollout_save_dir=rollout_save_dir,
+                    compress_pickles=compress_pickles,
+                )
+
+        # Sort the table rows by return (highest at the top)
+        table_rows = sorted(table_rows, key=lambda x: x[4], reverse=True)
+
+        for row in table_rows:
+            tbl.add_data(*row)
+
+        # Log the videos to wandb table if a run is active
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    "rollouts": tbl,
+                    "epoch": epoch_idx,
+                }
+            )
 
     pbar.close()
 
@@ -282,7 +303,7 @@ def calculate_success_rate(
         n_rollouts=n_rollouts,
         epoch_idx=epoch_idx,
         rollout_max_steps=rollout_max_steps,
-        total_return=total_return,
+        total_return=np.sum(episode_returns),
         total_reward=total_reward,
     )
 
@@ -321,12 +342,14 @@ def do_rollout_evaluation(
     )
     success_rate = rollout_stats.success_rate
     best_success_rate = max(best_success_rate, success_rate)
+    mean_return = rollout_stats.total_return / rollout_stats.n_rollouts
 
     # Log the success rate to wandb
     wandb.log(
         {
             "success_rate": success_rate,
             "best_success_rate": best_success_rate,
+            "epoch_mean_return": mean_return,
             "n_success": rollout_stats.n_success,
             "n_rollouts": rollout_stats.n_rollouts,
             "epoch": epoch_idx,
