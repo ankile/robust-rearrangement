@@ -318,7 +318,7 @@ if __name__ == "__main__":
                     {
                         **run.config,
                         "project_name": run.project,
-                        "actor": {**run.config["actor"], "inference_steps": 8},
+                        "actor": {**run.config["actor"], "inference_steps": 4},
                     },
                     flags={"readonly": True},
                 )
@@ -337,7 +337,7 @@ if __name__ == "__main__":
                 )
 
                 # TODO: Fix this properly, but for now have an ugly escape hatch
-                vision_encoder_field_hotfix(run, config)
+                # vision_encoder_field_hotfix(run, config)
 
                 print(OmegaConf.to_yaml(config))
 
