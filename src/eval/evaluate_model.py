@@ -285,11 +285,15 @@ if __name__ == "__main__":
                         max_env_steps=5_000,
                         resize_img=False,
                         act_rot_repr="rot_6d",
-                        ctrl_mode="osc",
+                        ctrl_mode="diffik",
                         action_type=args.action_type,
                         april_tags=not args.no_april_tags,
                         verbose=args.verbose,
                         headless=not args.visualize,
+                        pos_scalar=1,
+                        rot_scalar=1,
+                        stiffness=800,
+                        damping=150,
                     )
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode

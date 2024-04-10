@@ -375,12 +375,17 @@ def main(config: DictConfig):
                     furniture=config.rollout.furniture,
                     num_envs=config.rollout.num_envs,
                     randomness=config.rollout.randomness,
+                    observation_space=config.observation_type,
                     # Now using full size images in sim and resizing to be consistent
                     # observation_space=config.observation_type,
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
-                    ctrl_mode="osc",
+                    ctrl_mode=config.control.controller,
                     action_type=config.control.control_mode,
+                    pos_scalar=1,
+                    rot_scalar=1,
+                    stiffness=800,
+                    damping=150,
                 )
 
             best_success_rate = do_rollout_evaluation(

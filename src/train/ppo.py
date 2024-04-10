@@ -1,17 +1,22 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+import furniture_bench  # noqa
+
 import os
 import random
 import time
 from dataclasses import dataclass
 
-import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import tyro
-from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
+
+from src.behavior.mlp import SmallAgent
+
+
+from src.gym import get_env
 
 
 @dataclass
@@ -40,15 +45,15 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "HalfCheetah-v4"
-    """the id of the environment"""
-    total_timesteps: int = 1000000
+    # env_id: str = "HalfCheetah-v4"
+    # """the id of the environment"""
+    total_timesteps: int = 1_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    num_steps: int = 2048
+    num_steps: int = 650
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -84,84 +89,12 @@ class Args:
     """the number of iterations (computed in runtime)"""
 
 
-def make_env(env_id, idx, capture_video, run_name, gamma):
-    def thunk():
-        if capture_video and idx == 0:
-            env = gym.make(env_id, render_mode="rgb_array")
-            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
-        else:
-            env = gym.make(env_id)
-        env = gym.wrappers.FlattenObservation(
-            env
-        )  # deal with dm_control's Dict observation space
-        env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.ClipAction(env)
-        env = gym.wrappers.NormalizeObservation(env)
-        env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
-        env = gym.wrappers.NormalizeReward(env, gamma=gamma)
-        env = gym.wrappers.TransformReward(env, lambda reward: np.clip(reward, -10, 10))
-        return env
-
-    return thunk
-
-
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
-    return layer
-
-
-class Agent(nn.Module):
-    def __init__(self, envs):
-        super().__init__()
-        self.critic = nn.Sequential(
-            layer_init(
-                nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
-            ),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
-        )
-        self.actor_mean = nn.Sequential(
-            layer_init(
-                nn.Linear(np.array(envs.single_observation_space.shape).prod(), 64)
-            ),
-            nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
-            nn.Tanh(),
-            layer_init(
-                nn.Linear(64, np.prod(envs.single_action_space.shape)), std=0.01
-            ),
-        )
-        self.actor_logstd = nn.Parameter(
-            torch.zeros(1, np.prod(envs.single_action_space.shape))
-        )
-
-    def get_value(self, x):
-        return self.critic(x)
-
-    def get_action_and_value(self, x, action=None):
-        action_mean = self.actor_mean(x)
-        action_logstd = self.actor_logstd.expand_as(action_mean)
-        action_std = torch.exp(action_logstd)
-        probs = Normal(action_mean, action_std)
-        if action is None:
-            action = probs.sample()
-        return (
-            action,
-            probs.log_prob(action).sum(1),
-            probs.entropy().sum(1),
-            self.critic(x),
-        )
-
-
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"one_leg__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -190,26 +123,42 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    envs = gym.vector.SyncVectorEnv(
-        [
-            make_env(args.env_id, i, args.capture_video, run_name, args.gamma)
-            for i in range(args.num_envs)
-        ]
+    envs = get_env(
+        act_rot_repr="rot_6d",
+        action_type="pos",
+        april_tags=False,
+        ctrl_mode="diffik",
+        furniture="one_leg",
+        gpu_id=0,
+        headless=True,
+        num_envs=args.num_envs,
+        observation_space="state",
+        randomness="low",
+        pos_scalar=1,
+        rot_scalar=1,
+        stiffness=800,
+        damping=150,
     )
-    assert isinstance(
-        envs.single_action_space, gym.spaces.Box
-    ), "only continuous action space is supported"
 
-    agent = Agent(envs).to(device)
+    # assert isinstance(
+    #     envs.single_action_space, gym.spaces.Box
+    # ), "only continuous action space is supported"
+    from ipdb import set_trace as bp
+
+    # bp()
+
+    obs_shape = (
+        envs.observation_space["parts_poses"].shape[-1]
+        + envs.observation_space["robot_state"].shape[-1],
+    )
+    action_shape = envs.action_space.shape[-1:]
+
+    agent = SmallAgent(obs_shape, action_shape).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros(
-        (args.num_steps, args.num_envs) + envs.single_observation_space.shape
-    ).to(device)
-    actions = torch.zeros(
-        (args.num_steps, args.num_envs) + envs.single_action_space.shape
-    ).to(device)
+    obs = torch.zeros((args.num_steps, args.num_envs) + obs_shape).to(device)
+    actions = torch.zeros((args.num_steps, args.num_envs) + action_shape).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
@@ -218,8 +167,16 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
-    next_obs, _ = envs.reset(seed=args.seed)
-    next_obs = torch.Tensor(next_obs).to(device)
+    # next_obs, _ = envs.reset(seed=args.seed)
+    next_obs = envs.reset()
+    # bp()
+    next_obs = torch.cat(
+        [
+            next_obs["robot_state"],
+            next_obs["parts_poses"],
+        ],
+        dim=-1,
+    )
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
@@ -235,6 +192,7 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
+            # bp()
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
@@ -242,14 +200,17 @@ if __name__ == "__main__":
             logprobs[step] = logprob
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, reward, terminations, truncations, infos = envs.step(
-                action.cpu().numpy()
+            next_obs, reward, next_done, infos = envs.step(action)
+            rewards[step] = reward.view(-1)
+            next_done = next_done.view(-1)
+
+            next_obs = torch.cat(
+                [
+                    next_obs["robot_state"],
+                    next_obs["parts_poses"],
+                ],
+                dim=-1,
             )
-            next_done = np.logical_or(terminations, truncations)
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
-            next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(
-                next_done
-            ).to(device)
 
             if "final_info" in infos:
                 for info in infos["final_info"]:
@@ -264,18 +225,26 @@ if __name__ == "__main__":
                             "charts/episodic_length", info["episode"]["l"], global_step
                         )
 
+            if step % 100 == 0:
+                print(
+                    f"step={step}, global_step={global_step}, reward={reward.sum().item()}"
+                )
+
         # bootstrap value if not done
+        # bp()
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
                 if t == args.num_steps - 1:
-                    nextnonterminal = 1.0 - next_done
+                    nextnonterminal = 1.0 - next_done.to(torch.float)
                     nextvalues = next_value
                 else:
-                    nextnonterminal = 1.0 - dones[t + 1]
+                    nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
                     nextvalues = values[t + 1]
+
+                # bp()
                 delta = (
                     rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
                 )
@@ -285,9 +254,9 @@ if __name__ == "__main__":
             returns = advantages + values
 
         # flatten the batch
-        b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
+        b_obs = obs.reshape((-1,) + obs_shape)
         b_logprobs = logprobs.reshape(-1)
-        b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+        b_actions = actions.reshape((-1,) + action_shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
