@@ -336,3 +336,71 @@ class SmallAgent(nn.Module):
             probs.entropy().sum(1),
             self.critic(x),
         )
+
+
+class ResidualMLPAgent(MLPStateActor):
+    def __init__(self, device, normalizer, cfg):
+        assert cfg.pred_horizon == 1, "Only support pred_horizon=1"
+        super().__init__(
+            device,
+            normalizer,
+            cfg,
+        )
+
+        obs_shape = self.timestep_obs_dim * self.obs_horizon
+        action_shape = self.action_dim * self.pred_horizon
+
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+
+        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -1)
+
+    def get_value(self, x):
+        return self.critic(x)
+
+    def _training_obs(self, batch, flatten: bool = True):
+        # The robot state is already normalized in the dataset
+        robot_state = batch["robot_state"]
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
+
+        # The parts poses are already normalized in the dataset
+        parts_poses = batch["parts_poses"]
+        nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+
+        # Reshape concatenate the features
+        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+
+        if flatten:
+            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
+
+        return nobs
+
+    def get_action_and_value(self, obs, action=None):
+        # bp()
+        nobs = self._training_obs(obs, flatten=True)
+        action_mean = self.model(nobs)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        if action is None:
+            # naction = probs.sample()
+            naction = action_mean
+        else:
+            naction = self.normalizer(action, "action", forward=True)
+
+        action = self.normalizer(naction, "action", forward=False)
+
+        return (
+            action,
+            probs.log_prob(naction).sum(1),
+            probs.entropy().sum(1),
+            self.critic(nobs),
+        )

@@ -7,16 +7,22 @@ import time
 from dataclasses import dataclass
 
 import numpy as np
+from omegaconf import DictConfig, OmegaConf
+from src.dataset import get_normalizer
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
-from src.behavior.mlp import SmallAgent
+from src.behavior.mlp import SmallAgent, ResidualMLPAgent
 
 
 from src.gym import get_env
+
+from wandb import Api
+
+api = Api()
 
 
 @dataclass
@@ -127,10 +133,10 @@ if __name__ == "__main__":
         act_rot_repr="rot_6d",
         action_type="pos",
         april_tags=False,
-        ctrl_mode="diffik",
+        ctrl_mode="osc",
         furniture="one_leg",
         gpu_id=0,
-        headless=True,
+        headless=False,
         num_envs=args.num_envs,
         observation_space="state",
         randomness="low",
@@ -153,7 +159,58 @@ if __name__ == "__main__":
     )
     action_shape = envs.action_space.shape[-1:]
 
-    agent = SmallAgent(obs_shape, action_shape).to(device)
+    # Load a pre-trained model from WandB
+    run = api.run("ankile/one_leg-mlp-state-1/runs/lu3i593k")
+
+    cfg = run.config
+
+    cfg: DictConfig = OmegaConf.create(
+        cfg,
+        flags={"readonly": True},
+    )
+
+    model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
+    model_path = model_file.download(
+        root=f"./models/{run.name}", exist_ok=True, replace=True
+    ).name
+
+    print(f"Model path: {model_path}")
+
+    # Get the normalizer
+    normalizer_type = cfg.get("data", {}).get("normalization", "min_max")
+    normalizer = get_normalizer(
+        normalizer_type=normalizer_type,
+        control_mode=cfg.control.control_mode,
+    )
+
+    # TODO: Fix this properly, but for now have an ugly escape hatch
+    # vision_encoder_field_hotfix(run, config)
+
+    print(OmegaConf.to_yaml(cfg))
+
+    # Make the actor
+    agent = ResidualMLPAgent(device, normalizer, cfg)
+
+    print("NBNB: This is a hack to load the model weights, please fix soon")
+    # TODO: Fix this properly, but for now have an ugly escape hatch
+    import torch.nn as nn
+
+    agent.normalizer.stats["parts_poses"] = nn.ParameterDict(
+        {
+            "min": nn.Parameter(torch.zeros(35)),
+            "max": nn.Parameter(torch.ones(35)),
+        }
+    )
+
+    state_dict = torch.load(model_path)
+
+    actor_state_dict = agent.state_dict()
+
+    # Load the model weights
+    agent.load_state_dict(state_dict, strict=False)
+    agent.eval()
+    agent.cuda()
+
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -168,12 +225,12 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     # next_obs, _ = envs.reset(seed=args.seed)
-    next_obs = envs.reset()
+    next_obs_dict = envs.reset()
     # bp()
     next_obs = torch.cat(
         [
-            next_obs["robot_state"],
-            next_obs["parts_poses"],
+            next_obs_dict["robot_state"],
+            next_obs_dict["parts_poses"],
         ],
         dim=-1,
     )
@@ -194,20 +251,20 @@ if __name__ == "__main__":
             # ALGO LOGIC: action logic
             # bp()
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                action, logprob, _, value = agent.get_action_and_value(next_obs_dict)
                 values[step] = value.flatten()
             actions[step] = action
             logprobs[step] = logprob
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, reward, next_done, infos = envs.step(action)
+            next_obs_dict, reward, next_done, infos = envs.step(action)
             rewards[step] = reward.view(-1)
             next_done = next_done.view(-1)
 
             next_obs = torch.cat(
                 [
-                    next_obs["robot_state"],
-                    next_obs["parts_poses"],
+                    next_obs_dict["robot_state"],
+                    next_obs_dict["parts_poses"],
                 ],
                 dim=-1,
             )
@@ -229,6 +286,8 @@ if __name__ == "__main__":
                 print(
                     f"step={step}, global_step={global_step}, reward={reward.sum().item()}"
                 )
+
+        raise
 
         # bootstrap value if not done
         # bp()
