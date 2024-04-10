@@ -3,17 +3,7 @@ from omegaconf import DictConfig
 
 from src.models.unet import ConditionalUnet1D
 from src.models.transformer import DiffusionTransformer
-from src.models.vision import (
-    VisionEncoder,
-    SpatialSoftmaxEncoder,
-    ResnetEncoder,
-    DinoEncoder,
-    MAEEncoder,
-    VoltronEncoder,
-    VIPEncoder,
-    R3MEncoder,
-    DinoV2Encoder,
-)
+from src.models.vision import VisionEncoder
 
 
 def get_encoder(
@@ -25,12 +15,20 @@ def get_encoder(
     **kwargs,
 ) -> VisionEncoder:
     if encoder_name.startswith("dinov2"):
+        from src.models.vision import DinoV2Encoder
+
         return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
+        from src.models.vision import R3MEncoder
+
         return R3MEncoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name == "vip":
+        from src.models.vision import VIPEncoder
+
         return VIPEncoder(freeze=freeze, device=device)
     if encoder_name.startswith("resnet"):
+        from src.models.vision import ResnetEncoder
+
         return ResnetEncoder(
             model_name=encoder_name,
             device=device,
@@ -40,12 +38,21 @@ def get_encoder(
             **kwargs,
         )
     if encoder_name == "spatial_softmax":
+        from src.models.vision import SpatialSoftmaxEncoder
+
         return SpatialSoftmaxEncoder(device=device, *args, **kwargs)
     if encoder_name == "dino":
+        from src.models.vision import DinoEncoder
+
         return DinoEncoder(freeze=freeze, device=device)
+
     if encoder_name == "mae":
+        from src.models.vision import MAEEncoder
+
         return MAEEncoder(freeze=freeze, device=device)
     if encoder_name == "voltron":
+        from src.models.vision import VoltronEncoder
+
         return VoltronEncoder(freeze=freeze, device=device)
     raise ValueError(f"Unknown encoder name: {encoder_name}")
 

@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-from tqdm import trange
-import zarr
 from typing import Union, List
 
 from src.dataset.normalizer import Normalizer
@@ -241,11 +239,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.image2_transform.eval()
 
 
-class FurnitureFeatureDataset(torch.utils.data.Dataset):
-    """
-    This is the dataset used for precomputed image features.
-    """
-
+class FurnitureStateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         dataset_paths: Union[List[str], str],
@@ -253,67 +247,82 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
         obs_horizon: int,
         action_horizon: int,
         normalizer: Normalizer,
-        encoder_name: str,
         data_subset: int = None,
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
+        pad_after: bool = True,
+        max_episode_count: Union[dict, None] = None,
     ):
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+        self.control_mode = control_mode
+
+        normalizer = normalizer.cpu()
+
         # Read from zarr dataset
-        combined_data = combine_zarr_datasets(
+        combined_data, metadata = combine_zarr_datasets(
             dataset_paths,
             [
-                f"feature/{encoder_name}/feature1",
-                f"feature/{encoder_name}/feature2",
+                "parts_poses",
                 "robot_state",
                 f"action/{control_mode}",
+                "skill",
             ],
             max_episodes=data_subset,
+            max_ep_cnt=max_episode_count,
         )
 
         # (N, D)
         # Get only the first data_subset episodes
         self.episode_ends = combined_data["episode_ends"]
-        print(f"Loading dataset of {len(self.episode_ends)} episodes")
+        self.metadata = metadata
+        print(f"Loading dataset of {len(self.episode_ends)} episodes:")
+        for path, data in metadata.items():
+            print(
+                f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
+            )
 
-        train_data = {
-            "feature1": combined_data[f"feature/{encoder_name}/feature1"],
-            "feature2": combined_data[f"feature/{encoder_name}/feature2"],
+        self.train_data = {
+            "parts_poses": combined_data["parts_poses"],
             "robot_state": combined_data["robot_state"],
             "action": combined_data[f"action/{control_mode}"],
         }
 
+        normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
+
+        print("normalizer.stats.keys()", normalizer.stats.keys())
+
+        # Normalize data to [-1,1]
+        for key in normalizer.keys():
+            if key not in self.train_data:
+                continue
+
+            self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
+
         # compute start and end of each state-action sequence
         # also handles padding
-        indices = create_sample_indices(
+        self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
             sequence_length=pred_horizon,
             pad_before=obs_horizon - 1,
-            pad_after=action_horizon - 1,
+            pad_after=action_horizon - 1 if pad_after else 0,
         )
 
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
         self.successes = combined_data["success"].astype(np.uint8)
+        self.skills = combined_data["skill"].astype(np.uint8)
+        self.failure_idx = combined_data["failure_idx"]
 
-        normalizer: Normalizer = normalizer.cpu()
-
-        # Normalize data to [-1,1]
-        for key in normalizer.keys():
-            train_data[key] = normalizer(train_data[key], key, forward=True)
-
-        self.indices = indices
-        self.train_data = train_data
-        self.pred_horizon = pred_horizon
-        self.action_horizon = action_horizon
-        self.obs_horizon = obs_horizon
-        self.feature_dim = train_data["feature1"].shape[-1]
-
-        # Add action and observation dimensions to the dataset
-        self.action_dim = train_data["action"].shape[-1]
-        self.robot_state_dim = train_data["robot_state"].shape[-1]
+        # Add action, robot_state, and parts_poses dimensions to the dataset
+        self.action_dim = self.train_data["action"].shape[-1]
+        self.robot_state_dim = self.train_data["robot_state"].shape[-1]
+        self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
 
         # Take into account possibility of predicting an action that doesn't align with the first observation
+        # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
         self.first_action_idx = first_action_idx
         if first_action_idx < 0:
             self.first_action_idx = self.obs_horizon + first_action_idx
@@ -343,31 +352,24 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
             sample_end_idx=sample_end_idx,
         )
 
-        # discard unused observations
-        nsample["feature1"] = nsample["feature1"][: self.obs_horizon, :]
-        nsample["feature2"] = nsample["feature2"][: self.obs_horizon, :]
-        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+        # Discard unused observations
+        nsample["robot_state"] = torch.from_numpy(
+            nsample["robot_state"][: self.obs_horizon, :]
+        )
 
         # Discard unused actions
-        nsample["action"] = nsample["action"][
-            self.first_action_idx : self.final_action_idx, :
-        ]
+        nsample["action"] = torch.from_numpy(
+            nsample["action"][self.first_action_idx : self.final_action_idx, :]
+        )
+
+        # Discard unused parts poses
+        nsample["parts_poses"] = torch.from_numpy(
+            nsample["parts_poses"][: self.obs_horizon, :]
+        )
 
         # Add the task index and success flag to the sample
-        nsample["task_idx"] = self.task_idxs[demo_idx]
-        nsample["success"] = self.successes[demo_idx]
-
-        # for diffusion policy version (self.first_action_offset = 0)
-        # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
-        # |o|o|                             observations:       2
-        # | |a|a|a|a|a|a|a|a|               actions executed:   8
-        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-
-        # for RNN version (self.first_action_offset = -1) -- meaning the first action aligns with the last observation
-        # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
-        # |o|o|o|o|o|o|o|o|o|o|             observations:       2
-        # |                 |p|             actions predicted:  1
-        # |                 |a|             actions executed:   1
+        nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
+        nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
 
         return nsample
 
@@ -376,73 +378,3 @@ class FurnitureFeatureDataset(torch.utils.data.Dataset):
 
     def eval(self):
         pass
-
-
-class OfflineRLFeatureDataset(FurnitureFeatureDataset):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # Also add in rewards and terminal states to the dataset
-        self.normalized_train_data["reward"] = self.dataset["reward"][
-            : self.episode_ends[-1]
-        ]
-        self.normalized_train_data["terminal"] = self.dataset["terminal"][
-            : self.episode_ends[-1]
-        ]
-
-    def __getitem__(self, idx):
-        # Get the start/end indices for this datapoint
-        (
-            buffer_start_idx,
-            buffer_end_idx,
-            sample_start_idx,
-            sample_end_idx,
-        ) = self.indices[idx]
-
-        # Get normalized data using these indices
-        nsample = sample_sequence(
-            train_data=self.normalized_train_data,
-            sequence_length=self.pred_horizon,
-            buffer_start_idx=buffer_start_idx,
-            buffer_end_idx=buffer_end_idx,
-            sample_start_idx=sample_start_idx,
-            sample_end_idx=sample_end_idx,
-        )
-
-        output = dict(
-            action=nsample["action"],
-            terminal=int(nsample["terminal"].sum() > 0),
-        )
-
-        # Add the current observation to the input
-        output["curr_obs"] = dict(
-            feature1=nsample["feature1"][: self.obs_horizon, :],
-            feature2=nsample["feature2"][: self.obs_horizon, :],
-            robot_state=nsample["robot_state"][: self.obs_horizon, :],
-        )
-
-        # Add the next obs to the input
-        # |0|1|2|3|4|5|6|7|8|9|0|1|2|3|4|5| idx
-        # |o|o|                             observations:       2
-        # | |a|a|a|a|a|a|a|a|               actions executed:   8
-        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
-        # | | |r|r|r|r|r|r|r|r|             rewards:            8
-        # This is the observation that happens after the self.action_horizon actions have executed
-        # Will start at `obs_horizon - 1 + action_horizon - (obs_horizon - 1)`
-        # (which simplifies to `action_horizon`)
-        # and end at `start + obs_horizon`
-        start_idx = self.action_horizon
-        end_idx = start_idx + self.obs_horizon
-        output["next_obs"] = dict(
-            feature1=nsample["feature1"][start_idx:end_idx, :],
-            feature2=nsample["feature2"][start_idx:end_idx, :],
-            robot_state=nsample["robot_state"][start_idx:end_idx, :],
-        )
-
-        # Add the reward to the input
-        # What rewards should be counted? The rewards that happen after the first action is executed, up to the last action
-        # We sum these into a single reward for the entire sequence
-        output["reward"] = nsample["reward"][start_idx:end_idx].sum()
-
-        return output

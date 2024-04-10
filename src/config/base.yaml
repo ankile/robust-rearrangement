@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - actor: diffusion
-  - vision_encoder: vip
+  - vision_encoder: null
   - early_stopper
   - rollout: default
   - training
@@ -33,7 +33,7 @@ lr_scheduler:
   warmup_steps: 500
 
 wandb:
-  project: hydra-test
+  project: ???
   notes: null
   mode: online
   continue_run_id: null

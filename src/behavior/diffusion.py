@@ -18,8 +18,6 @@ class DiffusionPolicy(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        encoder_name: str,
-        freeze_encoder: bool,
         normalizer: Normalizer,
         config: DictConfig,
     ) -> None:
@@ -39,22 +37,17 @@ class DiffusionPolicy(Actor):
         self.observation_type = config.observation_type
 
         # Regularization
-        self.feature_noise = config.regularization.feature_noise
-        self.feature_dropout = config.regularization.feature_dropout
-        self.feature_layernorm = config.regularization.feature_layernorm
+        self.feature_noise = config.regularization.get("feature_noise", None)
+        self.feature_dropout = config.regularization.get("feature_dropout", None)
+        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
         self.state_noise = config.regularization.get("state_noise", False)
 
-        self.freeze_encoder = freeze_encoder
         self.device = device
 
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
-            # the choise of beta schedule has big impact on performance
-            # squared cosine is found to work the best
             beta_schedule=actor_cfg.beta_schedule,
-            # clip output to [-1,1] to improve stability
             clip_sample=actor_cfg.clip_sample,
-            # our network predicts noise (instead of denoised action)
             prediction_type=actor_cfg.prediction_type,
         )
 
@@ -68,7 +61,38 @@ class DiffusionPolicy(Actor):
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)
 
+        if self.observation_type == "image":
+            self._initiate_image_encoder(config)
+
+        elif self.observation_type == "state":
+            self.timestep_obs_dim = config.robot_state_dim + config.parts_poses_dim
+        else:
+            raise ValueError(f"Invalid observation type: {self.observation_type}")
+
+        self.flatten_obs = config.actor.diffusion_model.get("flatten_obs", True)
+        self.obs_dim = (
+            self.timestep_obs_dim * self.obs_horizon
+            if self.flatten_obs
+            else self.timestep_obs_dim
+        )
+
+        self.model = get_diffusion_backbone(
+            action_dim=self.action_dim,
+            obs_dim=self.obs_dim,
+            actor_config=actor_cfg,
+        ).to(device)
+
+        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
+        self.loss_fn = getattr(nn, loss_fn_name)()
+
+    def _initiate_image_encoder(self, encoder_name, config):
+        # === Encoder ===
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+        device = self.device
+        actor_cfg = config.actor
+        encoder_name = config.vision_encoder.model
+        self.freeze_encoder = config.vision_encoder.freeze
+
         self.encoder1 = get_encoder(
             encoder_name,
             device=device,
@@ -76,7 +100,7 @@ class DiffusionPolicy(Actor):
         )
         self.encoder2 = (
             self.encoder1
-            if freeze_encoder
+            if self.freeze_encoder
             else get_encoder(
                 encoder_name,
                 device=device,
@@ -97,22 +121,7 @@ class DiffusionPolicy(Actor):
             self.encoder1_proj = nn.Identity()
             self.encoder2_proj = nn.Identity()
 
-        self.flatten_obs = config.actor.diffusion_model.get("flatten_obs", True)
         self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
-        self.obs_dim = (
-            self.timestep_obs_dim * self.obs_horizon
-            if self.flatten_obs
-            else self.timestep_obs_dim
-        )
-
-        self.model = get_diffusion_backbone(
-            action_dim=self.action_dim,
-            obs_dim=self.obs_dim,
-            actor_config=actor_cfg,
-        ).to(device)
-
-        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
 
     # === Inference ===
     def _normalized_action(self, nobs):

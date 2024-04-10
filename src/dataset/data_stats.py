@@ -19,7 +19,7 @@ def get_stats_json_path() -> Path:
     )
 
 
-def get_stats_for_field(data) -> Dict[str, List]:
+def get_stats_for_field(data: np.ndarray) -> Dict[str, List]:
     data = data.reshape(-1, data.shape[-1])
     stats = {
         "min": np.min(data, axis=0).tolist(),

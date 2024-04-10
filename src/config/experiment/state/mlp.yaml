@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - override /actor: mlp
+
+actor:
+  hidden_dims: [1024, 1024, 1024, 1024, 1024]
+  residual: true
+
+observation_type: state
+
+action_horizon: 8
+pred_horizon: 16
+obs_horizon: 1
+  
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 20
+
+training:
+  batch_size: 1024
+
+furniture: ???
+randomness: low
+demo_source: teleop
+
+wandb:
+  project: ${furniture}-mlp-state-1

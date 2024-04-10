@@ -281,6 +281,7 @@ if __name__ == "__main__":
                         furniture=args.furniture,
                         num_envs=args.n_envs,
                         randomness=args.randomness,
+                        observation_space="state",
                         max_env_steps=5_000,
                         resize_img=False,
                         act_rot_repr="rot_6d",
@@ -342,15 +343,30 @@ if __name__ == "__main__":
 
                 # Make the actor
                 actor: Actor = get_actor(
-                    config=config, normalizer=normalizer, device=device
+                    cfg=config, normalizer=normalizer, device=device
                 )
 
-                # Load the model weights
+                print("NBNB: This is a hack to load the model weights, please fix soon")
+                # TODO: Fix this properly, but for now have an ugly escape hatch
+                import torch.nn as nn
+
+                actor.normalizer.stats["parts_poses"] = nn.ParameterDict(
+                    {
+                        "min": nn.Parameter(torch.zeros(35)),
+                        "max": nn.Parameter(torch.ones(35)),
+                    }
+                )
+
                 state_dict = torch.load(model_path)
+
+                actor_state_dict = actor.state_dict()
+
+                # Load the model weights
                 convert_state_dict(state_dict)
 
                 actor.load_state_dict(state_dict)
                 actor.eval()
+                actor.cuda()
 
                 save_dir = (
                     trajectory_save_dir(

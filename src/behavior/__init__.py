@@ -4,63 +4,78 @@ from src.behavior.base import Actor
 from src.dataset.normalizer import Normalizer
 
 
-def get_actor(config: DictConfig, normalizer: Normalizer, device) -> Actor:
+def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
     """Returns an actor model."""
-    actor_name = config.actor.name
-    if actor_name == "mlp":
-        from src.behavior.mlp import MLPActor
+    actor_name = cfg.actor.name
+    obs_type = cfg.observation_type
 
-        return MLPActor(
-            device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
-            normalizer=normalizer,
-            config=config,
-        )
+    assert obs_type in ["image", "state"], f"Invalid observation type: {obs_type}"
+
+    if actor_name == "mlp":
+
+        if obs_type == "image":
+            from src.behavior.mlp import MLPActor
+
+            return MLPActor(
+                device=device,
+                normalizer=normalizer,
+                config=cfg,
+            )
+
+        if obs_type == "state":
+            from src.behavior.mlp import MLPStateActor
+
+            return MLPStateActor(
+                device=device,
+                normalizer=normalizer,
+                config=cfg,
+            )
+
     elif actor_name == "rnn":
+        assert False, "RNN actor is not supported at the moment."
         from src.behavior.rnn import RNNActor
 
         return RNNActor(
             device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
+            encoder_name=cfg.vision_encoder.model,
+            freeze_encoder=cfg.vision_encoder.freeze,
             normalizer=normalizer,
-            config=config,
+            config=cfg,
         )
     elif actor_name == "diffusion":
         assert not (
-            config.multitask.get("multitask", False)
-            and config.get("success_guidance", {}).get("success_guidance", False)
+            cfg.multitask.get("multitask", False)
+            and cfg.get("success_guidance", {}).get("success_guidance", False)
         ), "Multitask and success guidance cannot be used together"
 
-        if config.multitask.multitask:
+        if cfg.multitask.multitask:
+            assert False, "Multitask diffusion actor is not supported at the moment."
             from src.behavior.diffusion import MultiTaskDiffusionPolicy
 
             return MultiTaskDiffusionPolicy(
                 device=device,
-                encoder_name=config.vision_encoder.model,
-                freeze_encoder=config.vision_encoder.freeze,
+                encoder_name=cfg.vision_encoder.model,
+                freeze_encoder=cfg.vision_encoder.freeze,
                 normalizer=normalizer,
-                config=config,
+                config=cfg,
             )
         else:
             from src.behavior.diffusion import DiffusionPolicy
 
             return DiffusionPolicy(
                 device=device,
-                encoder_name=config.vision_encoder.model,
-                freeze_encoder=config.vision_encoder.freeze,
                 normalizer=normalizer,
-                config=config,
+                config=cfg,
             )
     elif actor_name == "guided_diffusion":
+        assert False, "Guided diffusion actor is not supported at the moment."
         from src.behavior.diffusion import SuccessGuidedDiffusionPolicy
 
         return SuccessGuidedDiffusionPolicy(
             device=device,
-            encoder_name=config.vision_encoder.model,
-            freeze_encoder=config.vision_encoder.freeze,
+            encoder_name=cfg.vision_encoder.model,
+            freeze_encoder=cfg.vision_encoder.freeze,
             normalizer=normalizer,
-            config=config,
+            config=cfg,
         )
-    raise ValueError(f"Unknown actor type: {config.actor}")
+    raise ValueError(f"Unknown actor type: {cfg.actor}")

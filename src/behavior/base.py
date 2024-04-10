@@ -48,15 +48,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoder2_proj: nn.Module
 
     def __post_init__(self, *args, **kwargs):
-        assert self.encoder1 is not None, "encoder1 is not defined"
-        assert self.encoder2 is not None, "encoder2 is not defined"
 
-        if self.feature_dropout:
-            self.dropout = nn.Dropout(p=self.feature_dropout)
+        if self.observation_type == "image":
+            assert self.encoder1 is not None, "encoder1 is not defined"
+            assert self.encoder2 is not None, "encoder2 is not defined"
 
-        if self.feature_layernorm:
-            self.layernorm1 = nn.LayerNorm(self.encoding_dim).to(self.device)
-            self.layernorm2 = nn.LayerNorm(self.encoding_dim).to(self.device)
+            if self.feature_dropout:
+                self.dropout = nn.Dropout(p=self.feature_dropout)
+
+            if self.feature_layernorm:
+                self.layernorm1 = nn.LayerNorm(self.encoding_dim).to(self.device)
+                self.layernorm2 = nn.LayerNorm(self.encoding_dim).to(self.device)
 
         self.print_model_params()
 
@@ -86,43 +88,55 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         B = nrobot_state.shape[0]
 
-        # from furniture_bench.perception.image_utils import resize, resize_crop
-        # Get size of the image
-        img_size = obs[0]["color_image1"].shape[-3:]
+        if self.observation_type == "image":
 
-        # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
-        image1 = torch.cat(
-            [o["color_image1"].unsqueeze(1) for o in obs], dim=1
-        ).reshape(B * self.obs_horizon, *img_size)
-        image2 = torch.cat(
-            [o["color_image2"].unsqueeze(1) for o in obs], dim=1
-        ).reshape(B * self.obs_horizon, *img_size)
+            # Get size of the image
+            img_size = obs[0]["color_image1"].shape[-3:]
 
-        # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
-        image1 = image1.permute(0, 3, 1, 2)
-        image2 = image2.permute(0, 3, 1, 2)
+            # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
+            image1 = torch.cat(
+                [o["color_image1"].unsqueeze(1) for o in obs], dim=1
+            ).reshape(B * self.obs_horizon, *img_size)
+            image2 = torch.cat(
+                [o["color_image2"].unsqueeze(1) for o in obs], dim=1
+            ).reshape(B * self.obs_horizon, *img_size)
 
-        # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
-        image1: torch.Tensor = self.camera1_transform(image1)
-        image2: torch.Tensor = self.camera2_transform(image2)
+            # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+            image1 = image1.permute(0, 3, 1, 2)
+            image2 = image2.permute(0, 3, 1, 2)
 
-        # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
-        image1 = image1.permute(0, 2, 3, 1)
-        image2 = image2.permute(0, 2, 3, 1)
+            # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+            image1: torch.Tensor = self.camera1_transform(image1)
+            image2: torch.Tensor = self.camera2_transform(image2)
 
-        # Encode the images and reshape back to (B, obs_horizon, -1)
-        feature1: torch.Tensor = self.encoder1_proj(self.encoder1(image1)).reshape(
-            B, self.obs_horizon, -1
-        )
-        feature2: torch.Tensor = self.encoder2_proj(self.encoder2(image2)).reshape(
-            B, self.obs_horizon, -1
-        )
+            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
+            image1 = image1.permute(0, 2, 3, 1)
+            image2 = image2.permute(0, 2, 3, 1)
 
-        # Apply the regularization to the features
-        feature1, feature2 = self.regularize_features(feature1, feature2)
+            # Encode the images and reshape back to (B, obs_horizon, -1)
+            feature1: torch.Tensor = self.encoder1_proj(self.encoder1(image1)).reshape(
+                B, self.obs_horizon, -1
+            )
+            feature2: torch.Tensor = self.encoder2_proj(self.encoder2(image2)).reshape(
+                B, self.obs_horizon, -1
+            )
 
-        # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+            # Apply the regularization to the features
+            feature1, feature2 = self.regularize_features(feature1, feature2)
+
+            # Reshape concatenate the features
+            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+        elif self.observation_type == "state":
+            # Convert parts_poses from obs_horizon x (n_envs, parts_poses_dim) -> (n_envs, obs_horizon, parts_poses_dim)
+            parts_poses = torch.cat([o["parts_poses"].unsqueeze(1) for o in obs], dim=1)
+
+            # Normalize the parts_poses
+            nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+
+            # Concatenate the robot_state and parts_poses
+            nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+        else:
+            raise ValueError(f"Invalid observation type: {self.observation_type}")
 
         if flatten:
             # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
@@ -196,7 +210,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            nobs = nobs.flatten(start_dim=1) if flatten else nobs
 
         elif self.observation_type == "feature":
             # All observations already normalized in the dataset
@@ -208,12 +221,19 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
-            if flatten:
-                # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
-                nobs = nobs.flatten(start_dim=1)
+        elif self.observation_type == "state":
+            # Parts poses are already normalized in the dataset
+            parts_poses = batch["parts_poses"]
+
+            # Combine the robot_state and parts_poses, (B, obs_horizon, obs_dim)
+            nobs = torch.cat([nrobot_state, parts_poses], dim=-1)
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
+
+        if flatten:
+            # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
 
         return nobs
 

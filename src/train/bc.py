@@ -1,8 +1,7 @@
 from datetime import datetime
 import os
 from pathlib import Path
-from src.common.context import suppress_all_output, suppress_stdout
-
+from src.common.context import suppress_stdout
 
 with suppress_stdout():
     import furniture_bench
@@ -13,7 +12,7 @@ import wandb
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import (
     FurnitureImageDataset,
-    FurnitureFeatureDataset,
+    FurnitureStateDataset,
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
@@ -99,7 +98,7 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer.get_copy(),
+            normalizer=normalizer,
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
@@ -107,17 +106,17 @@ def main(config: DictConfig):
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
         )
-    elif config.observation_type == "feature":
-        dataset = FurnitureFeatureDataset(
+    elif config.observation_type == "state":
+        dataset = FurnitureStateDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer.get_copy(),
-            encoder_name=config.vision_encoder.model,
+            normalizer=normalizer,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
+            pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
         )
     else:
@@ -132,6 +131,9 @@ def main(config: DictConfig):
     OmegaConf.set_struct(config, False)
     config.robot_state_dim = dataset.robot_state_dim
 
+    if config.observation_type == "state":
+        config.parts_poses_dim = dataset.parts_poses_dim
+
     # Create the policy network
     actor = get_actor(
         config,
@@ -141,6 +143,7 @@ def main(config: DictConfig):
 
     # Set the data path in the config object
     config.data_path = [str(f) for f in data_path]
+
     # Update the config object with the action dimension
     config.action_dim = dataset.action_dim
     config.n_episodes = len(dataset.episode_ends)
@@ -210,7 +213,7 @@ def main(config: DictConfig):
         name=config.wandb.name,
         resume=config.wandb.continue_run_id is not None,
         project=config.wandb.project,
-        entity="robot-rearrangement",
+        entity="ankile",
         config=config_dict,
         mode=config.wandb.mode,
         notes=config.wandb.notes,
@@ -246,12 +249,14 @@ def main(config: DictConfig):
 
     print(f"Job started at: {now()}")
 
+    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder_model}' if config.observation_type == 'image' else ''})"
+
     tglobal = trange(
         config.training.start_epoch,
         config.training.num_epochs,
         initial=config.training.start_epoch,
         total=config.training.num_epochs,
-        desc=f"Epoch ({config.rollout.furniture if config.rollout.rollouts else 'multitask'}, {config.observation_type}, {config.vision_encoder.model})",
+        desc=pbar_desc,
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -371,6 +376,7 @@ def main(config: DictConfig):
                     num_envs=config.rollout.num_envs,
                     randomness=config.rollout.randomness,
                     # Now using full size images in sim and resizing to be consistent
+                    # observation_space=config.observation_type,
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode="osc",
