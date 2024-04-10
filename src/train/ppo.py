@@ -12,6 +12,7 @@ from src.dataset import get_normalizer
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
@@ -53,9 +54,9 @@ class Args:
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
     # """the id of the environment"""
-    total_timesteps: int = 1_000_000
+    total_timesteps: int = 10_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 3e-4
+    learning_rate: float = 1e-6
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
@@ -63,13 +64,13 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.99
+    gamma: float = 0.997
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
     num_minibatches: int = 32
     """the number of mini-batches"""
-    update_epochs: int = 10
+    update_epochs: int = 5
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
@@ -133,7 +134,7 @@ if __name__ == "__main__":
         act_rot_repr="rot_6d",
         action_type="pos",
         april_tags=False,
-        ctrl_mode="osc",
+        ctrl_mode="diffik",
         furniture="one_leg",
         gpu_id=0,
         headless=False,
@@ -142,8 +143,8 @@ if __name__ == "__main__":
         randomness="low",
         pos_scalar=1,
         rot_scalar=1,
-        stiffness=800,
-        damping=150,
+        stiffness=1000,
+        damping=200,
     )
 
     # assert isinstance(
@@ -210,7 +211,7 @@ if __name__ == "__main__":
 
     # Load the model weights
     agent.load_state_dict(state_dict, strict=False)
-    agent.eval()
+    agent.normalizer._turn_off_gradients()
     agent.cuda()
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
@@ -227,12 +228,14 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     # next_obs, _ = envs.reset(seed=args.seed)
-    next_obs_dict = envs.reset()
     # bp()
-    next_nobs = agent.training_obs(next_obs_dict)
     next_done = torch.zeros(args.num_envs).to(device)
+    next_obs_dict = envs.reset()
+    next_nobs = agent.training_obs(next_obs_dict)
 
     for iteration in range(1, args.num_iterations + 1):
+        print(f"Iteration: {iteration}/{args.num_iterations}")
+
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1.0) / args.num_iterations
@@ -276,12 +279,14 @@ if __name__ == "__main__":
                 print(
                     f"step={step}, global_step={global_step}, reward={reward.sum().item()}"
                 )
-
+        next_obs_dict = envs.reset()
+        next_nobs = agent.training_obs(next_obs_dict)
         # bootstrap value if not done
         # bp()
+        # If no reward was received, skip the policy update
 
         with torch.no_grad():
-            next_value = agent.get_value(next_obs_dict).reshape(1, -1)
+            next_value = agent.get_value(next_nobs).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
@@ -312,7 +317,7 @@ if __name__ == "__main__":
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
         clipfracs = []
-        for epoch in range(args.update_epochs):
+        for epoch in trange(args.update_epochs, desc="Policy update"):
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -361,7 +366,15 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+
+                loss = v_loss * args.vf_coef
+
+                if iteration > 5 and rewards.sum() > 0:
+                    loss += pg_loss - args.ent_coef * entropy_loss
+                else:
+                    print(
+                        f"At iteration {iteration}, rewards sum to {rewards.sum()}, skipping policy update."
+                    )
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -390,6 +403,8 @@ if __name__ == "__main__":
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
+
+    print(f"Training finished in {(time.time() - start_time):.2f}s")
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"

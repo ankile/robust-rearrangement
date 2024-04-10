@@ -355,13 +355,12 @@ class ResidualMLPAgent(MLPStateActor):
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=1.0),
+            layer_init(nn.Linear(256, 1), std=0.1),
         )
 
-        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -0.5)
+        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -4.5)
 
-    def get_value(self, obs_dict):
-        nobs = self.training_obs(obs_dict, flatten=True)
+    def get_value(self, nobs: torch.Tensor):
         return self.critic(nobs)
 
     def training_obs(self, batch: dict, flatten: bool = True):
@@ -391,8 +390,8 @@ class ResidualMLPAgent(MLPStateActor):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            # naction = probs.sample()
-            naction = action_mean
+            naction = probs.sample()
+            # naction = action_mean
         else:
             naction = self.normalizer(action, "action", forward=True)
 
