@@ -340,7 +340,6 @@ class SmallAgent(nn.Module):
 
 class ResidualMLPAgent(MLPStateActor):
     def __init__(self, device, normalizer, cfg):
-        assert cfg.pred_horizon == 1, "Only support pred_horizon=1"
         super().__init__(
             device,
             normalizer,
@@ -358,7 +357,7 @@ class ResidualMLPAgent(MLPStateActor):
             layer_init(nn.Linear(256, 1), std=0.1),
         )
 
-        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -4.5)
+        self.actor_logstd = nn.Parameter(torch.ones(1, 1, self.action_dim) * -4.5)
 
     def get_value(self, nobs: torch.Tensor):
         return self.critic(nobs)
@@ -384,7 +383,9 @@ class ResidualMLPAgent(MLPStateActor):
 
     def get_action_and_value(self, nobs: torch.Tensor, action=None):
         # bp()
-        action_mean = self.model(nobs)
+        action_mean = self.model(nobs).reshape(
+            nobs.shape[0], self.pred_horizon, self.action_dim
+        )
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
@@ -399,7 +400,8 @@ class ResidualMLPAgent(MLPStateActor):
 
         return (
             action,
-            probs.log_prob(naction).sum(1),
-            probs.entropy().sum(1),
+            # Sum over all the dimensions after the batch dimension
+            probs.log_prob(naction).sum(dim=(1, 2)),
+            probs.entropy().sum(dim=(1, 2)),
             self.critic(nobs),
         )

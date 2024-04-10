@@ -5,7 +5,9 @@ import os
 import random
 import time
 from dataclasses import dataclass
+import math
 
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from src.dataset import get_normalizer
@@ -26,143 +28,9 @@ from wandb import Api
 api = Api()
 
 
-@dataclass
-class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    """the name of this experiment"""
-    seed: int = 1
-    """seed of the experiment"""
-    torch_deterministic: bool = True
-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
-    cuda: bool = True
-    """if toggled, cuda will be enabled by default"""
-    track: bool = False
-    """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
-    """the wandb's project name"""
-    wandb_entity: str = None
-    """the entity (team) of wandb's project"""
-    capture_video: bool = False
-    """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = False
-    """whether to save model into the `runs/{run_name}` folder"""
-    upload_model: bool = False
-    """whether to upload the saved model to huggingface"""
-    hf_entity: str = ""
-    """the user or org name of the model repository from the Hugging Face Hub"""
-
-    # Algorithm specific arguments
-    # env_id: str = "HalfCheetah-v4"
-    # """the id of the environment"""
-    total_timesteps: int = 10_000_000
-    """total timesteps of the experiments"""
-    learning_rate: float = 1e-6
-    """the learning rate of the optimizer"""
-    num_envs: int = 1
-    """the number of parallel game environments"""
-    num_steps: int = 650
-    """the number of steps to run in each environment per policy rollout"""
-    anneal_lr: bool = True
-    """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.997
-    """the discount factor gamma"""
-    gae_lambda: float = 0.95
-    """the lambda for the general advantage estimation"""
-    num_minibatches: int = 32
-    """the number of mini-batches"""
-    update_epochs: int = 5
-    """the K epochs to update the policy"""
-    norm_adv: bool = True
-    """Toggles advantages normalization"""
-    clip_coef: float = 0.2
-    """the surrogate clipping coefficient"""
-    clip_vloss: bool = True
-    """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
-    ent_coef: float = 0.0
-    """coefficient of the entropy"""
-    vf_coef: float = 0.5
-    """coefficient of the value function"""
-    max_grad_norm: float = 0.5
-    """the maximum norm for the gradient clipping"""
-    target_kl: float = None
-    """the target KL divergence threshold"""
-
-    # to be filled in runtime
-    batch_size: int = 0
-    """the batch size (computed in runtime)"""
-    minibatch_size: int = 0
-    """the mini-batch size (computed in runtime)"""
-    num_iterations: int = 0
-    """the number of iterations (computed in runtime)"""
-
-
-if __name__ == "__main__":
-    args = tyro.cli(Args)
-    args.batch_size = int(args.num_envs * args.num_steps)
-    args.minibatch_size = int(args.batch_size // args.num_minibatches)
-    args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"one_leg__{args.exp_name}__{args.seed}__{int(time.time())}"
-    if args.track:
-        import wandb
-
-        wandb.init(
-            project=args.wandb_project_name,
-            entity=args.wandb_entity,
-            sync_tensorboard=True,
-            config=vars(args),
-            name=run_name,
-            monitor_gym=True,
-            save_code=True,
-        )
-    writer = SummaryWriter(f"runs/{run_name}")
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
-
-    # TRY NOT TO MODIFY: seeding
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = args.torch_deterministic
-
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-
-    # env setup
-    envs = get_env(
-        act_rot_repr="rot_6d",
-        action_type="pos",
-        april_tags=False,
-        ctrl_mode="diffik",
-        furniture="one_leg",
-        gpu_id=0,
-        headless=False,
-        num_envs=args.num_envs,
-        observation_space="state",
-        randomness="low",
-        pos_scalar=1,
-        rot_scalar=1,
-        stiffness=1000,
-        damping=200,
-    )
-
-    # assert isinstance(
-    #     envs.single_action_space, gym.spaces.Box
-    # ), "only continuous action space is supported"
-    from ipdb import set_trace as bp
-
-    # bp()
-
-    obs_shape = (
-        envs.observation_space["parts_poses"].shape[-1]
-        + envs.observation_space["robot_state"].shape[-1]
-        + 2,
-    )
-    action_shape = envs.action_space.shape[-1:]
-
+def get_agent(run_id: str, device: torch.device):
     # Load a pre-trained model from WandB
-    run = api.run("ankile/one_leg-mlp-state-1/runs/lu3i593k")
+    run = api.run(run_id)
     # run = api.run("ankile/one_leg-mlp-state-1/runs/lq0c1oz4")
 
     cfg = run.config
@@ -207,14 +75,191 @@ if __name__ == "__main__":
 
     state_dict = torch.load(model_path)
 
-    actor_state_dict = agent.state_dict()
-
     # Load the model weights
     agent.load_state_dict(state_dict, strict=False)
     agent.normalizer._turn_off_gradients()
     agent.cuda()
 
+    return agent
+
+
+@dataclass
+class Args:
+    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+    """the name of this experiment"""
+    seed: int = 1
+    """seed of the experiment"""
+    torch_deterministic: bool = True
+    """if toggled, `torch.backends.cudnn.deterministic=False`"""
+    cuda: bool = True
+    """if toggled, cuda will be enabled by default"""
+    track: bool = False
+    """if toggled, this experiment will be tracked with Weights and Biases"""
+    wandb_project_name: str = "cleanRL"
+    """the wandb's project name"""
+    wandb_entity: str = None
+    """the entity (team) of wandb's project"""
+    capture_video: bool = False
+    """whether to capture videos of the agent performances (check out `videos` folder)"""
+    save_model: bool = False
+    """whether to save model into the `runs/{run_name}` folder"""
+    upload_model: bool = False
+    """whether to upload the saved model to huggingface"""
+    hf_entity: str = ""
+    """the user or org name of the model repository from the Hugging Face Hub"""
+
+    # Algorithm specific arguments
+    # env_id: str = "HalfCheetah-v4"
+    # """the id of the environment"""
+    total_timesteps: int = 10_000_000
+    """total timesteps of the experiments"""
+    learning_rate: float = 1e-6
+    """the learning rate of the optimizer"""
+    num_envs: int = 1
+    """the number of parallel game environments"""
+    num_env_steps: int = 750
+    """the number of steps to run in each environment per policy rollout"""
+    anneal_lr: bool = True
+    """Toggle learning rate annealing for policy and value networks"""
+    gamma: float = 0.997
+    """the discount factor gamma"""
+    gae_lambda: float = 0.95
+    """the lambda for the general advantage estimation"""
+    num_minibatches: int = 32
+    """the number of mini-batches"""
+    update_epochs: int = 5
+    """the K epochs to update the policy"""
+    norm_adv: bool = True
+    """Toggles advantages normalization"""
+    clip_coef: float = 0.2
+    """the surrogate clipping coefficient"""
+    clip_vloss: bool = True
+    """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
+    ent_coef: float = 0.0
+    """coefficient of the entropy"""
+    vf_coef: float = 0.5
+    """coefficient of the value function"""
+    max_grad_norm: float = 0.5
+    """the maximum norm for the gradient clipping"""
+    target_kl: float = None
+    """the target KL divergence threshold"""
+
+    # to be filled in runtime
+    batch_size: int = 0
+    """the batch size (computed in runtime)"""
+    minibatch_size: int = 0
+    """the mini-batch size (computed in runtime)"""
+    num_iterations: int = 0
+    """the number of iterations (computed in runtime)"""
+    num_steps: int = 0
+    """the number of steps (computed in runtime)"""
+
+
+class ActionChunkWrapper:
+    def __init__(self, env: FurnitureSimEnv, chunk_size: int):
+        self.env = env
+        self.chunk_size = chunk_size
+        self.action_space = env.action_space
+        self.observation_space = env.observation_space
+
+    def reset(self):
+        return self.env.reset()
+
+    def step(self, action_chunk):
+        total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
+        for i in range(self.chunk_size):
+            # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
+            # bp()
+            obs, reward, done, info = self.env.step(action_chunk[:, i, :])
+            total_reward += reward.squeeze()
+            if done.all():
+                break
+        return obs, total_reward, done, info
+
+
+if __name__ == "__main__":
+    args = tyro.cli(Args)
+
+    run_name = f"one_leg__{args.exp_name}__{args.seed}__{int(time.time())}"
+    if args.track:
+        import wandb
+
+        wandb.init(
+            project=args.wandb_project_name,
+            entity=args.wandb_entity,
+            sync_tensorboard=True,
+            config=vars(args),
+            name=run_name,
+            monitor_gym=True,
+            save_code=True,
+        )
+    writer = SummaryWriter(f"runs/{run_name}")
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s"
+        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+
+    # TRY NOT TO MODIFY: seeding
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.backends.cudnn.deterministic = args.torch_deterministic
+
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+
+    # env setup
+    envs: FurnitureSimEnv = get_env(
+        act_rot_repr="rot_6d",
+        action_type="pos",
+        april_tags=False,
+        ctrl_mode="diffik",
+        furniture="one_leg",
+        gpu_id=0,
+        headless=True,
+        num_envs=args.num_envs,
+        observation_space="state",
+        randomness="low",
+        pos_scalar=1,
+        rot_scalar=1,
+        stiffness=1000,
+        damping=200,
+        max_env_steps=args.num_env_steps,
+    )
+
+    # assert isinstance(
+    #     envs.single_action_space, gym.spaces.Box
+    # ), "only continuous action space is supported"
+    from ipdb import set_trace as bp
+
+    # bp()
+
+    obs_shape = (
+        envs.observation_space["parts_poses"].shape[-1]
+        + envs.observation_space["robot_state"].shape[-1]
+        + 2,
+    )
+    action_shape = envs.action_space.shape[-1:]
+
+    # run_id = "ankile/one_leg-mlp-state-1/runs/lu3i593k"  # Chunk size 1
+    run_id = "ankile/one_leg-mlp-state-1/runs/ez9v5j6x"  # Chunk size 4
+
+    agent = get_agent(run_id=run_id, device=device)
+
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+
+    # Make the chunked environment
+    envs = ActionChunkWrapper(envs, agent.action_horizon)
+    # bp()
+    action_shape = (agent.action_horizon,) + action_shape
+
+    args.num_steps = math.ceil(args.num_env_steps / agent.action_horizon)
+    args.batch_size = int(args.num_envs * args.num_steps)
+    args.minibatch_size = int(args.batch_size // args.num_minibatches)
+    args.num_iterations = args.total_timesteps // args.batch_size
+    print(
+        f"With chunk size {agent.action_horizon}, we have {args.num_steps} policy steps."
+    )
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + obs_shape).to(device)
@@ -227,7 +272,6 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
-    # next_obs, _ = envs.reset(seed=args.seed)
     # bp()
     next_done = torch.zeros(args.num_envs).to(device)
     next_obs_dict = envs.reset()
@@ -277,7 +321,7 @@ if __name__ == "__main__":
 
             if step % 100 == 0:
                 print(
-                    f"step={step}, global_step={global_step}, reward={reward.sum().item()}"
+                    f"step={step}, global_step={global_step}, reward={rewards[:step+1].sum().item()}"
                 )
         next_obs_dict = envs.reset()
         next_nobs = agent.training_obs(next_obs_dict)
@@ -305,6 +349,10 @@ if __name__ == "__main__":
                     delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
                 )
             returns = advantages + values
+
+        if rewards.sum() == 0:
+            print("No reward received, skipping policy update")
+            continue
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + obs_shape)
@@ -371,10 +419,6 @@ if __name__ == "__main__":
 
                 if iteration > 5 and rewards.sum() > 0:
                     loss += pg_loss - args.ent_coef * entropy_loss
-                else:
-                    print(
-                        f"At iteration {iteration}, rewards sum to {rewards.sum()}, skipping policy update."
-                    )
 
                 optimizer.zero_grad()
                 loss.backward()
