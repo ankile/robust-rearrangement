@@ -358,12 +358,13 @@ class ResidualMLPAgent(MLPStateActor):
             layer_init(nn.Linear(256, 1), std=1.0),
         )
 
-        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -1)
+        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * -0.5)
 
-    def get_value(self, x):
-        return self.critic(x)
+    def get_value(self, obs_dict):
+        nobs = self.training_obs(obs_dict, flatten=True)
+        return self.critic(nobs)
 
-    def _training_obs(self, batch, flatten: bool = True):
+    def training_obs(self, batch: dict, flatten: bool = True):
         # The robot state is already normalized in the dataset
         robot_state = batch["robot_state"]
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
@@ -382,9 +383,8 @@ class ResidualMLPAgent(MLPStateActor):
 
         return nobs
 
-    def get_action_and_value(self, obs, action=None):
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
         # bp()
-        nobs = self._training_obs(obs, flatten=True)
         action_mean = self.model(nobs)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)

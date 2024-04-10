@@ -155,12 +155,14 @@ if __name__ == "__main__":
 
     obs_shape = (
         envs.observation_space["parts_poses"].shape[-1]
-        + envs.observation_space["robot_state"].shape[-1],
+        + envs.observation_space["robot_state"].shape[-1]
+        + 2,
     )
     action_shape = envs.action_space.shape[-1:]
 
     # Load a pre-trained model from WandB
     run = api.run("ankile/one_leg-mlp-state-1/runs/lu3i593k")
+    # run = api.run("ankile/one_leg-mlp-state-1/runs/lq0c1oz4")
 
     cfg = run.config
 
@@ -227,13 +229,7 @@ if __name__ == "__main__":
     # next_obs, _ = envs.reset(seed=args.seed)
     next_obs_dict = envs.reset()
     # bp()
-    next_obs = torch.cat(
-        [
-            next_obs_dict["robot_state"],
-            next_obs_dict["parts_poses"],
-        ],
-        dim=-1,
-    )
+    next_nobs = agent.training_obs(next_obs_dict)
     next_done = torch.zeros(args.num_envs).to(device)
 
     for iteration in range(1, args.num_iterations + 1):
@@ -245,13 +241,13 @@ if __name__ == "__main__":
 
         for step in range(0, args.num_steps):
             global_step += args.num_envs
-            obs[step] = next_obs
+            obs[step] = next_nobs
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
             # bp()
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs_dict)
+                action, logprob, _, value = agent.get_action_and_value(next_nobs)
                 values[step] = value.flatten()
             actions[step] = action
             logprobs[step] = logprob
@@ -261,13 +257,7 @@ if __name__ == "__main__":
             rewards[step] = reward.view(-1)
             next_done = next_done.view(-1)
 
-            next_obs = torch.cat(
-                [
-                    next_obs_dict["robot_state"],
-                    next_obs_dict["parts_poses"],
-                ],
-                dim=-1,
-            )
+            next_nobs = agent.training_obs(next_obs_dict)
 
             if "final_info" in infos:
                 for info in infos["final_info"]:
@@ -287,12 +277,11 @@ if __name__ == "__main__":
                     f"step={step}, global_step={global_step}, reward={reward.sum().item()}"
                 )
 
-        raise
-
         # bootstrap value if not done
         # bp()
+
         with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
+            next_value = agent.get_value(next_obs_dict).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
