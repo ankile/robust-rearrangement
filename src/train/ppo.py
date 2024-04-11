@@ -38,7 +38,7 @@ from wandb import Api
 api = Api()
 
 
-def get_agent(run_id: str, device: torch.device):
+def get_agent(run_id: str, device: torch.device, load_weights: bool = True):
     # Load a pre-trained model from WandB
     run = api.run(run_id)
     # run = api.run("ankile/one_leg-mlp-state-1/runs/lq0c1oz4")
@@ -85,6 +85,9 @@ def get_agent(run_id: str, device: torch.device):
 
     state_dict = torch.load(model_path)
 
+    if not load_weights:
+        state_dict = {k: v for k, v in state_dict.items() if "normalizer" in k}
+
     # Load the model weights
     agent.load_state_dict(state_dict, strict=False)
     agent.normalizer._turn_off_gradients()
@@ -117,6 +120,8 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
+    load_weights: bool = True
+    """whether to load the weights of the model"""
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -137,7 +142,7 @@ class Args:
     """the lambda for the general advantage estimation"""
     num_minibatches: int = 32
     """the number of mini-batches"""
-    update_epochs: int = 5
+    update_epochs: int = 10
     """the K epochs to update the policy"""
     norm_adv: bool = True
     """Toggles advantages normalization"""
@@ -149,10 +154,14 @@ class Args:
     """coefficient of the entropy"""
     vf_coef: float = 0.5
     """coefficient of the value function"""
+    bc_coef: float = 0.0
+    """coefficient of the behavior cloning loss"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    penalize_failures: bool = False
+    """if toggled, failed episodes will be penalized"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -217,7 +226,7 @@ class ActionChunkWrapper:
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
-    run_name = f"one_leg__{args.exp_name}__chunked__{args.seed}__{int(time.time())}"
+    run_name = f"one_leg__{args.exp_name}__chunked__bc_coef_{args.bc_coef}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -281,7 +290,7 @@ if __name__ == "__main__":
     # run_id = "ankile/one_leg-mlp-state-1/runs/lu3i593k"  # Chunk size 1
     run_id = "ankile/one_leg-mlp-state-1/runs/ez9v5j6x"  # Chunk size 4
 
-    agent = get_agent(run_id=run_id, device=device)
+    agent = get_agent(run_id=run_id, device=device, load_weights=args.load_weights)
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -370,6 +379,12 @@ if __name__ == "__main__":
         next_obs_dict = envs.reset()
         next_nobs = agent.training_obs(next_obs_dict)
 
+        if args.penalize_failures:
+            # Penalize the rewards for the failed episodes
+            # A failed episode is one where no reward was received
+            # Set the last reward to -1 if no reward was received
+            rewards[step, rewards.sum(dim=0) == 0] = -1
+
         # bp()
         # Calculate the discounted rewards
         discounted_rewards = (
@@ -410,9 +425,9 @@ if __name__ == "__main__":
                 )
             returns = advantages + values
 
-        if rewards.sum() == 0:
-            print("No reward received, skipping policy update")
-            continue
+        # if rewards.sum() == 0:
+        #     print("No reward received, skipping policy update")
+        #     continue
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + obs_shape)
@@ -489,7 +504,7 @@ if __name__ == "__main__":
                 # Get loss
                 bc_loss = agent.compute_loss(batch)
 
-                loss += bc_loss
+                loss += args.bc_coef * bc_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -509,6 +524,8 @@ if __name__ == "__main__":
         )
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+        writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+        writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
