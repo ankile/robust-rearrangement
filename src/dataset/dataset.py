@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import torch
 from typing import Union, List
@@ -242,7 +243,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 class FurnitureStateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_paths: Union[List[str], str],
+        dataset_paths: Union[List[Path], Path],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,

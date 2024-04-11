@@ -345,22 +345,15 @@ class ResidualMLPAgent(MLPStateActor):
             normalizer,
             cfg,
         )
+        self.config = cfg
 
-        obs_shape = self.timestep_obs_dim * self.obs_horizon
-        action_shape = self.action_dim * self.pred_horizon
-
-        self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
+        self.value_head = nn.Sequential(
+            layer_init(nn.Linear(self.model.layers[-1].in_features, 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 1), std=0.1),
         )
 
         self.actor_logstd = nn.Parameter(torch.ones(1, 1, self.action_dim) * -4.5)
-
-    def get_value(self, nobs: torch.Tensor):
-        return self.critic(nobs)
 
     def training_obs(self, batch: dict, flatten: bool = True):
         # The robot state is already normalized in the dataset
@@ -381,11 +374,19 @@ class ResidualMLPAgent(MLPStateActor):
 
         return nobs
 
+    def get_value(self, nobs: torch.Tensor):
+        representation = self.model.forward_base(nobs)
+        return self.value_head(representation)
+
     def get_action_and_value(self, nobs: torch.Tensor, action=None):
         # bp()
-        action_mean = self.model(nobs).reshape(
+        representation = self.model.forward_base(nobs)
+
+        values = self.value_head(representation)
+        action_mean = self.model.action_head(representation).reshape(
             nobs.shape[0], self.pred_horizon, self.action_dim
         )
+
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
@@ -403,5 +404,5 @@ class ResidualMLPAgent(MLPStateActor):
             # Sum over all the dimensions after the batch dimension
             probs.log_prob(naction).sum(dim=(1, 2)),
             probs.entropy().sum(dim=(1, 2)),
-            self.critic(nobs),
+            values,
         )

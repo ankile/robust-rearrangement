@@ -20,3 +20,20 @@ class FixedStepsDataloader(torch.utils.data.DataLoader):
 
     def __len__(self):
         return self.n_batches
+
+
+class EndlessDataloader(torch.utils.data.DataLoader):
+    """
+    Dataloader that cycles through the dataset indefinitely.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __iter__(self):
+        endless_dataloader = itertools.cycle(super().__iter__())
+        for batch in endless_dataloader:
+            yield batch
+
+    def __len__(self):
+        return float("inf")

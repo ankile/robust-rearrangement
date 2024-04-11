@@ -1,4 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+from pathlib import Path
 import furniture_bench  # noqa
 
 import os
@@ -10,15 +11,24 @@ import math
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
+from src.common.pytorch_util import dict_to_device
 from src.dataset import get_normalizer
+from src.dataset.dataloader import EndlessDataloader
+from src.dataset.dataset import FurnitureStateDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
 from src.behavior.mlp import SmallAgent, ResidualMLPAgent
+
+# Set the gym logger to not print to console
+import gym
+
+gym.logger.set_level(40)
 
 
 from src.gym import get_env
@@ -111,7 +121,7 @@ class Args:
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
     # """the id of the environment"""
-    total_timesteps: int = 10_000_000
+    total_timesteps: int = 100_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 1e-6
     """the learning rate of the optimizer"""
@@ -121,7 +131,7 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.997
+    gamma: float = 0.995
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
@@ -155,6 +165,33 @@ class Args:
     """the number of steps (computed in runtime)"""
 
 
+def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
+    demo_data = FurnitureStateDataset(
+        dataset_paths=Path(cfg.data_path[0]),
+        pred_horizon=cfg.data.pred_horizon,
+        obs_horizon=cfg.data.obs_horizon,
+        action_horizon=cfg.data.action_horizon,
+        normalizer=normalizer,
+        data_subset=cfg.data.data_subset,
+        control_mode=cfg.control.control_mode,
+        first_action_idx=cfg.actor.first_action_index,
+        pad_after=cfg.data.get("pad_after", True),
+        max_episode_count=cfg.data.get("max_episode_count", None),
+    )
+
+    demo_data_loader = EndlessDataloader(
+        dataset=demo_data,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shuffle=False,
+        pin_memory=True,
+        drop_last=False,
+        persistent_workers=False,
+    )
+
+    return demo_data_loader
+
+
 class ActionChunkWrapper:
     def __init__(self, env: FurnitureSimEnv, chunk_size: int):
         self.env = env
@@ -180,7 +217,7 @@ class ActionChunkWrapper:
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
-    run_name = f"one_leg__{args.exp_name}__{args.seed}__{int(time.time())}"
+    run_name = f"one_leg__{args.exp_name}__chunked__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -269,6 +306,13 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
+    # Get the dataloader for the demo data for the behavior cloning
+    demo_data_loader = get_demo_data_loader(
+        cfg=agent.config,
+        normalizer=agent.normalizer.get_copy().cpu(),
+        batch_size=args.minibatch_size,
+    )
+
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
@@ -319,12 +363,28 @@ if __name__ == "__main__":
                             "charts/episodic_length", info["episode"]["l"], global_step
                         )
 
-            if step % 100 == 0:
+            if (env_step := step * agent.action_horizon) % 100 == 0:
                 print(
-                    f"step={step}, global_step={global_step}, reward={rewards[:step+1].sum().item()}"
+                    f"env_step={env_step}, global_step={global_step}, reward={rewards[:step+1].sum().item()}"
                 )
         next_obs_dict = envs.reset()
         next_nobs = agent.training_obs(next_obs_dict)
+
+        # bp()
+        # Calculate the discounted rewards
+        discounted_rewards = (
+            (
+                rewards
+                * args.gamma
+                ** torch.arange(args.num_steps, device=device).float().unsqueeze(1)
+            )
+            .sum(dim=0)
+            .mean()
+            .item()
+        )
+
+        print(f"Discounted rewards: {discounted_rewards}")
+
         # bootstrap value if not done
         # bp()
         # If no reward was received, skip the policy update
@@ -361,6 +421,8 @@ if __name__ == "__main__":
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+
+        demo_data_iter = iter(demo_data_loader)
 
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
@@ -420,6 +482,15 @@ if __name__ == "__main__":
                 if iteration > 5 and rewards.sum() > 0:
                     loss += pg_loss - args.ent_coef * entropy_loss
 
+                # Behavior cloning loss
+                batch = next(demo_data_iter)
+                batch = dict_to_device(batch, device)
+
+                # Get loss
+                bc_loss = agent.compute_loss(batch)
+
+                loss += bc_loss
+
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
@@ -447,6 +518,8 @@ if __name__ == "__main__":
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
+        writer.add_scalar("charts/rewards", rewards.sum().item(), global_step)
+        writer.add_scalar("charts/discounted_rewards", discounted_rewards, global_step)
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
