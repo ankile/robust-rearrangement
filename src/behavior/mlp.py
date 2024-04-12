@@ -302,6 +302,8 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 class SmallAgent(nn.Module):
+    normalizer: Normalizer
+
     def __init__(self, obs_shape, action_shape):
         super().__init__()
         self.critic = nn.Sequential(
@@ -316,25 +318,83 @@ class SmallAgent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(action_shape)), std=0.01),
+            layer_init(nn.Linear(64, np.prod(action_shape)), std=1),
         )
-        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(action_shape)))
+        self.actor_logstd = nn.Parameter(torch.zeros(1, 1, np.prod(action_shape)))
 
-    def get_value(self, x):
-        return self.critic(x)
+    def training_obs(self, batch: dict, flatten: bool = True):
+        # The robot state is already normalized in the dataset
+        robot_state = batch["robot_state"]
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
 
-    def get_action_and_value(self, x, action=None):
-        action_mean = self.actor_mean(x)
+        # The parts poses are already normalized in the dataset
+        parts_poses = batch["parts_poses"]
+        nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+
+        # Reshape concatenate the features
+        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+
+        if flatten:
+            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
+
+        return nobs
+
+    # === Training ===
+    def _training_obs(self, batch, flatten: bool = True):
+        # The robot state is already normalized in the dataset
+        nrobot_state = batch["robot_state"]
+
+        # The parts poses are already normalized in the dataset
+        nparts_poses = batch["parts_poses"]
+
+        # Reshape concatenate the features
+        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+
+        if flatten:
+            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
+
+        return nobs
+
+    def compute_loss(self, batch):
+        # State already normalized in the dataset
+        obs_cond = self._training_obs(batch, flatten=True)
+
+        # Action already normalized in the dataset
+        naction = batch["action"]
+
+        # forward pass
+        naction_pred = self.actor_mean(obs_cond).reshape(
+            naction.shape[0], self.pred_horizon, self.action_dim
+        )
+
+        loss = torch.nn.functional.mse_loss(naction_pred, naction)
+
+        return loss
+
+    def get_value(self, nobs: torch.Tensor):
+        return self.critic(nobs)
+
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        action_mean = self.actor_mean(nobs).reshape(
+            nobs.shape[0], self.pred_horizon, self.action_dim
+        )
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
         if action is None:
-            action = probs.sample()
+            naction = probs.sample()
+        else:
+            naction = self.normalizer(action, "action", forward=True)
+
+        action = self.normalizer(naction, "action", forward=False)
         return (
             action,
-            probs.log_prob(action).sum(1),
-            probs.entropy().sum(1),
-            self.critic(x),
+            probs.log_prob(action).sum(dim=(1, 2)),
+            probs.entropy().sum(dim=(1, 2)),
+            self.critic(nobs),
         )
 
 

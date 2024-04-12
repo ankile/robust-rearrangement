@@ -38,7 +38,12 @@ from wandb import Api
 api = Api()
 
 
-def get_agent(run_id: str, device: torch.device, load_weights: bool = True):
+def get_agent(
+    run_id: str,
+    device: torch.device,
+    load_weights: bool = True,
+    control_mode_override: str = None,
+):
     # Load a pre-trained model from WandB
     run = api.run(run_id)
     # run = api.run("ankile/one_leg-mlp-state-1/runs/lq0c1oz4")
@@ -61,7 +66,11 @@ def get_agent(run_id: str, device: torch.device, load_weights: bool = True):
     normalizer_type = cfg.get("data", {}).get("normalization", "min_max")
     normalizer = get_normalizer(
         normalizer_type=normalizer_type,
-        control_mode=cfg.control.control_mode,
+        control_mode=(
+            cfg.control.control_mode
+            if control_mode_override is None
+            else control_mode_override
+        ),
     )
 
     # TODO: Fix this properly, but for now have an ugly escape hatch
@@ -87,6 +96,7 @@ def get_agent(run_id: str, device: torch.device, load_weights: bool = True):
 
     if not load_weights:
         state_dict = {k: v for k, v in state_dict.items() if "normalizer" in k}
+        state_dict = {k: v for k, v in state_dict.items() if "action" not in k}
 
     # Load the model weights
     agent.load_state_dict(state_dict, strict=False)
@@ -122,6 +132,9 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     load_weights: bool = True
     """whether to load the weights of the model"""
+    headless: bool = True
+    """if toggled, the environment will be set to headless mode"""
+    agent: str = "small"
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -136,7 +149,7 @@ class Args:
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
-    gamma: float = 0.995
+    gamma: float = 0.99
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
@@ -162,6 +175,7 @@ class Args:
     """the target KL divergence threshold"""
     penalize_failures: bool = False
     """if toggled, failed episodes will be penalized"""
+    simplified_task: bool = False
 
     # to be filled in runtime
     batch_size: int = 0
@@ -192,7 +206,7 @@ def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
         dataset=demo_data,
         batch_size=batch_size,
         num_workers=num_workers,
-        shuffle=False,
+        shuffle=True,
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
@@ -226,7 +240,7 @@ class ActionChunkWrapper:
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
-    run_name = f"one_leg__{args.exp_name}__chunked__bc_coef_{args.bc_coef}__{args.seed}__{int(time.time())}"
+    run_name = f"one_leg__{args.exp_name}__chunked__bc_coef_{args.bc_coef}__delta__simplified_{args.simplified_task}__{args.agent}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
 
@@ -253,16 +267,17 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-
+    act_rot_repr = "rot_6d"  # "quat" or "rot_6d"
+    action_type = "delta"  # "delta" or "pos"
     # env setup
     envs: FurnitureSimEnv = get_env(
-        act_rot_repr="rot_6d",
-        action_type="pos",
+        act_rot_repr=act_rot_repr,
+        action_type=action_type,
         april_tags=False,
         ctrl_mode="diffik",
         furniture="one_leg",
         gpu_id=0,
-        headless=True,
+        headless=args.headless,
         num_envs=args.num_envs,
         observation_space="state",
         randomness="low",
@@ -290,7 +305,45 @@ if __name__ == "__main__":
     # run_id = "ankile/one_leg-mlp-state-1/runs/lu3i593k"  # Chunk size 1
     run_id = "ankile/one_leg-mlp-state-1/runs/ez9v5j6x"  # Chunk size 4
 
-    agent = get_agent(run_id=run_id, device=device, load_weights=args.load_weights)
+    agent = get_agent(
+        run_id=run_id,
+        device=device,
+        load_weights=args.load_weights,
+        control_mode_override=action_type,
+    )
+    if args.agent == "small":
+        normalizer = agent.normalizer
+        config = agent.config
+        agent = SmallAgent(
+            obs_shape=obs_shape,
+            action_shape=action_shape,
+        ).to(device)
+        agent.action_horizon = 1
+        agent.pred_horizon = 1
+        agent.obs_horizon = 1
+        agent.action_dim = 10 if act_rot_repr == "rot_6d" else 8
+        agent.config = config
+
+        # Change the config
+        OmegaConf.set_readonly(agent.config, False)
+        agent.config.data.obs_horizon = 1
+        agent.config.data.pred_horizon = 1
+        agent.config.data.action_horizon = 1
+        OmegaConf.set_readonly(agent.config, True)
+
+        # Set the normalizer
+        agent.normalizer = normalizer
+
+        # agent.load_state_dict(
+        #     torch.load(
+        #         "/data/scratch/ankile/robust-rearrangement/runs/one_leg__ppo__chunked__bc_coef_0.0__simplified_True__small__1__1712860478/ppo.cleanrl_model"
+        #     )
+        # )
+
+    elif args.agent == "residual":
+        pass
+    else:
+        raise ValueError(f"Unknown agent type: {args.agent}")
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -349,32 +402,38 @@ if __name__ == "__main__":
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(next_nobs)
                 values[step] = value.flatten()
+
             actions[step] = action
             logprobs[step] = logprob
 
+            # Set the x, y, z velocities to 0
+            # action[:, :, :] = torch.tensor(
+            #     [0, -0.01, 0.01, 1, 0, 0, 0, 1, 0, -1],
+            #     dtype=torch.float32,
+            #     device=device,
+            # )
+
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs_dict, reward, next_done, infos = envs.step(action)
-            rewards[step] = reward.view(-1)
+
+            # Get the end effector position
+            ee_pos, _ = envs.env.get_ee_pose()
+
+            # Make a dense reward that measures the distance to the goal: [ 0.5934, -0.2813,  0.5098]
+            goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
+            dense_reward = 1 / (1 + torch.norm(ee_pos - goal, dim=-1))
+
+            # Set the reward to be 1 if the distance is less than 0.01
+            dense_reward[torch.norm(ee_pos - goal, dim=-1) < 0.01] = 1
+            # rewards[step] = reward.view(-1)
+            rewards[step] = dense_reward.view(-1)
             next_done = next_done.view(-1)
 
             next_nobs = agent.training_obs(next_obs_dict)
 
-            if "final_info" in infos:
-                for info in infos["final_info"]:
-                    if info and "episode" in info:
-                        print(
-                            f"global_step={global_step}, episodic_return={info['episode']['r']}"
-                        )
-                        writer.add_scalar(
-                            "charts/episodic_return", info["episode"]["r"], global_step
-                        )
-                        writer.add_scalar(
-                            "charts/episodic_length", info["episode"]["l"], global_step
-                        )
-
             if (env_step := step * agent.action_horizon) % 100 == 0:
                 print(
-                    f"env_step={env_step}, global_step={global_step}, reward={rewards[:step+1].sum().item()}"
+                    f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
         next_obs_dict = envs.reset()
         next_nobs = agent.training_obs(next_obs_dict)
@@ -397,8 +456,10 @@ if __name__ == "__main__":
             .mean()
             .item()
         )
+        # If any positive reward was received, consider it a success
+        success_rate = (rewards == 1).any(dim=0).float().mean().item()
 
-        print(f"Discounted rewards: {discounted_rewards}")
+        print(f"Discounted rewards: {discounted_rewards}, Success rate: {success_rate}")
 
         # bootstrap value if not done
         # bp()
@@ -494,8 +555,7 @@ if __name__ == "__main__":
 
                 loss = v_loss * args.vf_coef
 
-                if iteration > 5 and rewards.sum() > 0:
-                    loss += pg_loss - args.ent_coef * entropy_loss
+                loss += pg_loss - args.ent_coef * entropy_loss
 
                 # Behavior cloning loss
                 batch = next(demo_data_iter)
@@ -537,6 +597,7 @@ if __name__ == "__main__":
         )
         writer.add_scalar("charts/rewards", rewards.sum().item(), global_step)
         writer.add_scalar("charts/discounted_rewards", discounted_rewards, global_step)
+        writer.add_scalar("charts/success_rate", success_rate, global_step)
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
@@ -544,34 +605,34 @@ if __name__ == "__main__":
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        from cleanrl_utils.evals.ppo_eval import evaluate
+        # from cleanrl_utils.evals.ppo_eval import evaluate
 
-        episodic_returns = evaluate(
-            model_path,
-            make_env,
-            args.env_id,
-            eval_episodes=10,
-            run_name=f"{run_name}-eval",
-            Model=Agent,
-            device=device,
-            gamma=args.gamma,
-        )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        # episodic_returns = evaluate(
+        #     model_path,
+        #     make_env,
+        #     args.env_id,
+        #     eval_episodes=10,
+        #     run_name=f"{run_name}-eval",
+        #     Model=Agent,
+        #     device=device,
+        #     gamma=args.gamma,
+        # )
+        # for idx, episodic_return in enumerate(episodic_returns):
+        #     writer.add_scalar("eval/episodic_return", episodic_return, idx)
 
-        if args.upload_model:
-            from cleanrl_utils.huggingface import push_to_hub
+        # if args.upload_model:
+        #     from cleanrl_utils.huggingface import push_to_hub
 
-            repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-            repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-            push_to_hub(
-                args,
-                episodic_returns,
-                repo_id,
-                "PPO",
-                f"runs/{run_name}",
-                f"videos/{run_name}-eval",
-            )
+        #     repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
+        #     repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
+        #     push_to_hub(
+        #         args,
+        #         episodic_returns,
+        #         repo_id,
+        #         "PPO",
+        #         f"runs/{run_name}",
+        #         f"videos/{run_name}-eval",
+        #     )
 
     envs.close()
     writer.close()
