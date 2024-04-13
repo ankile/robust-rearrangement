@@ -397,7 +397,7 @@ def calculate_advantage(
     rewards: torch.Tensor,
     dones: torch.Tensor,
 ):
-    values = agent.get_value(obs).reshape(-1)
+    values = agent.get_value(obs).squeeze()
     next_value = agent.get_value(next_obs).reshape(1, -1)
 
     advantages = torch.zeros_like(rewards).to(device)
@@ -624,16 +624,16 @@ if __name__ == "__main__":
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + env.action_space.shape)
-        b_advantages = advantages.reshape(-1)
-        b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
 
         # bootstrap value if not done
         # NOTE: Consider recalculating the advantages every update epoch
         # bp()
         advantages, returns = calculate_advantage(
-            args, device, agent, b_obs, b_obs, rewards, dones
+            args, device, agent, obs, next_obs, rewards, dones
         )
+        b_advantages = advantages.reshape(-1)
+        b_returns = returns.reshape(-1)
 
         # demo_data_iter = iter(demo_data_loader)
 
@@ -718,8 +718,10 @@ if __name__ == "__main__":
             # Recalculate the advantages with the updated policy before the next epoch
             if args.recalculate_advantages:
                 advantages, returns = calculate_advantage(
-                    args, device, agent, b_obs, b_obs, rewards, dones
+                    args, device, agent, obs, next_obs, rewards, dones
                 )
+                b_advantages = advantages.reshape(-1)
+                b_returns = returns.reshape(-1)
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -748,8 +750,8 @@ if __name__ == "__main__":
 
         # Add histograms
         writer.add_histogram("histograms/values", values, global_step)
-        writer.add_histogram("histograms/returns", returns, global_step)
-        writer.add_histogram("histograms/advantages", advantages, global_step)
+        writer.add_histogram("histograms/returns", b_returns, global_step)
+        writer.add_histogram("histograms/advantages", b_advantages, global_step)
         writer.add_histogram("histograms/logprobs", logprobs, global_step)
         writer.add_histogram("histograms/rewards", rewards, global_step)
 

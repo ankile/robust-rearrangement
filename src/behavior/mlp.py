@@ -490,7 +490,7 @@ class SmallAgentSimple(nn.Module):
         )
         self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * 0)
 
-    def get_value(self, nobs: torch.Tensor):
+    def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
         return self.critic(nobs)
 
     def get_action_and_value(self, obs: torch.Tensor, action=None):
