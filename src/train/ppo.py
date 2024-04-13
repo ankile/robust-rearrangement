@@ -165,6 +165,9 @@ class Args:
     normalize_obs: bool = False
     """if toggled, the observations will be normalized"""
     recalculate_advantages: bool = False
+    """if toggled, the advantages will be recalculated every update epoch"""
+    minimum_success_rate: float = 0.0
+    """the threshold at which we'll upsample the successful episodes"""
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -397,6 +400,7 @@ def calculate_advantage(
     rewards: torch.Tensor,
     dones: torch.Tensor,
 ):
+    # bp()
     values = agent.get_value(obs).squeeze()
     next_value = agent.get_value(next_obs).reshape(1, -1)
 
@@ -443,7 +447,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug3"
+    run_directory = "runs/debug4_del"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -611,29 +615,65 @@ if __name__ == "__main__":
             .item()
         )
         # If any positive reward was received, consider it a success
-        success_rate = (rewards > 0).any(dim=0).float().mean().item()
+        reward_mask = (rewards.sum(dim=0) > 0).float()
+        success_rate = reward_mask.mean().item()
 
         print(
             f"Mean episode return: {discounted_rewards}, Success rate: {success_rate}"
         )
+
         # NOTE: Solve resetting of the environment correctly
+        if success_rate > 0 and success_rate < args.minimum_success_rate:
+            # Upsample the successful episodes
+            print("Upsampling successful episodes")
+            # Calculate the mask for trajectories with at least one reward
 
-        # bp()
+            # Stratified sampling to ensure desired proportion of successful trajectories
+            num_success_trajectories = int(args.num_envs * args.minimum_success_rate)
+            num_fail_trajectories = args.num_envs - num_success_trajectories
 
-        # flatten the batch
-        b_obs = obs.reshape((-1,) + env.observation_space.shape)
-        b_logprobs = logprobs.reshape(-1)
-        b_actions = actions.reshape((-1,) + env.action_space.shape)
-        b_values = values.reshape(-1)
+            success_indices = torch.nonzero(reward_mask).view(-1)
+            fail_indices = torch.nonzero(1 - reward_mask).view(-1)
+
+            success_trajectories = success_indices[
+                torch.multinomial(
+                    torch.ones(len(success_indices)),
+                    num_success_trajectories,
+                    replacement=True,
+                )
+            ]
+
+            fail_trajectories = fail_indices[
+                torch.randperm(len(fail_indices))[:num_fail_trajectories]
+            ]
+
+            indices = torch.cat([success_trajectories, fail_trajectories])
+        else:
+            # No resampling needed, use all trajectories
+            indices = torch.arange(args.batch_size)
+
+        # Select the experiences based on the sampled indices
+        b_obs = obs[:, indices].reshape((-1,) + env.observation_space.shape)
+        b_actions = actions[:, indices].reshape((-1,) + env.action_space.shape)
+        b_logprobs = logprobs[:, indices].reshape(-1)
+        b_rewards = rewards[:, indices].reshape(-1)
+        b_dones = dones[:, indices].reshape(-1)
+        b_values = values[:, indices].reshape(-1)
 
         # bootstrap value if not done
         # NOTE: Consider recalculating the advantages every update epoch
         # bp()
-        advantages, returns = calculate_advantage(
-            args, device, agent, obs, next_obs, rewards, dones
+        b_advantages, b_returns = calculate_advantage(
+            args,
+            device,
+            agent,
+            b_obs.view((args.num_steps, args.num_envs) + env.observation_space.shape),
+            next_obs,
+            b_rewards.view(args.num_steps, -1),
+            b_dones.view(args.num_steps, -1),
         )
-        b_advantages = advantages.reshape(-1)
-        b_returns = returns.reshape(-1)
+        b_advantages = b_advantages.reshape(-1)
+        b_returns = b_returns.reshape(-1)
 
         # demo_data_iter = iter(demo_data_loader)
 
@@ -717,15 +757,34 @@ if __name__ == "__main__":
 
             # Recalculate the advantages with the updated policy before the next epoch
             if args.recalculate_advantages:
-                advantages, returns = calculate_advantage(
-                    args, device, agent, obs, next_obs, rewards, dones
+                b_advantages, b_returns = calculate_advantage(
+                    args,
+                    device,
+                    agent,
+                    b_obs.view(
+                        (args.num_steps, args.num_envs) + env.observation_space.shape
+                    ),
+                    next_obs,
+                    b_rewards.view(args.num_steps, -1),
+                    b_dones.view(args.num_steps, -1),
                 )
-                b_advantages = advantages.reshape(-1)
-                b_returns = returns.reshape(-1)
+                b_advantages = b_advantages.reshape(-1)
+                b_returns = b_returns.reshape(-1)
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+
+        # Calculate return and advantage with the orignal experience sample for logging
+        advantages, returns = calculate_advantage(
+            args,
+            device,
+            agent,
+            obs,
+            next_obs,
+            rewards,
+            dones,
+        )
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalar(
@@ -750,8 +809,8 @@ if __name__ == "__main__":
 
         # Add histograms
         writer.add_histogram("histograms/values", values, global_step)
-        writer.add_histogram("histograms/returns", b_returns, global_step)
-        writer.add_histogram("histograms/advantages", b_advantages, global_step)
+        writer.add_histogram("histograms/returns", returns, global_step)
+        writer.add_histogram("histograms/advantages", advantages, global_step)
         writer.add_histogram("histograms/logprobs", logprobs, global_step)
         writer.add_histogram("histograms/rewards", rewards, global_step)
 
@@ -759,6 +818,11 @@ if __name__ == "__main__":
         writer.add_histogram("actions/x", actions[:, :, 0], global_step)
         writer.add_histogram("actions/y", actions[:, :, 1], global_step)
         writer.add_histogram("actions/z", actions[:, :, 2], global_step)
+
+        # Add the mean of the actions
+        writer.add_scalar("actions/x_mean", actions[:, :, 0].mean(), global_step)
+        writer.add_scalar("actions/y_mean", actions[:, :, 1].mean(), global_step)
+        writer.add_scalar("actions/z_mean", actions[:, :, 2].mean(), global_step)
 
         # Add histograms for the gradients and the weights
         for name, param in agent.named_parameters():
