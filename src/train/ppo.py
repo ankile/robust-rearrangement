@@ -164,6 +164,7 @@ class Args:
     """if toggled, the rewards will be normalized"""
     normalize_obs: bool = False
     """if toggled, the observations will be normalized"""
+    recalculate_advantages: bool = False
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -274,9 +275,9 @@ class RunningMeanStd:
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
     def __init__(self, epsilon=1e-4, shape=(), device="cuda"):
         """Tracks the mean, variance and count of values."""
-        self.mean = torch.zeros(shape, dtype=torch.float64, device=device)
-        self.var = torch.ones(shape, dtype=torch.float64, device=device)
-        self.count = torch.tensor(epsilon, dtype=torch.float64, device=device)
+        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
+        self.var = torch.ones(shape, dtype=torch.float32, device=device)
+        self.count = torch.tensor(epsilon, dtype=torch.float32, device=device)
 
     def update(self, x):
         """Updates the mean, var and count from a batch of samples."""
@@ -391,24 +392,24 @@ def calculate_advantage(
     args: Args,
     device: torch.device,
     agent: SmallAgentSimple,
+    obs: torch.Tensor,
+    next_obs: torch.Tensor,
     rewards: torch.Tensor,
     dones: torch.Tensor,
-    values: torch.Tensor,
-    next_done: torch.Tensor,
-    next_obs: torch.Tensor,
 ):
+    values = agent.get_value(obs).reshape(-1)
     next_value = agent.get_value(next_obs).reshape(1, -1)
+
     advantages = torch.zeros_like(rewards).to(device)
     lastgaelam = 0
     for t in reversed(range(args.num_steps)):
         if t == args.num_steps - 1:
-            nextnonterminal = 1.0 - next_done.to(torch.float)
+            nextnonterminal = 1.0 - dones[-1].to(torch.float)
             nextvalues = next_value
         else:
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
             nextvalues = values[t + 1]
 
-            # bp()
         delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
         advantages[t] = lastgaelam = (
             delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
@@ -617,13 +618,6 @@ if __name__ == "__main__":
         )
         # NOTE: Solve resetting of the environment correctly
 
-        # bootstrap value if not done
-        # NOTE: Consider recalculating the advantages every update epoch
-        # bp()
-        advantages, returns = calculate_advantage(
-            args, device, agent, rewards, dones, values, next_done, next_obs
-        )
-
         # bp()
 
         # flatten the batch
@@ -633,6 +627,13 @@ if __name__ == "__main__":
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+
+        # bootstrap value if not done
+        # NOTE: Consider recalculating the advantages every update epoch
+        # bp()
+        advantages, returns = calculate_advantage(
+            args, device, agent, b_obs, b_obs, rewards, dones
+        )
 
         # demo_data_iter = iter(demo_data_loader)
 
@@ -713,6 +714,12 @@ if __name__ == "__main__":
 
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
+
+            # Recalculate the advantages with the updated policy before the next epoch
+            if args.recalculate_advantages:
+                advantages, returns = calculate_advantage(
+                    args, device, agent, b_obs, b_obs, rewards, dones
+                )
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)

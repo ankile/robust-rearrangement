@@ -494,6 +494,7 @@ class SmallAgentSimple(nn.Module):
         return self.critic(nobs)
 
     def get_action_and_value(self, obs: torch.Tensor, action=None):
+        # bp()
         action_mean = self.actor_mean(obs)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
