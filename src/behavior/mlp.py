@@ -307,11 +307,11 @@ class SmallAgent(nn.Module):
     def __init__(self, obs_shape, action_shape):
         super().__init__()
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(obs_shape).prod(), 64)),
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
+            layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor_mean = nn.Sequential(
             layer_init(nn.Linear(np.array(obs_shape).prod(), 64)),
@@ -320,7 +320,7 @@ class SmallAgent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, np.prod(action_shape)), std=1),
         )
-        self.actor_logstd = nn.Parameter(torch.zeros(1, 1, np.prod(action_shape)))
+        self.actor_logstd = nn.Parameter(torch.ones(1, 1, np.prod(action_shape)) * 0)
 
     def training_obs(self, batch: dict, flatten: bool = True):
         # The robot state is already normalized in the dataset
@@ -465,4 +465,46 @@ class ResidualMLPAgent(MLPStateActor):
             probs.log_prob(naction).sum(dim=(1, 2)),
             probs.entropy().sum(dim=(1, 2)),
             values,
+        )
+
+
+class SmallAgentSimple(nn.Module):
+    action_horizon: int = 1
+
+    def __init__(self, obs_shape, action_shape):
+        super().__init__()
+        # bp()
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, np.prod(action_shape)), std=1),
+        )
+        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * 0)
+
+    def get_value(self, nobs: torch.Tensor):
+        return self.critic(nobs)
+
+    def get_action_and_value(self, obs: torch.Tensor, action=None):
+        action_mean = self.actor_mean(obs)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+
+        return (
+            action,
+            probs.log_prob(action).sum(1),
+            probs.entropy().sum(1),
+            self.critic(obs),
         )

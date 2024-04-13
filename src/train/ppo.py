@@ -1,5 +1,6 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from pathlib import Path
+from typing import Dict
 import furniture_bench  # noqa
 
 import os
@@ -23,7 +24,7 @@ from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
-from src.behavior.mlp import SmallAgent, ResidualMLPAgent
+from src.behavior.mlp import SmallAgent, ResidualMLPAgent, SmallAgentSimple
 
 # Set the gym logger to not print to console
 import gym
@@ -106,6 +107,58 @@ def get_agent(
     return agent
 
 
+class NormalizeReward(gym.core.Wrapper):
+    r"""This wrapper will normalize immediate rewards s.t. their exponential moving average has a fixed variance.
+
+    The exponential moving average will have variance :math:`(1 - \gamma)^2`.
+
+    Note:
+        The scaling depends on past trajectories and rewards will not be scaled correctly if the wrapper was newly
+        instantiated or the policy was changed recently.
+    """
+
+    def __init__(
+        self,
+        env: gym.Env,
+        gamma: float = 0.99,
+        epsilon: float = 1e-8,
+        device: str = "cpu",
+    ):
+        """This wrapper will normalize immediate rewards s.t. their exponential moving average has a fixed variance.
+
+        Args:
+            env (env): The environment to apply the wrapper
+            epsilon (float): A stability parameter
+            gamma (float): The discount factor that is used in the exponential moving average.
+            device (str): The device to use for PyTorch tensors ("cpu" or "cuda").
+        """
+        gym.Wrapper.__init__(self, env)
+
+        self.num_envs = env.num_envs
+        self.is_vector_env = True
+
+        self.return_rms = RunningMeanStd(shape=(), device=device)
+        self.returns = torch.zeros(self.num_envs, device=device)
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.device = device
+
+    def step(self, action):
+        """Steps through the environment, normalizing the rewards returned."""
+        obs, rews, done, infos = self.env.step(action)
+
+        self.returns = self.returns * self.gamma * (1 - done.float()) + rews
+        rews = self.normalize(rews)
+        if not self.is_vector_env:
+            rews = rews[0]
+        return obs, rews, done, infos
+
+    def normalize(self, rews):
+        """Normalizes the rewards with the running mean rewards and their variance."""
+        self.return_rms.update(self.returns)
+        return rews / torch.sqrt(self.return_rms.var + self.epsilon)
+
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
@@ -135,6 +188,9 @@ class Args:
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
     agent: str = "small"
+    """the agent to use"""
+    normalize_reward: bool = False
+    """if toggled, the rewards will be normalized"""
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -237,6 +293,124 @@ class ActionChunkWrapper:
         return obs, total_reward, done, info
 
 
+class RunningMeanStd:
+    """Tracks the mean, variance and count of values."""
+
+    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+    def __init__(self, epsilon=1e-4, shape=(), device="cuda"):
+        """Tracks the mean, variance and count of values."""
+        self.mean = torch.zeros(shape, dtype=torch.float64, device=device)
+        self.var = torch.ones(shape, dtype=torch.float64, device=device)
+        self.count = torch.tensor(epsilon, dtype=torch.float64, device=device)
+
+    def update(self, x):
+        """Updates the mean, var and count from a batch of samples."""
+        batch_mean = torch.mean(x, dim=0)
+        batch_var = torch.var(x, dim=0, unbiased=False)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        """Updates from batch mean, variance and count moments."""
+        self.mean, self.var, self.count = update_mean_var_count_from_moments(
+            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
+        )
+
+
+def update_mean_var_count_from_moments(
+    mean, var, count, batch_mean, batch_var, batch_count
+):
+    """Updates the mean, var and count using the previous mean, var, count and batch values."""
+    delta = batch_mean - mean
+    tot_count = count + batch_count
+
+    new_mean = mean + delta * batch_count / tot_count
+    m_a = var * count
+    m_b = batch_var * batch_count
+    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
+    new_var = M2 / tot_count
+    new_count = tot_count
+
+    return new_mean, new_var, new_count
+
+
+class FurnitureEnvWrapper:
+    def __init__(self, env: FurnitureSimEnv, max_env_steps=300):
+        # super(FurnitureEnvWrapper, self).__init__(env)
+        self.env = env
+
+        # Define a new action space of dim 3 (x, y, z)
+        self.action_space = gym.spaces.Box(-1, 1, shape=(3,))
+
+        # Define a new observation space of dim 14 + 35 in range [-inf, inf]
+        self.observation_space = gym.spaces.Box(
+            -float("inf"), float("inf"), shape=(14 + 35,)
+        )
+
+        self.timestep = 0
+        self.max_env_steps = max_env_steps
+        self.num_envs = self.env.num_envs
+
+        self.no_action = torch.tensor(
+            [[0, 0, 0, 1, 0]], device=device, dtype=torch.float32
+        ).repeat(self.num_envs, 1)
+
+    def process_obs(self, obs: Dict[str, torch.Tensor]):
+        robot_state = obs["robot_state"]
+        parts_poses = obs["parts_poses"]
+
+        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        return obs
+
+    def reset(self, **kwargs):
+        self.timestep = 0
+        obs = self.env.reset()
+        return self.process_obs(obs)
+
+    def step(self, action: np.ndarray):
+        # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
+        # bp()
+        action = torch.clamp(action, -1, 1) * 0.025
+
+        # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
+        action = torch.cat(
+            [
+                action,
+                self.no_action,
+            ],
+            dim=-1,
+        )
+
+        # Move the robot
+        obs, reward, done, info = self.env.step(action)
+
+        # Calculate reward
+        # Get the end effector position
+        ee_pos = obs["robot_state"][:, :3]
+
+        # Make a dense reward that measures the distance to the goal: [ 0.5934, -0.2813,  0.5098]
+        goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
+
+        # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
+        reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
+        reward = reward.squeeze()
+        done = done.squeeze()
+
+        # bp()
+        obs = self.process_obs(obs)
+
+        # Check if the episode is done
+        self.timestep += 1
+        if episode_ended := self.timestep >= self.max_env_steps:
+            obs = self.reset()
+
+        done = torch.full_like(done, episode_ended)
+        # truncated = np.full_like(done, False)
+
+        # return obs, reward, terminated, truncated, info
+        return obs, reward, done, info
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
@@ -253,7 +427,7 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"runs/debug2/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s"
@@ -266,91 +440,46 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    act_rot_repr = "rot_6d"  # "quat" or "rot_6d"
+    device = torch.device("cuda")
+    act_rot_repr = "quat"  # "quat" or "rot_6d"
     action_type = "delta"  # "delta" or "pos"
+    headless = True
+    num_env_steps = 300
+    num_envs = args.num_envs
+
     # env setup
-    envs: FurnitureSimEnv = get_env(
+    env: FurnitureSimEnv = get_env(
         act_rot_repr=act_rot_repr,
         action_type=action_type,
         april_tags=False,
         ctrl_mode="diffik",
         furniture="one_leg",
         gpu_id=0,
-        headless=args.headless,
-        num_envs=args.num_envs,
+        headless=headless,
+        num_envs=num_envs,
         observation_space="state",
         randomness="low",
         pos_scalar=1,
         rot_scalar=1,
         stiffness=1000,
         damping=200,
-        max_env_steps=args.num_env_steps,
     )
+    env = FurnitureEnvWrapper(env, max_env_steps=num_env_steps)
+
+    if args.normalize_reward:
+        env = NormalizeReward(env, device=device)
 
     # assert isinstance(
     #     envs.single_action_space, gym.spaces.Box
     # ), "only continuous action space is supported"
     from ipdb import set_trace as bp
 
-    # bp()
-
-    obs_shape = (
-        envs.observation_space["parts_poses"].shape[-1]
-        + envs.observation_space["robot_state"].shape[-1]
-        + 2,
-    )
-    action_shape = envs.action_space.shape[-1:]
-
-    # run_id = "ankile/one_leg-mlp-state-1/runs/lu3i593k"  # Chunk size 1
-    run_id = "ankile/one_leg-mlp-state-1/runs/ez9v5j6x"  # Chunk size 4
-
-    agent = get_agent(
-        run_id=run_id,
-        device=device,
-        load_weights=args.load_weights,
-        control_mode_override=action_type,
-    )
-    if args.agent == "small":
-        normalizer = agent.normalizer
-        config = agent.config
-        agent = SmallAgent(
-            obs_shape=obs_shape,
-            action_shape=action_shape,
-        ).to(device)
-        agent.action_horizon = 1
-        agent.pred_horizon = 1
-        agent.obs_horizon = 1
-        agent.action_dim = 10 if act_rot_repr == "rot_6d" else 8
-        agent.config = config
-
-        # Change the config
-        OmegaConf.set_readonly(agent.config, False)
-        agent.config.data.obs_horizon = 1
-        agent.config.data.pred_horizon = 1
-        agent.config.data.action_horizon = 1
-        OmegaConf.set_readonly(agent.config, True)
-
-        # Set the normalizer
-        agent.normalizer = normalizer
-
-        # agent.load_state_dict(
-        #     torch.load(
-        #         "/data/scratch/ankile/robust-rearrangement/runs/one_leg__ppo__chunked__bc_coef_0.0__simplified_True__small__1__1712860478/ppo.cleanrl_model"
-        #     )
-        # )
-
-    elif args.agent == "residual":
-        pass
-    else:
-        raise ValueError(f"Unknown agent type: {args.agent}")
+    agent = SmallAgentSimple(
+        obs_shape=env.observation_space.shape,
+        action_shape=env.action_space.shape,
+    ).to(device)
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
-
-    # Make the chunked environment
-    envs = ActionChunkWrapper(envs, agent.action_horizon)
-    # bp()
-    action_shape = (agent.action_horizon,) + action_shape
 
     args.num_steps = math.ceil(args.num_env_steps / agent.action_horizon)
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -361,30 +490,39 @@ if __name__ == "__main__":
     )
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, args.num_envs) + obs_shape).to(device)
-    actions = torch.zeros((args.num_steps, args.num_envs) + action_shape).to(device)
+    obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape).to(
+        device
+    )
+    actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape).to(
+        device
+    )
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 
-    # Get the dataloader for the demo data for the behavior cloning
-    demo_data_loader = get_demo_data_loader(
-        cfg=agent.config,
-        normalizer=agent.normalizer.get_copy().cpu(),
-        batch_size=args.minibatch_size,
-    )
+    # # Get the dataloader for the demo data for the behavior cloning
+    # demo_data_loader = get_demo_data_loader(
+    #     cfg=agent.config,
+    #     normalizer=agent.normalizer.get_copy().cpu(),
+    #     batch_size=args.minibatch_size,
+    # )
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
     # bp()
     next_done = torch.zeros(args.num_envs).to(device)
-    next_obs_dict = envs.reset()
-    next_nobs = agent.training_obs(next_obs_dict)
+    next_obs = env.reset()
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
+
+        # Reward normalization
+        rew_normalizer = RunningMeanStd(shape=())
+        running_returns = torch.zeros(
+            (args.num_envs, 1), device=device, dtype=torch.float32
+        )
 
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -394,57 +532,48 @@ if __name__ == "__main__":
 
         for step in range(0, args.num_steps):
             global_step += args.num_envs
-            obs[step] = next_nobs
+            obs[step] = next_obs
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
             # bp()
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_nobs)
+                # bp()
+                action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
 
             actions[step] = action
             logprobs[step] = logprob
 
-            # Set the x, y, z velocities to 0
-            # action[:, :, :] = torch.tensor(
-            #     [0, -0.01, 0.01, 1, 0, 0, 0, 1, 0, -1],
-            #     dtype=torch.float32,
-            #     device=device,
-            # )
-
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs_dict, reward, next_done, infos = envs.step(action)
+            next_obs, reward, next_done, infos = env.step(action)
 
             # Get the end effector position
-            ee_pos, _ = envs.env.get_ee_pose()
+            # ee_pos, _ = env.env.get_ee_pose()
 
             # Make a dense reward that measures the distance to the goal: [ 0.5934, -0.2813,  0.5098]
-            goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
-            dense_reward = 1 / (1 + torch.norm(ee_pos - goal, dim=-1))
+            # goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
+            # reward = 1 / (1 + torch.norm(ee_pos - goal, dim=-1))
 
-            # Set the reward to be 1 if the distance is less than 0.01
-            dense_reward[torch.norm(ee_pos - goal, dim=-1) < 0.01] = 1
-            # rewards[step] = reward.view(-1)
-            rewards[step] = dense_reward.view(-1)
+            # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
+            # reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
+            reward = reward.view(-1)
+
+            # Normalize the reward
+            # running_returns = 0.99 * running_returns + reward
+            # rew_normalizer.update(running_returns)
+            # # bp()
+            # reward = reward / torch.sqrt(rew_normalizer.var + 1e-8)
+            # reward = torch.clamp(reward, -5, 5)
+
+            rewards[step] = reward
             next_done = next_done.view(-1)
 
-            next_nobs = agent.training_obs(next_obs_dict)
-
-            if (env_step := step * agent.action_horizon) % 100 == 0:
+            if (env_step := step * agent.action_horizon + 1) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
-        next_obs_dict = envs.reset()
-        next_nobs = agent.training_obs(next_obs_dict)
 
-        if args.penalize_failures:
-            # Penalize the rewards for the failed episodes
-            # A failed episode is one where no reward was received
-            # Set the last reward to -1 if no reward was received
-            rewards[step, rewards.sum(dim=0) == 0] = -1
-
-        # bp()
         # Calculate the discounted rewards
         discounted_rewards = (
             (
@@ -457,16 +586,18 @@ if __name__ == "__main__":
             .item()
         )
         # If any positive reward was received, consider it a success
-        success_rate = (rewards == 1).any(dim=0).float().mean().item()
+        success_rate = (rewards > 0).any(dim=0).float().mean().item()
 
-        print(f"Discounted rewards: {discounted_rewards}, Success rate: {success_rate}")
+        print(
+            f"Mean episode return: {discounted_rewards}, Success rate: {success_rate}"
+        )
 
         # bootstrap value if not done
+        # NOTE: Solve resetting of the environment correctly
         # bp()
-        # If no reward was received, skip the policy update
 
         with torch.no_grad():
-            next_value = agent.get_value(next_nobs).reshape(1, -1)
+            next_value = agent.get_value(next_obs).reshape(1, -1)
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
             for t in reversed(range(args.num_steps)):
@@ -486,19 +617,17 @@ if __name__ == "__main__":
                 )
             returns = advantages + values
 
-        # if rewards.sum() == 0:
-        #     print("No reward received, skipping policy update")
-        #     continue
+        # bp()
 
         # flatten the batch
-        b_obs = obs.reshape((-1,) + obs_shape)
+        b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_logprobs = logprobs.reshape(-1)
-        b_actions = actions.reshape((-1,) + action_shape)
+        b_actions = actions.reshape((-1,) + env.action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
 
-        demo_data_iter = iter(demo_data_loader)
+        # demo_data_iter = iter(demo_data_loader)
 
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
@@ -514,6 +643,7 @@ if __name__ == "__main__":
                 )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
+                # bp()
 
                 with torch.no_grad():
                     # calculate approx_kl http://joschu.net/blog/kl-approx.html
@@ -551,20 +681,23 @@ if __name__ == "__main__":
                 else:
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
-                entropy_loss = entropy.mean()
-
+                # Clip the value loss
+                v_loss = torch.clamp(v_loss, -1, 1)
                 loss = v_loss * args.vf_coef
+
+                # Entropy loss
+                entropy_loss = entropy.mean()
 
                 loss += pg_loss - args.ent_coef * entropy_loss
 
-                # Behavior cloning loss
-                batch = next(demo_data_iter)
-                batch = dict_to_device(batch, device)
+                # # Behavior cloning loss
+                # batch = next(demo_data_iter)
+                # batch = dict_to_device(batch, device)
 
-                # Get loss
-                bc_loss = agent.compute_loss(batch)
+                # # Get loss
+                # bc_loss = agent.compute_loss(batch)
 
-                loss += args.bc_coef * bc_loss
+                # loss += args.bc_coef * bc_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -584,7 +717,7 @@ if __name__ == "__main__":
         )
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+        # writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
@@ -599,40 +732,29 @@ if __name__ == "__main__":
         writer.add_scalar("charts/discounted_rewards", discounted_rewards, global_step)
         writer.add_scalar("charts/success_rate", success_rate, global_step)
 
+        # Add histograms
+        writer.add_histogram("histograms/values", values, global_step)
+        writer.add_histogram("histograms/returns", returns, global_step)
+        writer.add_histogram("histograms/advantages", advantages, global_step)
+        writer.add_histogram("histograms/logprobs", logprobs, global_step)
+        writer.add_histogram("histograms/rewards", rewards, global_step)
+
+        # Add histograms for the actions
+        writer.add_histogram("actions/x", actions[:, :, 0], global_step)
+        writer.add_histogram("actions/y", actions[:, :, 1], global_step)
+        writer.add_histogram("actions/z", actions[:, :, 2], global_step)
+
+        # Add histograms for the gradients and the weights
+        for name, param in agent.named_parameters():
+            writer.add_histogram(f"weights/{name}", param, global_step)
+            if param.grad is not None:
+                writer.add_histogram(f"grads/{name}", param.grad, global_step)
+
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
-        # from cleanrl_utils.evals.ppo_eval import evaluate
 
-        # episodic_returns = evaluate(
-        #     model_path,
-        #     make_env,
-        #     args.env_id,
-        #     eval_episodes=10,
-        #     run_name=f"{run_name}-eval",
-        #     Model=Agent,
-        #     device=device,
-        #     gamma=args.gamma,
-        # )
-        # for idx, episodic_return in enumerate(episodic_returns):
-        #     writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
-        # if args.upload_model:
-        #     from cleanrl_utils.huggingface import push_to_hub
-
-        #     repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-        #     repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-        #     push_to_hub(
-        #         args,
-        #         episodic_returns,
-        #         repo_id,
-        #         "PPO",
-        #         f"runs/{run_name}",
-        #         f"videos/{run_name}-eval",
-        #     )
-
-    envs.close()
     writer.close()
