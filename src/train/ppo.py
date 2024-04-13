@@ -26,6 +26,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src.behavior.mlp import SmallAgent, ResidualMLPAgent, SmallAgentSimple
 
+from ipdb import set_trace as bp
+
 # Set the gym logger to not print to console
 import gym
 
@@ -34,77 +36,46 @@ gym.logger.set_level(40)
 
 from src.gym import get_env
 
-from wandb import Api
 
-api = Api()
+class NormalizeObservation(gym.Wrapper):
+    """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
 
+    Note:
+        The normalization depends on past trajectories and observations will not be normalized correctly if the wrapper was
+        newly instantiated or the policy was changed recently.
+    """
 
-def get_agent(
-    run_id: str,
-    device: torch.device,
-    load_weights: bool = True,
-    control_mode_override: str = None,
-):
-    # Load a pre-trained model from WandB
-    run = api.run(run_id)
-    # run = api.run("ankile/one_leg-mlp-state-1/runs/lq0c1oz4")
+    def __init__(self, env: gym.Env, epsilon: float = 1e-8):
+        """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
 
-    cfg = run.config
+        Args:
+            env (Env): The environment to apply the wrapper
+            epsilon: A stability parameter that is used when scaling the observations.
+        """
+        gym.Wrapper.__init__(self, env)
 
-    cfg: DictConfig = OmegaConf.create(
-        cfg,
-        flags={"readonly": True},
-    )
+        self.num_envs = env.num_envs
+        self.is_vector_env = True
 
-    model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
-    model_path = model_file.download(
-        root=f"./models/{run.name}", exist_ok=True, replace=True
-    ).name
+        self.obs_rms = RunningMeanStd(shape=self.observation_space.shape, device="cuda")
+        self.epsilon = epsilon
 
-    print(f"Model path: {model_path}")
+    def step(self, action):
+        """Steps through the environment and normalizes the observation."""
+        obs, rews, done, infos = self.env.step(action)
+        obs = self.normalize(obs)
+        return obs, rews, done, infos
 
-    # Get the normalizer
-    normalizer_type = cfg.get("data", {}).get("normalization", "min_max")
-    normalizer = get_normalizer(
-        normalizer_type=normalizer_type,
-        control_mode=(
-            cfg.control.control_mode
-            if control_mode_override is None
-            else control_mode_override
-        ),
-    )
+    def reset(self, **kwargs):
+        """Resets the environment and normalizes the observation."""
+        obs = self.env.reset(**kwargs)
 
-    # TODO: Fix this properly, but for now have an ugly escape hatch
-    # vision_encoder_field_hotfix(run, config)
+        return self.normalize(obs)
 
-    print(OmegaConf.to_yaml(cfg))
-
-    # Make the actor
-    agent = ResidualMLPAgent(device, normalizer, cfg)
-
-    print("NBNB: This is a hack to load the model weights, please fix soon")
-    # TODO: Fix this properly, but for now have an ugly escape hatch
-    import torch.nn as nn
-
-    agent.normalizer.stats["parts_poses"] = nn.ParameterDict(
-        {
-            "min": nn.Parameter(torch.zeros(35)),
-            "max": nn.Parameter(torch.ones(35)),
-        }
-    )
-
-    state_dict = torch.load(model_path)
-
-    if not load_weights:
-        state_dict = {k: v for k, v in state_dict.items() if "normalizer" in k}
-        state_dict = {k: v for k, v in state_dict.items() if "action" not in k}
-
-    # Load the model weights
-    agent.load_state_dict(state_dict, strict=False)
-    agent.normalizer._turn_off_gradients()
-    agent.cuda()
-
-    return agent
+    def normalize(self, obs):
+        """Normalises the observation using the running mean and variance of the observations."""
+        self.obs_rms.update(obs)
+        return (obs - self.obs_rms.mean) / torch.sqrt(self.obs_rms.var + self.epsilon)
 
 
 class NormalizeReward(gym.core.Wrapper):
@@ -191,6 +162,8 @@ class Args:
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
+    normalize_obs: bool = False
+    """if toggled, the observations will be normalized"""
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -209,7 +182,7 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
-    num_minibatches: int = 32
+    num_minibatches: int = 128
     """the number of mini-batches"""
     update_epochs: int = 10
     """the K epochs to update the policy"""
@@ -242,6 +215,8 @@ class Args:
     """the number of iterations (computed in runtime)"""
     num_steps: int = 0
     """the number of steps (computed in runtime)"""
+    continue_run_id: str = None
+    """the run id to continue training from"""
 
 
 def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
@@ -411,10 +386,49 @@ class FurnitureEnvWrapper:
         return obs, reward, done, info
 
 
+@torch.no_grad()
+def calculate_advantage(
+    args: Args,
+    device: torch.device,
+    agent: SmallAgentSimple,
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+    values: torch.Tensor,
+    next_done: torch.Tensor,
+    next_obs: torch.Tensor,
+):
+    next_value = agent.get_value(next_obs).reshape(1, -1)
+    advantages = torch.zeros_like(rewards).to(device)
+    lastgaelam = 0
+    for t in reversed(range(args.num_steps)):
+        if t == args.num_steps - 1:
+            nextnonterminal = 1.0 - next_done.to(torch.float)
+            nextvalues = next_value
+        else:
+            nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
+            nextvalues = values[t + 1]
+
+            # bp()
+        delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
+        advantages[t] = lastgaelam = (
+            delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+        )
+    returns = advantages + values
+    return advantages, returns
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
-    run_name = f"one_leg__{args.exp_name}__chunked__bc_coef_{args.bc_coef}__delta__simplified_{args.simplified_task}__{args.agent}__{args.seed}__{int(time.time())}"
+    args.continue_run_id = None
+
+    if args.continue_run_id is not None:
+        run_name = args.continue_run_id
+    else:
+        run_name = (
+            f"one_leg__{args.exp_name}__{args.agent}__{args.seed}__{int(time.time())}"
+        )
+
     if args.track:
         import wandb
 
@@ -427,7 +441,9 @@ if __name__ == "__main__":
             monitor_gym=True,
             save_code=True,
         )
-    writer = SummaryWriter(f"runs/debug2/{run_name}")
+
+    run_directory = "runs/debug3"
+    writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s"
@@ -467,12 +483,16 @@ if __name__ == "__main__":
     env = FurnitureEnvWrapper(env, max_env_steps=num_env_steps)
 
     if args.normalize_reward:
+        print("Wrapping the environment with reward normalization")
         env = NormalizeReward(env, device=device)
+    else:
+        print("Not wrapping the environment with reward normalization")
 
-    # assert isinstance(
-    #     envs.single_action_space, gym.spaces.Box
-    # ), "only continuous action space is supported"
-    from ipdb import set_trace as bp
+    if args.normalize_obs:
+        print("Wrapping the environment with observation normalization")
+        env = NormalizeObservation(env)
+    else:
+        print("Not wrapping the environment with observation normalization")
 
     agent = SmallAgentSimple(
         obs_shape=env.observation_space.shape,
@@ -487,6 +507,10 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size
     print(
         f"With chunk size {agent.action_horizon}, we have {args.num_steps} policy steps."
+    )
+    print(f"Total timesteps: {args.total_timesteps}, batch size: {args.batch_size}")
+    print(
+        f"Mini-batch size: {args.minibatch_size}, num iterations: {args.num_iterations}"
     )
 
     # ALGO Logic: Storage setup
@@ -591,31 +615,14 @@ if __name__ == "__main__":
         print(
             f"Mean episode return: {discounted_rewards}, Success rate: {success_rate}"
         )
+        # NOTE: Solve resetting of the environment correctly
 
         # bootstrap value if not done
-        # NOTE: Solve resetting of the environment correctly
+        # NOTE: Consider recalculating the advantages every update epoch
         # bp()
-
-        with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
-            advantages = torch.zeros_like(rewards).to(device)
-            lastgaelam = 0
-            for t in reversed(range(args.num_steps)):
-                if t == args.num_steps - 1:
-                    nextnonterminal = 1.0 - next_done.to(torch.float)
-                    nextvalues = next_value
-                else:
-                    nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
-                    nextvalues = values[t + 1]
-
-                # bp()
-                delta = (
-                    rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
-                )
-                advantages[t] = lastgaelam = (
-                    delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
-                )
-            returns = advantages + values
+        advantages, returns = calculate_advantage(
+            args, device, agent, rewards, dones, values, next_done, next_obs
+        )
 
         # bp()
 
@@ -753,7 +760,7 @@ if __name__ == "__main__":
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
     if args.save_model:
-        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+        model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(agent.state_dict(), model_path)
         print(f"model saved to {model_path}")
 
