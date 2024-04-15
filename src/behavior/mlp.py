@@ -1,7 +1,7 @@
 from omegaconf import OmegaConf
 import torch
 import torch.nn as nn
-from typing import Union
+from typing import Tuple, Union
 from collections import deque
 from ipdb import set_trace as bp  # noqa
 
@@ -318,7 +318,7 @@ class SmallAgent(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(action_shape)), std=1),
+            layer_init(nn.Linear(64, np.prod(action_shape)), std=0.1),
         )
         self.actor_logstd = nn.Parameter(torch.ones(1, 1, np.prod(action_shape)) * 0)
 
@@ -471,7 +471,7 @@ class ResidualMLPAgent(MLPStateActor):
 class SmallAgentSimple(nn.Module):
     action_horizon: int = 1
 
-    def __init__(self, obs_shape, action_shape):
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
         super().__init__()
         # bp()
         self.critic = nn.Sequential(
@@ -486,14 +486,18 @@ class SmallAgentSimple(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 64)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(action_shape)), std=1),
+            layer_init(nn.Linear(64, np.prod(action_shape)), std=0.01),
         )
-        self.actor_logstd = nn.Parameter(torch.ones(1, np.prod(action_shape)) * 0)
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
 
     def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
         return self.critic(nobs)
 
-    def get_action_and_value(self, obs: torch.Tensor, action=None):
+    def get_action_and_value(
+        self, obs: torch.Tensor, action=None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # bp()
         action_mean = self.actor_mean(obs)
         action_logstd = self.actor_logstd.expand_as(action_mean)

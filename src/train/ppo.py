@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 import math
 
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv, FurnitureSimEnv
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from src.common.pytorch_util import dict_to_device
@@ -34,7 +34,48 @@ import gym
 gym.logger.set_level(40)
 
 
-from src.gym import get_env
+from src.gym import get_rl_env, get_env
+
+
+def update_mean_var_count_from_moments(
+    mean, var, count, batch_mean, batch_var, batch_count
+):
+    """Updates the mean, var and count using the previous mean, var, count and batch values."""
+    delta = batch_mean - mean
+    tot_count = count + batch_count
+
+    new_mean = mean + delta * batch_count / tot_count
+    m_a = var * count
+    m_b = batch_var * batch_count
+    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
+    new_var = M2 / tot_count
+    new_count = tot_count
+
+    return new_mean, new_var, new_count
+
+
+class RunningMeanStd:
+    """Tracks the mean, variance and count of values."""
+
+    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+    def __init__(self, epsilon=1e-4, shape=(), device="cuda"):
+        """Tracks the mean, variance and count of values."""
+        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
+        self.var = torch.ones(shape, dtype=torch.float32, device=device)
+        self.count = torch.tensor(epsilon, dtype=torch.float32, device=device)
+
+    def update(self, x):
+        """Updates the mean, var and count from a batch of samples."""
+        batch_mean = torch.mean(x, dim=0)
+        batch_var = torch.var(x, dim=0, unbiased=False)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        """Updates from batch mean, variance and count moments."""
+        self.mean, self.var, self.count = update_mean_var_count_from_moments(
+            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
+        )
 
 
 class NormalizeObservation(gym.Wrapper):
@@ -62,9 +103,9 @@ class NormalizeObservation(gym.Wrapper):
 
     def step(self, action):
         """Steps through the environment and normalizes the observation."""
-        obs, rews, done, infos = self.env.step(action)
+        obs, rews, done, truncated, infos = self.env.step(action)
         obs = self.normalize(obs)
-        return obs, rews, done, infos
+        return obs, rews, done, truncated, infos
 
     def reset(self, **kwargs):
         """Resets the environment and normalizes the observation."""
@@ -116,13 +157,12 @@ class NormalizeReward(gym.core.Wrapper):
 
     def step(self, action):
         """Steps through the environment, normalizing the rewards returned."""
-        obs, rews, done, infos = self.env.step(action)
+        obs, rews, done, truncated, infos = self.env.step(action)
 
         self.returns = self.returns * self.gamma * (1 - done.float()) + rews
         rews = self.normalize(rews)
-        if not self.is_vector_env:
-            rews = rews[0]
-        return obs, rews, done, infos
+
+        return obs, rews, done, truncated, infos
 
     def normalize(self, rews):
         """Normalizes the rewards with the running mean rewards and their variance."""
@@ -134,7 +174,7 @@ class NormalizeReward(gym.core.Wrapper):
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = None
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -154,8 +194,6 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
-    load_weights: bool = True
-    """whether to load the weights of the model"""
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
     agent: str = "small"
@@ -168,6 +206,7 @@ class Args:
     """if toggled, the advantages will be recalculated every update epoch"""
     minimum_success_rate: float = 0.0
     """the threshold at which we'll upsample the successful episodes"""
+    init_logstd: float = 0.0
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
@@ -209,6 +248,8 @@ class Args:
     penalize_failures: bool = False
     """if toggled, failed episodes will be penalized"""
     simplified_task: bool = False
+    """if toggled, the task will be simplified"""
+    clip_value_target: float = 0.0
 
     # to be filled in runtime
     batch_size: int = 0
@@ -250,71 +291,30 @@ def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
     return demo_data_loader
 
 
-class ActionChunkWrapper:
-    def __init__(self, env: FurnitureSimEnv, chunk_size: int):
-        self.env = env
-        self.chunk_size = chunk_size
-        self.action_space = env.action_space
-        self.observation_space = env.observation_space
+# class ActionChunkWrapper:
+#     def __init__(self, env: FurnitureSimEnv, chunk_size: int):
+#         self.env = env
+#         self.chunk_size = chunk_size
+#         self.action_space = env.action_space
+#         self.observation_space = env.observation_space
 
-    def reset(self):
-        return self.env.reset()
+#     def reset(self):
+#         return self.env.reset()
 
-    def step(self, action_chunk):
-        total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
-        for i in range(self.chunk_size):
-            # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
-            # bp()
-            obs, reward, done, info = self.env.step(action_chunk[:, i, :])
-            total_reward += reward.squeeze()
-            if done.all():
-                break
-        return obs, total_reward, done, info
-
-
-class RunningMeanStd:
-    """Tracks the mean, variance and count of values."""
-
-    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-4, shape=(), device="cuda"):
-        """Tracks the mean, variance and count of values."""
-        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
-        self.var = torch.ones(shape, dtype=torch.float32, device=device)
-        self.count = torch.tensor(epsilon, dtype=torch.float32, device=device)
-
-    def update(self, x):
-        """Updates the mean, var and count from a batch of samples."""
-        batch_mean = torch.mean(x, dim=0)
-        batch_var = torch.var(x, dim=0, unbiased=False)
-        batch_count = x.shape[0]
-        self.update_from_moments(batch_mean, batch_var, batch_count)
-
-    def update_from_moments(self, batch_mean, batch_var, batch_count):
-        """Updates from batch mean, variance and count moments."""
-        self.mean, self.var, self.count = update_mean_var_count_from_moments(
-            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
-        )
-
-
-def update_mean_var_count_from_moments(
-    mean, var, count, batch_mean, batch_var, batch_count
-):
-    """Updates the mean, var and count using the previous mean, var, count and batch values."""
-    delta = batch_mean - mean
-    tot_count = count + batch_count
-
-    new_mean = mean + delta * batch_count / tot_count
-    m_a = var * count
-    m_b = batch_var * batch_count
-    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
-    new_var = M2 / tot_count
-    new_count = tot_count
-
-    return new_mean, new_var, new_count
+#     def step(self, action_chunk):
+#         total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
+#         for i in range(self.chunk_size):
+#             # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
+#             # bp()
+#             obs, reward, done, info = self.env.step(action_chunk[:, i, :])
+#             total_reward += reward.squeeze()
+#             if done.all():
+#                 break
+#         return obs, total_reward, done, info
 
 
 class FurnitureEnvWrapper:
-    def __init__(self, env: FurnitureSimEnv, max_env_steps=300):
+    def __init__(self, env: FurnitureRLSimEnv, max_env_steps=300):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
 
@@ -326,11 +326,14 @@ class FurnitureEnvWrapper:
             -float("inf"), float("inf"), shape=(14 + 35,)
         )
 
-        self.timestep = 0
+        # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
+        # self.global_timestep = torch.zeros(
+        #     env.num_envs, device=device, dtype=torch.int32
+        # )
 
-        self.no_action = torch.tensor(
+        self.no_rotation_or_gripper = torch.tensor(
             [[0, 0, 0, 1, 0]], device=device, dtype=torch.float32
         ).repeat(self.num_envs, 1)
 
@@ -341,24 +344,27 @@ class FurnitureEnvWrapper:
         obs = torch.cat([robot_state, parts_poses], dim=-1)
         return obs
 
-    def reset(self, **kwargs):
-        self.timestep = 0
-        obs = self.env.reset()
-        return self.process_obs(obs)
-
-    def step(self, action: np.ndarray):
+    def process_action(self, action: torch.Tensor):
         # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
-        # bp()
-        action = torch.clamp(action, -1, 1) * 0.025
+        action = torch.clamp(action, -10, 10) * 0.025 * 2
 
         # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
         action = torch.cat(
             [
                 action,
-                self.no_action,
+                self.no_rotation_or_gripper,
             ],
             dim=-1,
         )
+
+        return action
+
+    def reset(self, **kwargs):
+        obs = self.env.reset()
+        return self.process_obs(obs)
+
+    def step(self, action: torch.Tensor):
+        action = self.process_action(action)
 
         # Move the robot
         obs, reward, done, info = self.env.step(action)
@@ -373,21 +379,31 @@ class FurnitureEnvWrapper:
         # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
         reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
         reward = reward.squeeze()
-        done = done.squeeze()
 
-        # bp()
+        # Episodes that received reward are terminated
+        terminated = reward > 0
+        terminated_indices = torch.nonzero(terminated).view(-1).to(device)
+
+        # Check if any envs have reached the max number of steps
+        # self.env.env_steps += 1
+        truncated = self.env.env_steps >= self.max_env_steps
+        truncated_indices = torch.nonzero(truncated).view(-1).to(device)
+
+        # Reset the steps counter for the envs that have reached the max number of steps
+
+        # Reset the envs that have reached the max number of steps or got reward
+        reset_indices = torch.cat([terminated_indices, truncated_indices])
+        if reset_indices.numel() > 0:
+            # print("Reward received:", reward.sum().item())
+            self.env.env_steps[reset_indices] = 0
+            obs = self.env.reset(reset_indices)
+
+        # if truncated.any():
+        #     self.env.env_steps[truncated_indices] = 0
+        #     obs = self.env.reset()
+
         obs = self.process_obs(obs)
-
-        # Check if the episode is done
-        self.timestep += 1
-        if episode_ended := self.timestep >= self.max_env_steps:
-            obs = self.reset()
-
-        done = torch.full_like(done, episode_ended)
-        # truncated = np.full_like(done, False)
-
-        # return obs, reward, terminated, truncated, info
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
 
 
 @torch.no_grad()
@@ -456,6 +472,9 @@ if __name__ == "__main__":
     )
 
     # TRY NOT TO MODIFY: seeding
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -464,45 +483,57 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     act_rot_repr = "quat"  # "quat" or "rot_6d"
     action_type = "delta"  # "delta" or "pos"
-    headless = True
-    num_env_steps = 300
-    num_envs = args.num_envs
 
     # env setup
-    env: FurnitureSimEnv = get_env(
+    env: FurnitureRLSimEnv = get_rl_env(
+        # env: FurnitureSimEnv = get_env(
         act_rot_repr=act_rot_repr,
         action_type=action_type,
         april_tags=False,
         ctrl_mode="diffik",
         furniture="one_leg",
         gpu_id=0,
-        headless=headless,
-        num_envs=num_envs,
+        headless=args.headless,
+        num_envs=args.num_envs,
         observation_space="state",
         randomness="low",
+        max_env_steps=100_000_000,
         pos_scalar=1,
         rot_scalar=1,
         stiffness=1000,
         damping=200,
     )
-    env = FurnitureEnvWrapper(env, max_env_steps=num_env_steps)
+    env: FurnitureEnvWrapper = FurnitureEnvWrapper(
+        env, max_env_steps=args.num_env_steps
+    )
+    normrewenv = None
+    # if args.normalize_reward:
+    #     print("Wrapping the environment with reward normalization")
+    #     env = NormalizeReward(env, device=device)
+    #     normrewenv = env
+    # else:
+    #     print("Not wrapping the environment with reward normalization")
 
-    if args.normalize_reward:
-        print("Wrapping the environment with reward normalization")
-        env = NormalizeReward(env, device=device)
-    else:
-        print("Not wrapping the environment with reward normalization")
-
-    if args.normalize_obs:
-        print("Wrapping the environment with observation normalization")
-        env = NormalizeObservation(env)
-    else:
-        print("Not wrapping the environment with observation normalization")
+    # if args.normalize_obs:
+    #     print("Wrapping the environment with observation normalization")
+    #     env = NormalizeObservation(env)
+    # else:
+    #     print("Not wrapping the environment with observation normalization")
 
     agent = SmallAgentSimple(
         obs_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
+        init_logstd=args.init_logstd,
     ).to(device)
+
+    agent.load_state_dict(
+        torch.load(
+            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713030424/reach-goal.cleanrl_model"
+            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713012916/reach-goal.cleanrl_model"
+            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713024655/reach-goal.cleanrl_model"
+            "runs/debug4_del/one_leg__reach-goal__small__0__1713187634/reach-goal.cleanrl_model"
+        )
+    )
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -519,16 +550,13 @@ if __name__ == "__main__":
     )
 
     # ALGO Logic: Storage setup
-    obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape).to(
-        device
-    )
-    actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape).to(
-        device
-    )
-    logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
-    values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    best_success_rate = 0.1  # only save models that are better than this
+    obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape)
+    actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape)
+    logprobs = torch.zeros((args.num_steps, args.num_envs))
+    rewards = torch.zeros((args.num_steps, args.num_envs))
+    dones = torch.zeros((args.num_steps, args.num_envs))
+    values = torch.zeros((args.num_steps, args.num_envs))
 
     # # Get the dataloader for the demo data for the behavior cloning
     # demo_data_loader = get_demo_data_loader(
@@ -541,17 +569,11 @@ if __name__ == "__main__":
     global_step = 0
     start_time = time.time()
     # bp()
-    next_done = torch.zeros(args.num_envs).to(device)
+    next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
-
-        # Reward normalization
-        rew_normalizer = RunningMeanStd(shape=())
-        running_returns = torch.zeros(
-            (args.num_envs, 1), device=device, dtype=torch.float32
-        )
 
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -569,47 +591,39 @@ if __name__ == "__main__":
             with torch.no_grad():
                 # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
-                values[step] = value.flatten()
-
-            actions[step] = action
-            logprobs[step] = logprob
+                values[step] = value.flatten().cpu()
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, reward, next_done, infos = env.step(action)
+            # obs, reward, terminated, truncated, info
+            # Overwrite action to apply a 1 in the x direction
+            # action = torch.tensor(
+            #     [[5, 0, 0]], device=device, dtype=torch.float32
+            # ).repeat(args.num_envs, 1)
+            # pos_before = next_obs[:, :3]
+            next_obs, reward, next_done, truncated, infos = env.step(action)
+            # pos_after = next_obs[:, :3]
 
-            # Get the end effector position
-            # ee_pos, _ = env.env.get_ee_pose()
-
-            # Make a dense reward that measures the distance to the goal: [ 0.5934, -0.2813,  0.5098]
-            # goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
-            # reward = 1 / (1 + torch.norm(ee_pos - goal, dim=-1))
-
-            # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
-            # reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
-            reward = reward.view(-1)
-
-            # Normalize the reward
-            # running_returns = 0.99 * running_returns + reward
-            # rew_normalizer.update(running_returns)
+            # print(f"pos_before: {pos_before}, pos_after: {pos_after}")
+            # print(f"Change in position: {(pos_after - pos_before) / 0.025}")
             # # bp()
-            # reward = reward / torch.sqrt(rew_normalizer.var + 1e-8)
-            # reward = torch.clamp(reward, -5, 5)
 
-            rewards[step] = reward
-            next_done = next_done.view(-1)
+            actions[step] = action.cpu()
+            logprobs[step] = logprob.cpu()
+
+            rewards[step] = reward.view(-1).cpu()
+            next_done = next_done.view(-1).cpu()
 
             if (env_step := step * agent.action_horizon + 1) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
 
+        if normrewenv is not None:
+            print(f"Current return_rms: {normrewenv.return_rms.mean.item()}")
+
         # Calculate the discounted rewards
         discounted_rewards = (
-            (
-                rewards
-                * args.gamma
-                ** torch.arange(args.num_steps, device=device).float().unsqueeze(1)
-            )
+            (rewards * args.gamma ** torch.arange(args.num_steps).float().unsqueeze(1))
             .sum(dim=0)
             .mean()
             .item()
@@ -622,35 +636,9 @@ if __name__ == "__main__":
             f"Mean episode return: {discounted_rewards}, Success rate: {success_rate}"
         )
 
-        # NOTE: Solve resetting of the environment correctly
-        if success_rate > 0 and success_rate < args.minimum_success_rate:
-            # Upsample the successful episodes
-            print("Upsampling successful episodes")
-            # Calculate the mask for trajectories with at least one reward
-
-            # Stratified sampling to ensure desired proportion of successful trajectories
-            num_success_trajectories = int(args.num_envs * args.minimum_success_rate)
-            num_fail_trajectories = args.num_envs - num_success_trajectories
-
-            success_indices = torch.nonzero(reward_mask).view(-1)
-            fail_indices = torch.nonzero(1 - reward_mask).view(-1)
-
-            success_trajectories = success_indices[
-                torch.multinomial(
-                    torch.ones(len(success_indices)),
-                    num_success_trajectories,
-                    replacement=True,
-                )
-            ]
-
-            fail_trajectories = fail_indices[
-                torch.randperm(len(fail_indices))[:num_fail_trajectories]
-            ]
-
-            indices = torch.cat([success_trajectories, fail_trajectories])
-        else:
-            # No resampling needed, use all trajectories
-            indices = torch.arange(args.batch_size)
+        indices = torch.arange(args.num_envs)
+        print(actions.view(-1, 3).mean(dim=0))
+        # bp()
 
         # Select the experiences based on the sampled indices
         b_obs = obs[:, indices].reshape((-1,) + env.observation_space.shape)
@@ -667,13 +655,15 @@ if __name__ == "__main__":
             args,
             device,
             agent,
-            b_obs.view((args.num_steps, args.num_envs) + env.observation_space.shape),
-            next_obs,
-            b_rewards.view(args.num_steps, -1),
-            b_dones.view(args.num_steps, -1),
+            b_obs.view(
+                (args.num_steps, args.num_envs) + env.observation_space.shape
+            ).to(device),
+            next_obs.to(device),
+            b_rewards.view(args.num_steps, -1).to(device),
+            b_dones.view(args.num_steps, -1).to(device),
         )
-        b_advantages = b_advantages.reshape(-1)
-        b_returns = b_returns.reshape(-1)
+        b_advantages = b_advantages.reshape(-1).cpu()
+        b_returns = b_returns.reshape(-1).cpu()
 
         # demo_data_iter = iter(demo_data_loader)
 
@@ -686,10 +676,19 @@ if __name__ == "__main__":
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
 
+                # Get the minibatch and place it on the device
+                mb_obs = b_obs[mb_inds].to(device)
+                mb_actions = b_actions[mb_inds].to(device)
+                mb_logprobs = b_logprobs[mb_inds].to(device)
+                mb_advantages = b_advantages[mb_inds].to(device)
+                mb_returns = b_returns[mb_inds].to(device)
+                mb_values = b_values[mb_inds].to(device)
+
+                # Calculate the loss
                 _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                    b_obs[mb_inds], b_actions[mb_inds]
+                    mb_obs, mb_actions
                 )
-                logratio = newlogprob - b_logprobs[mb_inds]
+                logratio = newlogprob - mb_logprobs
                 ratio = logratio.exp()
                 # bp()
 
@@ -701,7 +700,6 @@ if __name__ == "__main__":
                         ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
                     ]
 
-                mb_advantages = b_advantages[mb_inds]
                 if args.norm_adv:
                     mb_advantages = (mb_advantages - mb_advantages.mean()) / (
                         mb_advantages.std() + 1e-8
@@ -717,20 +715,20 @@ if __name__ == "__main__":
                 # Value loss
                 newvalue = newvalue.view(-1)
                 if args.clip_vloss:
-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                    v_clipped = b_values[mb_inds] + torch.clamp(
-                        newvalue - b_values[mb_inds],
+                    v_loss_unclipped = (newvalue - mb_returns) ** 2
+                    v_clipped = mb_values + torch.clamp(
+                        newvalue - mb_values,
                         -args.clip_coef,
                         args.clip_coef,
                     )
-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                    v_loss_clipped = (v_clipped - mb_returns) ** 2
                     v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                     v_loss = 0.5 * v_loss_max.mean()
                 else:
-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                    v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
 
                 # Clip the value loss
-                v_loss = torch.clamp(v_loss, -1, 1)
+                # v_loss = torch.clamp(v_loss, -1, 1)
                 loss = v_loss * args.vf_coef
 
                 # Entropy loss
@@ -763,34 +761,40 @@ if __name__ == "__main__":
                     agent,
                     b_obs.view(
                         (args.num_steps, args.num_envs) + env.observation_space.shape
-                    ),
-                    next_obs,
-                    b_rewards.view(args.num_steps, -1),
-                    b_dones.view(args.num_steps, -1),
+                    ).to(device),
+                    next_obs.to(device),
+                    b_rewards.view(args.num_steps, -1).to(device),
+                    b_dones.view(args.num_steps, -1).to(device),
                 )
-                b_advantages = b_advantages.reshape(-1)
-                b_returns = b_returns.reshape(-1)
+                b_advantages = b_advantages.reshape(-1).cpu()
+                b_returns = b_returns.reshape(-1).cpu()
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-        # Calculate return and advantage with the orignal experience sample for logging
+        # Calculate return and advantage with the original experience sample for logging
         advantages, returns = calculate_advantage(
             args,
             device,
             agent,
-            obs,
-            next_obs,
-            rewards,
-            dones,
+            obs.to(device),
+            next_obs.to(device),
+            rewards.to(device),
+            dones.to(device),
         )
+        advantages = advantages.cpu()
+        returns = returns.cpu()
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalar(
             "charts/learning_rate", optimizer.param_groups[0]["lr"], global_step
         )
-        writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
+        writer.add_scalar(
+            "losses/value_loss",
+            v_loss.item(),
+            global_step,
+        )
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         # writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
@@ -829,6 +833,13 @@ if __name__ == "__main__":
             writer.add_histogram(f"weights/{name}", param, global_step)
             if param.grad is not None:
                 writer.add_histogram(f"grads/{name}", param.grad, global_step)
+
+        # Checkpoint the model if the success rate improves
+        if success_rate > best_success_rate:
+            best_success_rate = success_rate
+            model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
+            torch.save(agent.state_dict(), model_path)
+            print(f"model saved to {model_path}")
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
