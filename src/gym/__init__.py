@@ -1,7 +1,7 @@
 from pathlib import Path
 import furniture_bench  # noqa: F401
 from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS, DEFAULT_STATE_OBS
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv, FurnitureRLSimEnv
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 import gym
 
@@ -64,6 +64,9 @@ def get_env(
         )
 
     return env
+
+
+from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv
 
 
 def get_rl_env(

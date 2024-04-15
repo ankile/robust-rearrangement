@@ -9,7 +9,8 @@ import time
 from dataclasses import dataclass
 import math
 
-from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv, FurnitureSimEnv
+from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from src.common.pytorch_util import dict_to_device
@@ -34,7 +35,8 @@ import gym
 gym.logger.set_level(40)
 
 
-from src.gym import get_rl_env, get_env
+from src.gym import get_rl_env
+from src.gym import get_env
 
 
 def update_mean_var_count_from_moments(
@@ -314,7 +316,7 @@ def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
 
 
 class FurnitureEnvWrapper:
-    def __init__(self, env: FurnitureRLSimEnv, max_env_steps=300):
+    def __init__(self, env: FurnitureSimEnv, max_env_steps=300):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
 
@@ -346,7 +348,7 @@ class FurnitureEnvWrapper:
 
     def process_action(self, action: torch.Tensor):
         # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
-        action = torch.clamp(action, -10, 10) * 0.025 * 4
+        action = torch.clamp(action, -10, 10) * 0.025
 
         # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
         action = torch.cat(
@@ -483,7 +485,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug4_del"
+    run_directory = "runs/debug5_del"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -520,7 +522,7 @@ if __name__ == "__main__":
         max_env_steps=100_000_000,
         pos_scalar=1,
         rot_scalar=1,
-        stiffness=1000,
+        stiffness=1_000,
         damping=200,
     )
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
@@ -594,6 +596,9 @@ if __name__ == "__main__":
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
+    next_obs, reward, next_done, truncated, infos = env.step(
+        torch.zeros(args.num_envs, 3, device=device)
+    )
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -650,7 +655,7 @@ if __name__ == "__main__":
 
         indices = torch.arange(args.num_envs)
         print(actions.view(-1, 3).mean(dim=0))
-        # bp()
+        bp()
 
         # Select the experiences based on the sampled indices
         b_obs = obs[:, indices].reshape((-1,) + env.observation_space.shape)
