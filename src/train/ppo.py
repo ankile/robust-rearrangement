@@ -346,7 +346,7 @@ class FurnitureEnvWrapper:
 
     def process_action(self, action: torch.Tensor):
         # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
-        action = torch.clamp(action, -10, 10) * 0.025 * 2
+        action = torch.clamp(action, -10, 10) * 0.025 * 4
 
         # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
         action = torch.cat(
@@ -363,7 +363,23 @@ class FurnitureEnvWrapper:
         obs = self.env.reset()
         return self.process_obs(obs)
 
+    def jerkinesss_penalty(self, action: torch.Tensor):
+        # Get the current end-effector velocity
+        ee_velocity = self.env.rb_states[
+            self.env.ee_idxs, 7:10
+        ]  # Assuming velocity is stored in indices 7 to 9
+
+        # Calculate the dot product between the action and the end-effector velocity
+        dot_product = torch.sum(action[:, :3] * ee_velocity, dim=1, keepdim=True)
+
+        # Calculate the velocity-based penalty
+        velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
+
+        # Add the velocity-based penalty to the rewards
+        return velocity_penalty
+
     def step(self, action: torch.Tensor):
+        penalty = self.jerkinesss_penalty(action)
         action = self.process_action(action)
 
         # Move the robot
@@ -378,6 +394,10 @@ class FurnitureEnvWrapper:
 
         # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
         reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
+
+        # Add a penalty for jerky movements
+        reward += penalty
+
         reward = reward.squeeze()
 
         # Episodes that received reward are terminated
@@ -507,18 +527,18 @@ if __name__ == "__main__":
         env, max_env_steps=args.num_env_steps
     )
     normrewenv = None
-    # if args.normalize_reward:
-    #     print("Wrapping the environment with reward normalization")
-    #     env = NormalizeReward(env, device=device)
-    #     normrewenv = env
-    # else:
-    #     print("Not wrapping the environment with reward normalization")
+    if args.normalize_reward:
+        print("Wrapping the environment with reward normalization")
+        env = NormalizeReward(env, device=device)
+        normrewenv = env
+    else:
+        print("Not wrapping the environment with reward normalization")
 
-    # if args.normalize_obs:
-    #     print("Wrapping the environment with observation normalization")
-    #     env = NormalizeObservation(env)
-    # else:
-    #     print("Not wrapping the environment with observation normalization")
+    if args.normalize_obs:
+        print("Wrapping the environment with observation normalization")
+        env = NormalizeObservation(env)
+    else:
+        print("Not wrapping the environment with observation normalization")
 
     agent = SmallAgentSimple(
         obs_shape=env.observation_space.shape,
@@ -531,7 +551,9 @@ if __name__ == "__main__":
             # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713030424/reach-goal.cleanrl_model"
             # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713012916/reach-goal.cleanrl_model"
             # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713024655/reach-goal.cleanrl_model"
-            "runs/debug4_del/one_leg__reach-goal__small__0__1713187634/reach-goal.cleanrl_model"
+            # "runs/debug4_del/one_leg__reach-goal__small__0__1713187634/reach-goal.cleanrl_model"
+            # "runs/debug4_del/one_leg__reach-goal__small__None__1713189519/reach-goal.cleanrl_model"
+            "runs/debug4_del/one_leg__reach-goal__small__None__1713191348/reach-goal.cleanrl_model"
         )
     )
 
@@ -551,6 +573,7 @@ if __name__ == "__main__":
 
     # ALGO Logic: Storage setup
     best_success_rate = 0.1  # only save models that are better than this
+    best_mean_episode_return = -1000
     obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape)
     actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape)
     logprobs = torch.zeros((args.num_steps, args.num_envs))
@@ -594,18 +617,7 @@ if __name__ == "__main__":
                 values[step] = value.flatten().cpu()
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            # obs, reward, terminated, truncated, info
-            # Overwrite action to apply a 1 in the x direction
-            # action = torch.tensor(
-            #     [[5, 0, 0]], device=device, dtype=torch.float32
-            # ).repeat(args.num_envs, 1)
-            # pos_before = next_obs[:, :3]
             next_obs, reward, next_done, truncated, infos = env.step(action)
-            # pos_after = next_obs[:, :3]
-
-            # print(f"pos_before: {pos_before}, pos_after: {pos_after}")
-            # print(f"Change in position: {(pos_after - pos_before) / 0.025}")
-            # # bp()
 
             actions[step] = action.cpu()
             logprobs[step] = logprob.cpu()
@@ -619,7 +631,7 @@ if __name__ == "__main__":
                 )
 
         if normrewenv is not None:
-            print(f"Current return_rms: {normrewenv.return_rms.mean.item()}")
+            print(f"Current return_rms.var: {normrewenv.return_rms.var.item()}")
 
         # Calculate the discounted rewards
         discounted_rewards = (
@@ -835,8 +847,9 @@ if __name__ == "__main__":
                 writer.add_histogram(f"grads/{name}", param.grad, global_step)
 
         # Checkpoint the model if the success rate improves
-        if success_rate > best_success_rate:
+        if success_rate > 0.1 and discounted_rewards > best_mean_episode_return:
             best_success_rate = success_rate
+            best_mean_episode_return = discounted_rewards
             model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
             torch.save(agent.state_dict(), model_path)
             print(f"model saved to {model_path}")
