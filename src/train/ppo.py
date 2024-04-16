@@ -1,6 +1,6 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Literal
 import furniture_bench  # noqa
 
 import os
@@ -29,7 +29,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 import zarr
 
-from src.behavior.mlp import SmallAgent, ResidualMLPAgent, SmallAgentSimple
+from src.behavior.mlp import (
+    SmallAgent,
+    ResidualMLPAgent,
+    SmallAgentSimple,
+    BiggerAgentSimple,
+)
 
 from ipdb import set_trace as bp
 
@@ -202,7 +207,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
-    agent: str = "small"
+    agent: Literal["small", "bigger"] = "small"
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
@@ -251,11 +256,6 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
-    penalize_failures: bool = False
-    """if toggled, failed episodes will be penalized"""
-    simplified_task: bool = False
-    """if toggled, the task will be simplified"""
-    clip_value_target: float = 0.0
 
     # to be filled in runtime
     batch_size: int = 0
@@ -270,18 +270,30 @@ class Args:
     """the run id to continue training from"""
 
 
-def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4) -> DataLoader:
+def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
     demo_data = FurnitureStateDataset(
-        dataset_paths=Path(cfg.data_path[0]),
-        pred_horizon=cfg.data.pred_horizon,
-        obs_horizon=cfg.data.obs_horizon,
-        action_horizon=cfg.data.action_horizon,
-        normalizer=normalizer,
-        data_subset=cfg.data.data_subset,
-        control_mode=cfg.control.control_mode,
-        first_action_idx=cfg.actor.first_action_index,
-        pad_after=cfg.data.get("pad_after", True),
-        max_episode_count=cfg.data.get("max_episode_count", None),
+        # dataset_paths=Path(cfg.data_path[0]),
+        # pred_horizon=cfg.data.pred_horizon,
+        # obs_horizon=cfg.data.obs_horizon,
+        # action_horizon=cfg.data.action_horizon,
+        # normalizer=normalizer,
+        # data_subset=cfg.data.data_subset,
+        # control_mode=cfg.control.control_mode,
+        # first_action_idx=cfg.actor.first_action_index,
+        # pad_after=cfg.data.get("pad_after", True),
+        # max_episode_count=cfg.data.get("max_episode_count", None),
+        dataset_paths=Path(
+            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
+        ),
+        pred_horizon=1,
+        obs_horizon=1,
+        action_horizon=1,
+        normalizer=None,
+        data_subset=None,
+        control_mode=control_mode,
+        first_action_idx=0,
+        pad_after=False,
+        max_episode_count=None,
     )
 
     demo_data_loader = EndlessDataloader(
@@ -409,12 +421,14 @@ class FurnitureEnvWrapper:
 
         # Episodes that received reward are terminated
         terminated = reward > 0
-        terminated_indices = torch.nonzero(terminated).view(-1).to(device)
+        terminated_indices = (
+            torch.nonzero(terminated).to(torch.int32).view(-1).to(device)
+        )
 
         # Check if any envs have reached the max number of steps
         # self.env.env_steps += 1
         truncated = self.env.env_steps >= self.max_env_steps
-        truncated_indices = torch.nonzero(truncated).view(-1).to(device)
+        truncated_indices = torch.nonzero(truncated).view(-1).to(torch.int32).to(device)
 
         # Reset the envs that have reached the max number of steps or got reward
         reset_indices = torch.cat([terminated_indices, truncated_indices])
@@ -463,10 +477,14 @@ if __name__ == "__main__":
 
     args.continue_run_id = None
 
+    # TRY NOT TO MODIFY: seeding
+    if args.seed is None:
+        args.seed = random.randint(0, 2**32 - 1)
+
     if args.continue_run_id is not None:
         run_name = args.continue_run_id
     else:
-        run_name = f"{int(time.time())}__one_leg__{args.exp_name}__{args.seed}"
+        run_name = f"{int(time.time())}__{args.exp_name}__{args.agent}__{args.seed}"
 
     if args.track:
         import wandb
@@ -481,17 +499,13 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop1"
+    run_directory = "runs/debug-tabletop2-del"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s"
         % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
-
-    # TRY NOT TO MODIFY: seeding
-    if args.seed is None:
-        args.seed = random.randint(0, 2**32 - 1)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -541,12 +555,20 @@ if __name__ == "__main__":
     else:
         print("Not wrapping the environment with observation normalization")
 
-    agent = SmallAgentSimple(
-        obs_shape=env.observation_space.shape,
-        action_shape=env.action_space.shape,
-        init_logstd=args.init_logstd,
-    ).to(device)
-
+    if args.agent == "small":
+        agent = SmallAgentSimple(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        ).to(device)
+    elif args.agent == "bigger":
+        agent = BiggerAgentSimple(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        ).to(device)
+    else:
+        raise ValueError(f"Unknown agent type: {args.agent}")
     # agent.load_state_dict(
     #     torch.load(
     #     )
@@ -577,11 +599,10 @@ if __name__ == "__main__":
     values = torch.zeros((args.num_steps, args.num_envs))
 
     # # Get the dataloader for the demo data for the behavior cloning
-    # demo_data_loader = get_demo_data_loader(
-    #     cfg=agent.config,
-    #     normalizer=agent.normalizer.get_copy().cpu(),
-    #     batch_size=args.minibatch_size,
-    # )
+    demo_data_loader = get_demo_data_loader(
+        control_mode=action_type,
+        batch_size=args.minibatch_size,
+    )
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
@@ -589,14 +610,6 @@ if __name__ == "__main__":
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
-    # next_obs, reward, next_done, truncated, infos = env.step(
-    #     torch.zeros(args.num_envs, 3, device=device)
-    # )
-
-    # demodata = zarr.open(
-    #     "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
-    # )
-    # ep_idx = demodata["episode_ends"][:]
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -618,9 +631,6 @@ if __name__ == "__main__":
                 # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
-
-            # Denormalize actions from [-0.025, 0.025] to [-1, 1]
-            action[:, :3] = action[:, :3] / 0.025
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, next_done, truncated, infos = env.step(action)
@@ -651,11 +661,10 @@ if __name__ == "__main__":
         success_rate = reward_mask.mean().item()
 
         print(
-            f"Mean episode return: {discounted_rewards}, Success rate: {success_rate}"
+            f"Mean episode return: {discounted_rewards}, Success rate: {success_rate:.4%}"
         )
 
         indices = torch.arange(args.num_envs)
-        print(actions.view(-1, 3).mean(dim=0))
         # bp()
 
         # Select the experiences based on the sampled indices
@@ -666,9 +675,10 @@ if __name__ == "__main__":
         b_dones = dones[:, indices].reshape(-1)
         b_values = values[:, indices].reshape(-1)
 
+        print(b_actions[:, :3].mean(dim=0))
+
         # bootstrap value if not done
         # NOTE: Consider recalculating the advantages every update epoch
-        # bp()
         b_advantages, b_returns = calculate_advantage(
             args,
             device,
@@ -683,7 +693,10 @@ if __name__ == "__main__":
         b_advantages = b_advantages.reshape(-1).cpu()
         b_returns = b_returns.reshape(-1).cpu()
 
-        # demo_data_iter = iter(demo_data_loader)
+        demo_data_iter = iter(demo_data_loader)
+
+        # Print the mean and std of the the part poses
+        # print(f"Mean obs: {b_obs[:, 14:].mean(dim=0)}")
 
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
@@ -745,23 +758,26 @@ if __name__ == "__main__":
                 else:
                     v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
 
-                # Clip the value loss
-                # v_loss = torch.clamp(v_loss, -1, 1)
-                loss = v_loss * args.vf_coef
-
                 # Entropy loss
-                entropy_loss = entropy.mean()
+                entropy_loss = entropy.mean() * args.ent_coef
 
-                loss += pg_loss - args.ent_coef * entropy_loss
+                loss = pg_loss - entropy_loss + v_loss * args.vf_coef
 
                 # # Behavior cloning loss
-                # batch = next(demo_data_iter)
-                # batch = dict_to_device(batch, device)
+                batch = next(demo_data_iter)
+                batch = dict_to_device(batch, device)
+                bc_obs = batch["obs"]
+                bc_actions = batch["action"]
 
-                # # Get loss
-                # bc_loss = agent.compute_loss(batch)
+                # Print the mean and std of the the part poses
+                # print(f"Mean obs: {bc_obs[:, 14:].mean(dim=0)}")
 
-                # loss += args.bc_coef * bc_loss
+                # Get loss (normalized by 0.025 to match the action scaling)
+                action_mean: torch.Tensor = agent.actor_mean(bc_obs) * 0.025
+                bc_loss = ((bc_actions - action_mean) ** 2).mean()
+
+                loss += bc_loss * args.bc_coef
+                # loss = bc_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -769,6 +785,9 @@ if __name__ == "__main__":
                 optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
+                print(
+                    f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.2f} > {args.target_kl:.2f}"
+                )
                 break
 
             # Recalculate the advantages with the updated policy before the next epoch
@@ -814,9 +833,10 @@ if __name__ == "__main__":
             global_step,
         )
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        # writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+        writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
-        writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
+        writer.add_scalar("losses/entropy", entropy.item(), global_step)
+        writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
