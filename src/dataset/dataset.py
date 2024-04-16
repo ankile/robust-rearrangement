@@ -299,7 +299,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
         }
 
-        # TODO: Add "ground truth" discounted future rewards for value function supervision
+        # Add "ground truth" discounted future rewards for value function supervision
 
         if normalizer is not None:
             assert False, "Normalizer not implemented for state dataset"

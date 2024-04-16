@@ -761,23 +761,25 @@ if __name__ == "__main__":
                 # Entropy loss
                 entropy_loss = entropy.mean() * args.ent_coef
 
-                loss = pg_loss - entropy_loss + v_loss * args.vf_coef
+                ppo_loss = pg_loss - entropy_loss + v_loss * args.vf_coef
 
                 # # Behavior cloning loss
                 batch = next(demo_data_iter)
                 batch = dict_to_device(batch, device)
                 bc_obs = batch["obs"]
+                # Get loss (normalized by 0.025 to match the action scaling [-1, 1])
                 bc_actions = batch["action"]
+                bc_actions[:, :, :3] = bc_actions[:, :, :3] / 0.025
 
                 # Print the mean and std of the the part poses
                 # print(f"Mean obs: {bc_obs[:, 14:].mean(dim=0)}")
 
-                # Get loss (normalized by 0.025 to match the action scaling)
-                action_mean: torch.Tensor = agent.actor_mean(bc_obs) * 0.025
+                action_mean: torch.Tensor = agent.actor_mean(bc_obs)
                 bc_loss = ((bc_actions - action_mean) ** 2).mean()
 
-                loss += bc_loss * args.bc_coef
-                # loss = bc_loss
+                bp()
+
+                loss = bc_loss * args.bc_coef + (1 - args.bc_coef) * ppo_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -835,7 +837,6 @@ if __name__ == "__main__":
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
-        writer.add_scalar("losses/entropy", entropy.item(), global_step)
         writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
