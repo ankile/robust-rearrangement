@@ -11,8 +11,10 @@ import math
 
 from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
+from src.common.context import suppress_all_output
 from src.common.pytorch_util import dict_to_device
 from src.dataset import get_normalizer
 from src.dataset.dataloader import EndlessDataloader
@@ -24,6 +26,8 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
+
+import zarr
 
 from src.behavior.mlp import SmallAgent, ResidualMLPAgent, SmallAgentSimple
 
@@ -266,7 +270,7 @@ class Args:
     """the run id to continue training from"""
 
 
-def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4):
+def get_demo_data_loader(cfg, normalizer, batch_size, num_workers=4) -> DataLoader:
     demo_data = FurnitureStateDataset(
         dataset_paths=Path(cfg.data_path[0]),
         pred_horizon=cfg.data.pred_horizon,
@@ -321,7 +325,7 @@ class FurnitureEnvWrapper:
         self.env = env
 
         # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(3,))
+        self.action_space = gym.spaces.Box(-1, 1, shape=(10,))
 
         # Define a new observation space of dim 14 + 35 in range [-inf, inf]
         self.observation_space = gym.spaces.Box(
@@ -336,8 +340,11 @@ class FurnitureEnvWrapper:
         # )
 
         self.no_rotation_or_gripper = torch.tensor(
-            [[0, 0, 0, 1, 0]], device=device, dtype=torch.float32
+            [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
         ).repeat(self.num_envs, 1)
+
+        # Make a goal for the tabletop part to reach
+        self.tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157], device=device)
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         robot_state = obs["robot_state"]
@@ -348,16 +355,17 @@ class FurnitureEnvWrapper:
 
     def process_action(self, action: torch.Tensor):
         # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
-        action = torch.clamp(action, -10, 10) * 0.025
 
-        # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
-        action = torch.cat(
-            [
-                action,
-                self.no_rotation_or_gripper,
-            ],
-            dim=-1,
-        )
+        if action.shape[-1] == 3:
+            # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
+            action = torch.cat(
+                [
+                    action,
+                    self.no_rotation_or_gripper,
+                ],
+                dim=-1,
+            )
+        action[:, :3] = torch.clamp(action[:, :3], -10, 10) * 0.025
 
         return action
 
@@ -389,16 +397,13 @@ class FurnitureEnvWrapper:
 
         # Calculate reward
         # Get the end effector position
-        ee_pos = obs["robot_state"][:, :3]
-
-        # Make a dense reward that measures the distance to the goal: [ 0.5934, -0.2813,  0.5098]
-        goal = torch.tensor([0.5934, -0.2813, 0.5098], device=device)
+        tabletop_pos = obs["parts_poses"][:, :3]
 
         # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
-        reward[torch.norm(ee_pos - goal, dim=-1) < 0.10] = 1
+        reward[torch.norm(tabletop_pos - self.tabletop_goal, dim=-1) < 0.0025] = 1
 
         # Add a penalty for jerky movements
-        reward += penalty
+        # reward += penalty
 
         reward = reward.squeeze()
 
@@ -411,18 +416,11 @@ class FurnitureEnvWrapper:
         truncated = self.env.env_steps >= self.max_env_steps
         truncated_indices = torch.nonzero(truncated).view(-1).to(device)
 
-        # Reset the steps counter for the envs that have reached the max number of steps
-
         # Reset the envs that have reached the max number of steps or got reward
         reset_indices = torch.cat([terminated_indices, truncated_indices])
         if reset_indices.numel() > 0:
-            # print("Reward received:", reward.sum().item())
             self.env.env_steps[reset_indices] = 0
             obs = self.env.reset(reset_indices)
-
-        # if truncated.any():
-        #     self.env.env_steps[truncated_indices] = 0
-        #     obs = self.env.reset()
 
         obs = self.process_obs(obs)
         return obs, reward, terminated, truncated, info
@@ -468,9 +466,7 @@ if __name__ == "__main__":
     if args.continue_run_id is not None:
         run_name = args.continue_run_id
     else:
-        run_name = (
-            f"one_leg__{args.exp_name}__{args.agent}__{args.seed}__{int(time.time())}"
-        )
+        run_name = f"{int(time.time())}__one_leg__{args.exp_name}__{args.seed}"
 
     if args.track:
         import wandb
@@ -485,7 +481,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug5_del"
+    run_directory = "runs/debug-tabletop1"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -503,28 +499,31 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda")
-    act_rot_repr = "quat"  # "quat" or "rot_6d"
+    act_rot_repr = "rot_6d"  # "quat" or "rot_6d"
     action_type = "delta"  # "delta" or "pos"
 
     # env setup
-    env: FurnitureRLSimEnv = get_rl_env(
-        # env: FurnitureSimEnv = get_env(
-        act_rot_repr=act_rot_repr,
-        action_type=action_type,
-        april_tags=False,
-        ctrl_mode="diffik",
-        furniture="one_leg",
-        gpu_id=0,
-        headless=args.headless,
-        num_envs=args.num_envs,
-        observation_space="state",
-        randomness="low",
-        max_env_steps=100_000_000,
-        pos_scalar=1,
-        rot_scalar=1,
-        stiffness=1_000,
-        damping=200,
-    )
+    with suppress_all_output(False):
+        env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+            # env: FurnitureSimEnv = get_env(
+            act_rot_repr=act_rot_repr,
+            action_type=action_type,
+            april_tags=False,
+            concat_robot_state=True,
+            ctrl_mode="diffik",
+            obs_keys=DEFAULT_STATE_OBS,
+            furniture="one_leg",
+            gpu_id=0,
+            headless=args.headless,
+            num_envs=args.num_envs,
+            observation_space="state",
+            randomness="low",
+            max_env_steps=100_000_000,
+            pos_scalar=1,
+            rot_scalar=1,
+            stiffness=1_000,
+            damping=200,
+        )
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
         env, max_env_steps=args.num_env_steps
     )
@@ -548,16 +547,10 @@ if __name__ == "__main__":
         init_logstd=args.init_logstd,
     ).to(device)
 
-    agent.load_state_dict(
-        torch.load(
-            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713030424/reach-goal.cleanrl_model"
-            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713012916/reach-goal.cleanrl_model"
-            # "/data/scratch/ankile/robust-rearrangement/runs/debug3/one_leg__reach-goal__small__1__1713024655/reach-goal.cleanrl_model"
-            # "runs/debug4_del/one_leg__reach-goal__small__0__1713187634/reach-goal.cleanrl_model"
-            # "runs/debug4_del/one_leg__reach-goal__small__None__1713189519/reach-goal.cleanrl_model"
-            "runs/debug4_del/one_leg__reach-goal__small__None__1713191348/reach-goal.cleanrl_model"
-        )
-    )
+    # agent.load_state_dict(
+    #     torch.load(
+    #     )
+    # )
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -596,9 +589,14 @@ if __name__ == "__main__":
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
-    next_obs, reward, next_done, truncated, infos = env.step(
-        torch.zeros(args.num_envs, 3, device=device)
-    )
+    # next_obs, reward, next_done, truncated, infos = env.step(
+    #     torch.zeros(args.num_envs, 3, device=device)
+    # )
+
+    # demodata = zarr.open(
+    #     "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
+    # )
+    # ep_idx = demodata["episode_ends"][:]
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -620,6 +618,9 @@ if __name__ == "__main__":
                 # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
+
+            # Denormalize actions from [-0.025, 0.025] to [-1, 1]
+            action[:, :3] = action[:, :3] / 0.025
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, next_done, truncated, infos = env.step(action)
@@ -655,7 +656,7 @@ if __name__ == "__main__":
 
         indices = torch.arange(args.num_envs)
         print(actions.view(-1, 3).mean(dim=0))
-        bp()
+        # bp()
 
         # Select the experiences based on the sampled indices
         b_obs = obs[:, indices].reshape((-1,) + env.observation_space.shape)
