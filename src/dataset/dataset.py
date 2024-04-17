@@ -268,6 +268,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 "robot_state",
                 f"action/{control_mode}",
                 "skill",
+                "reward",
             ],
             max_episodes=data_subset,
             max_ep_cnt=max_episode_count,
@@ -275,7 +276,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = combined_data["episode_ends"]
+        self.episode_ends: np.ndarray = combined_data["episode_ends"]
         self.metadata = metadata
         print(f"Loading dataset of {len(self.episode_ends)} episodes:")
         for path, data in metadata.items():
@@ -299,7 +300,48 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
         }
 
+        print("[NB] The actions are stored with rotations in 6D format")
+        # Trim the data so that it's only up until the task is completed, i.e., the tabletop
+        # is in location (0.0819, 0.2866, -0.0157)
+
+        ee = np.array([0] + self.episode_ends.tolist())
+        tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157])
+        new_episode_starts = []
+        new_episode_ends = []
+        for prev_ee, curr_ee in zip(ee[:-1], ee[1:]):
+            # Find the first index at which the tabletop goal is reached (if at all)
+            for i in range(prev_ee, curr_ee):
+                if torch.allclose(
+                    self.train_data["parts_poses"][i, :3], tabletop_goal, atol=1e-2
+                ):
+                    new_episode_starts.append(prev_ee)
+                    new_episode_ends.append(i)
+                    break
+
         # Add "ground truth" discounted future rewards for value function supervision
+        rewards = torch.from_numpy(combined_data["reward"])
+        ends_delta = ee[1:] - ee[:-1]
+        episode_rewards = torch.split(rewards, ends_delta.tolist())
+        gamma = 0.99
+        # bp()
+
+        # Compute the future return for each timestep within each episode
+        returns = []
+        for ep_rewards in episode_rewards:
+            timesteps = torch.arange(len(ep_rewards), device=ep_rewards.device)
+            discounts = gamma**timesteps
+            ep_returns = (
+                torch.flip(
+                    torch.cumsum(torch.flip(ep_rewards * discounts, dims=[0]), dim=0),
+                    dims=[0],
+                )
+                / discounts
+            )
+            returns.append(ep_returns)
+
+        # Concatenate the returns for all episodes into a single tensor
+        returns = torch.cat(returns)
+        self.train_data["returns"] = returns
 
         if normalizer is not None:
             assert False, "Normalizer not implemented for state dataset"

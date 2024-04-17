@@ -34,6 +34,7 @@ from src.behavior.mlp import (
     ResidualMLPAgent,
     SmallAgentSimple,
     BiggerAgentSimple,
+    BigAgentSimple,
 )
 
 from ipdb import set_trace as bp
@@ -207,7 +208,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
-    agent: Literal["small", "bigger"] = "small"
+    agent: Literal["small", "bigger", "big"] = "small"
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
@@ -218,17 +219,22 @@ class Args:
     minimum_success_rate: float = 0.0
     """the threshold at which we'll upsample the successful episodes"""
     init_logstd: float = 0.0
+    """the initial value of the log standard deviation"""
+    ee_dof: int = 3
+    """the number of degrees of freedom of the end effector"""
+    debug: bool = False
+    """if toggled, the debug mode will be enabled"""
 
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
     # """the id of the environment"""
     total_timesteps: int = 100_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 1e-6
+    learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    num_env_steps: int = 750
+    num_env_steps: int = 300
     """the number of steps to run in each environment per policy rollout"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
@@ -332,12 +338,12 @@ def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
 
 
 class FurnitureEnvWrapper:
-    def __init__(self, env: FurnitureSimEnv, max_env_steps=300):
+    def __init__(self, env: FurnitureSimEnv, max_env_steps=300, ee_dof=3):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
 
         # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(10,))
+        self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
 
         # Define a new observation space of dim 14 + 35 in range [-inf, inf]
         self.observation_space = gym.spaces.Box(
@@ -387,9 +393,7 @@ class FurnitureEnvWrapper:
 
     def jerkinesss_penalty(self, action: torch.Tensor):
         # Get the current end-effector velocity
-        ee_velocity = self.env.rb_states[
-            self.env.ee_idxs, 7:10
-        ]  # Assuming velocity is stored in indices 7 to 9
+        ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
 
         # Calculate the dot product between the action and the end-effector velocity
         dot_product = torch.sum(action[:, :3] * ee_velocity, dim=1, keepdim=True)
@@ -499,7 +503,9 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop2-del"
+    run_directory = "runs/debug-tabletop4"
+    if args.debug:
+        run_directory += "-delete"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -513,7 +519,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda")
-    act_rot_repr = "rot_6d"  # "quat" or "rot_6d"
+    act_rot_repr = "quat"  # "quat" or "rot_6d"
     action_type = "delta"  # "delta" or "pos"
 
     # env setup
@@ -539,7 +545,7 @@ if __name__ == "__main__":
             damping=200,
         )
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
-        env, max_env_steps=args.num_env_steps
+        env, max_env_steps=args.num_env_steps, ee_dof=args.ee_dof
     )
     normrewenv = None
     if args.normalize_reward:
@@ -567,10 +573,18 @@ if __name__ == "__main__":
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
         ).to(device)
+    elif args.agent == "big":
+        agent = BigAgentSimple(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        ).to(device)
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
+
     # agent.load_state_dict(
     #     torch.load(
+    #         "runs/debug-tabletop4/1713297635__place-tabletop__bigger__48467250/place-tabletop.cleanrl_model"
     #     )
     # )
 
@@ -613,6 +627,7 @@ if __name__ == "__main__":
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
+        print(f"Run name: {run_name}")
 
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -768,16 +783,14 @@ if __name__ == "__main__":
                 batch = dict_to_device(batch, device)
                 bc_obs = batch["obs"]
                 # Get loss (normalized by 0.025 to match the action scaling [-1, 1])
-                bc_actions = batch["action"]
-                bc_actions[:, :, :3] = bc_actions[:, :, :3] / 0.025
+                bc_actions = batch["action"][..., : args.ee_dof]
+                bc_actions[..., :3] = bc_actions[..., :3] / 0.025
 
                 # Print the mean and std of the the part poses
                 # print(f"Mean obs: {bc_obs[:, 14:].mean(dim=0)}")
 
                 action_mean: torch.Tensor = agent.actor_mean(bc_obs)
                 bc_loss = ((bc_actions - action_mean) ** 2).mean()
-
-                bp()
 
                 loss = bc_loss * args.bc_coef + (1 - args.bc_coef) * ppo_loss
 
@@ -874,9 +887,13 @@ if __name__ == "__main__":
                 writer.add_histogram(f"grads/{name}", param.grad, global_step)
 
         # Checkpoint the model if the success rate improves
-        if success_rate > 0.1 and discounted_rewards > best_mean_episode_return:
-            best_success_rate = success_rate
-            best_mean_episode_return = discounted_rewards
+        if (
+            success_rate > best_success_rate
+            or discounted_rewards > best_mean_episode_return
+        ):
+            best_success_rate = max(success_rate, best_success_rate)
+            best_mean_episode_return = max(discounted_rewards, best_mean_episode_return)
+
             model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
             torch.save(agent.state_dict(), model_path)
             print(f"model saved to {model_path}")
