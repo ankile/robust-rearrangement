@@ -22,6 +22,7 @@ from src.dataset.dataset import FurnitureStateDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import trange
 import tyro
@@ -35,6 +36,7 @@ from src.behavior.mlp import (
     SmallAgentSimple,
     BiggerAgentSimple,
     BigAgentSimple,
+    ComplexAgentPPO,
 )
 
 from ipdb import set_trace as bp
@@ -208,7 +210,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
-    agent: Literal["small", "bigger", "big"] = "small"
+    agent: Literal["small", "bigger", "big", "complex"] = "small"
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
@@ -274,6 +276,8 @@ class Args:
     """the number of steps (computed in runtime)"""
     continue_run_id: str = None
     """the run id to continue training from"""
+    load_checkpoint: str = None
+    """the checkpoint to load the model from"""
 
 
 def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
@@ -425,6 +429,7 @@ class FurnitureEnvWrapper:
 
         # Episodes that received reward are terminated
         terminated = reward > 0
+        # Zero out the terminated bool tensor
         terminated_indices = (
             torch.nonzero(terminated).to(torch.int32).view(-1).to(device)
         )
@@ -437,8 +442,11 @@ class FurnitureEnvWrapper:
         # Reset the envs that have reached the max number of steps or got reward
         reset_indices = torch.cat([terminated_indices, truncated_indices])
         if reset_indices.numel() > 0:
-            self.env.env_steps[reset_indices] = 0
             obs = self.env.reset(reset_indices)
+
+        # if truncated_indices.numel() > 0:
+        #     print("Resetting all envs")
+        #     obs = self.env.reset()
 
         obs = self.process_obs(obs)
         return obs, reward, terminated, truncated, info
@@ -525,7 +533,7 @@ if __name__ == "__main__":
     # env setup
     with suppress_all_output(False):
         env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-            # env: FurnitureSimEnv = get_env(
+            # env: FurnitureSimEnv = FurnitureSimEnv(
             act_rot_repr=act_rot_repr,
             action_type=action_type,
             april_tags=False,
@@ -579,14 +587,21 @@ if __name__ == "__main__":
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
         ).to(device)
+    elif args.agent == "complex":
+        agent = ComplexAgentPPO(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        ).to(device)
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
-    # agent.load_state_dict(
-    #     torch.load(
-    #         "runs/debug-tabletop4/1713297635__place-tabletop__bigger__48467250/place-tabletop.cleanrl_model"
-    #     )
-    # )
+    # args.load_checkpoint = "runs/debug-tabletop4/1713297635__place-tabletop__bigger__48467250/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop4/1713358754__place-tabletop__bigger__87047970/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop4/1713367643__place-tabletop__bigger__2582844377/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop4/1713372359__place-tabletop__bigger__611825449/place-tabletop.cleanrl_model"
+    if args.load_checkpoint is not None:
+        agent.load_state_dict(torch.load(args.load_checkpoint))
 
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
@@ -679,16 +694,12 @@ if __name__ == "__main__":
             f"Mean episode return: {discounted_rewards}, Success rate: {success_rate:.4%}"
         )
 
-        indices = torch.arange(args.num_envs)
-        # bp()
-
-        # Select the experiences based on the sampled indices
-        b_obs = obs[:, indices].reshape((-1,) + env.observation_space.shape)
-        b_actions = actions[:, indices].reshape((-1,) + env.action_space.shape)
-        b_logprobs = logprobs[:, indices].reshape(-1)
-        b_rewards = rewards[:, indices].reshape(-1)
-        b_dones = dones[:, indices].reshape(-1)
-        b_values = values[:, indices].reshape(-1)
+        b_obs = obs.reshape((-1,) + env.observation_space.shape)
+        b_actions = actions.reshape((-1,) + env.action_space.shape)
+        b_logprobs = logprobs.reshape(-1)
+        b_rewards = rewards.reshape(-1)
+        b_dones = dones.reshape(-1)
+        b_values = values.reshape(-1)
 
         print(b_actions[:, :3].mean(dim=0))
 
@@ -708,8 +719,6 @@ if __name__ == "__main__":
         b_advantages = b_advantages.reshape(-1).cpu()
         b_returns = b_returns.reshape(-1).cpu()
 
-        demo_data_iter = iter(demo_data_loader)
-
         # Print the mean and std of the the part poses
         # print(f"Mean obs: {b_obs[:, 14:].mean(dim=0)}")
 
@@ -717,6 +726,7 @@ if __name__ == "__main__":
         b_inds = np.arange(args.batch_size)
         clipfracs = []
         for epoch in trange(args.update_epochs, desc="Policy update"):
+            demo_data_iter = iter(demo_data_loader)
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -789,10 +799,25 @@ if __name__ == "__main__":
                 # Print the mean and std of the the part poses
                 # print(f"Mean obs: {bc_obs[:, 14:].mean(dim=0)}")
 
-                action_mean: torch.Tensor = agent.actor_mean(bc_obs)
-                bc_loss = ((bc_actions - action_mean) ** 2).mean()
+                with torch.no_grad():
+                    _, bc_logprob, _, bc_values = agent.get_action_and_value(
+                        bc_obs, bc_actions
+                    )
+                # bc_loss = -bc_logprob.mean()
 
-                loss = bc_loss * args.bc_coef + (1 - args.bc_coef) * ppo_loss
+                bc_v_loss = (
+                    0.5
+                    * ((bc_values.squeeze() - batch["returns"].squeeze()) ** 2).mean()
+                )
+
+                # loss = (bc_loss + bc_v_loss) * args.bc_coef + (
+                #     1 - args.bc_coef
+                # ) * ppo_loss
+
+                action_pred = agent.actor_mean(bc_obs)
+                bc_loss = F.mse_loss(action_pred, bc_actions)
+
+                loss = args.bc_coef * bc_loss + (1 - args.bc_coef) * ppo_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -849,6 +874,7 @@ if __name__ == "__main__":
         )
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
         writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+        writer.add_scalar("losses/bc_v_loss", bc_v_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)

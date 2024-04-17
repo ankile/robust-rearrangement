@@ -266,6 +266,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             [
                 "parts_poses",
                 "robot_state",
+                # "color_image2",  # Debugging
                 f"action/{control_mode}",
                 "skill",
                 "reward",
@@ -294,13 +295,26 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             ],
             dim=-1,
         )
+
+        # Convert action orientation to quaternion
+        action = torch.from_numpy(combined_data[f"action/{control_mode}"])
+        action = torch.cat(
+            [
+                action[:, :3],
+                rot_6d_to_isaac_quat(action[:, 3:9]),
+                action[:, 9:],
+            ],
+            dim=-1,
+        )
+
         self.train_data = {
             "robot_state": robot_state,
             "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
             "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
+            # "color_image2": torch.from_numpy(combined_data["color_image2"]),  # Debugging
         }
 
-        print("[NB] The actions are stored with rotations in 6D format")
+        # print("[NB] The actions are stored with rotations in 6D format")
         # Trim the data so that it's only up until the task is completed, i.e., the tabletop
         # is in location (0.0819, 0.2866, -0.0157)
 

@@ -564,3 +564,31 @@ class BigAgentSimple(SmallAgentSimple):
         self.actor_logstd = nn.Parameter(
             torch.ones(1, np.prod(action_shape)) * init_logstd
         )
+
+
+class ComplexAgentPPO(SmallAgentSimple):
+    action_horizon: int = 1
+
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        super().__init__(obs_shape, action_shape, init_logstd)
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 512)),
+            nn.ReLU(),
+            layer_init(nn.Linear(512, 512)),
+            nn.ReLU(),
+            layer_init(nn.Linear(512, 256)),
+            nn.ReLU(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 512)),
+            nn.ReLU(),
+            layer_init(nn.Linear(512, 512)),
+            nn.ReLU(),
+            layer_init(nn.Linear(512, 256)),
+            nn.ReLU(),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
