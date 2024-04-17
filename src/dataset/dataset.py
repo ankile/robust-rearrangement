@@ -308,6 +308,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157])
         new_episode_starts = []
         new_episode_ends = []
+        curr_cumulate_timesteps = 0
+        self.episode_ends = []
         for prev_ee, curr_ee in zip(ee[:-1], ee[1:]):
             # Find the first index at which the tabletop goal is reached (if at all)
             for i in range(prev_ee, curr_ee):
@@ -315,19 +317,30 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                     self.train_data["parts_poses"][i, :3], tabletop_goal, atol=1e-2
                 ):
                     new_episode_starts.append(prev_ee)
-                    new_episode_ends.append(i)
+                    end = i + 1
+                    new_episode_ends.append(end)
+                    curr_cumulate_timesteps += end - prev_ee
+                    self.episode_ends.append(curr_cumulate_timesteps)
                     break
 
-        # Add "ground truth" discounted future rewards for value function supervision
-        rewards = torch.from_numpy(combined_data["reward"])
-        ends_delta = ee[1:] - ee[:-1]
-        episode_rewards = torch.split(rewards, ends_delta.tolist())
-        gamma = 0.99
-        # bp()
+        # Slice the train_data using the new episode starts and ends
+        for key in self.train_data:
+            data_slices = [
+                self.train_data[key][start:end]
+                for start, end in zip(new_episode_starts, new_episode_ends)
+            ]
+            self.train_data[key] = torch.cat(data_slices)
 
-        # Compute the future return for each timestep within each episode
+        self.episode_ends = torch.tensor(self.episode_ends)
+        # Recalculate the rewards and returns
+        rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
+        rewards[self.episode_ends - 1] = 1.0
+
+        gamma = 0.99
         returns = []
-        for ep_rewards in episode_rewards:
+        ee = [0] + self.episode_ends.tolist()
+        for start, end in zip(ee[:-1], ee[1:]):
+            ep_rewards = rewards[start:end]
             timesteps = torch.arange(len(ep_rewards), device=ep_rewards.device)
             discounts = gamma**timesteps
             ep_returns = (
@@ -342,20 +355,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         # Concatenate the returns for all episodes into a single tensor
         returns = torch.cat(returns)
         self.train_data["returns"] = returns
-
-        if normalizer is not None:
-            assert False, "Normalizer not implemented for state dataset"
-            normalizer = normalizer.cpu()
-            normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
-
-            # Normalize data to [-1,1]
-            for key in normalizer.keys():
-                if key not in self.train_data:
-                    continue
-
-                self.train_data[key] = normalizer(
-                    self.train_data[key], key, forward=True
-                )
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -421,6 +420,11 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         parts_poses = nsample["parts_poses"][: self.obs_horizon, :]
 
         nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
+
+        # Discard unused returns
+        nsample["returns"] = nsample["returns"][
+            self.first_action_idx : self.final_action_idx
+        ]
 
         # # Add the task index and success flag to the sample
         # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])

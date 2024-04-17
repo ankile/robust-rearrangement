@@ -778,7 +778,7 @@ if __name__ == "__main__":
 
                 ppo_loss = pg_loss - entropy_loss + v_loss * args.vf_coef
 
-                # # Behavior cloning loss
+                # Behavior cloning loss
                 batch = next(demo_data_iter)
                 batch = dict_to_device(batch, device)
                 bc_obs = batch["obs"]
@@ -887,7 +887,7 @@ if __name__ == "__main__":
                 writer.add_histogram(f"grads/{name}", param.grad, global_step)
 
         # Checkpoint the model if the success rate improves
-        if (
+        if success_rate > 0.1 and (
             success_rate > best_success_rate
             or discounted_rewards > best_mean_episode_return
         ):
