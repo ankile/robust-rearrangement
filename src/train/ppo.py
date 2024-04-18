@@ -15,10 +15,11 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 from src.common.context import suppress_all_output
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.pytorch_util import dict_to_device
 from src.dataset import get_normalizer
 from src.dataset.dataloader import EndlessDataloader
-from src.dataset.dataset import FurnitureStateDataset
+from src.dataset.dataset import FurnitureStateTabletopDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,6 +28,8 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
+
+from src.dataset.normalizer import LinearNormalizer
 
 import zarr
 
@@ -37,6 +40,7 @@ from src.behavior.mlp import (
     BiggerAgentSimple,
     BigAgentSimple,
     ComplexAgentPPO,
+    ResidualMLPAgentSeparate,
 )
 
 from ipdb import set_trace as bp
@@ -210,7 +214,9 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
-    agent: Literal["small", "bigger", "big", "complex"] = "small"
+    agent: Literal[
+        "small", "bigger", "big", "complex", "residual", "residual-separate"
+    ] = "small"
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
@@ -224,6 +230,10 @@ class Args:
     """the initial value of the log standard deviation"""
     ee_dof: int = 3
     """the number of degrees of freedom of the end effector"""
+    bc_loss_type: Literal["mse", "nll"] = "mse"
+    """the type of the behavior cloning loss"""
+    supervise_value_function: bool = False
+    """if toggled, the value function will be supervised"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -280,8 +290,14 @@ class Args:
     """the checkpoint to load the model from"""
 
 
-def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
-    demo_data = FurnitureStateDataset(
+def get_demo_data_loader(
+    control_mode,
+    batch_size,
+    act_rot_repr="quat",
+    num_workers=4,
+    normalizer=None,
+) -> DataLoader:
+    demo_data = FurnitureStateTabletopDataset(
         # dataset_paths=Path(cfg.data_path[0]),
         # pred_horizon=cfg.data.pred_horizon,
         # obs_horizon=cfg.data.obs_horizon,
@@ -298,9 +314,10 @@ def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
         pred_horizon=1,
         obs_horizon=1,
         action_horizon=1,
-        normalizer=None,
+        normalizer=normalizer,
         data_subset=None,
         control_mode=control_mode,
+        act_rot_repr=act_rot_repr,
         first_action_idx=0,
         pad_after=False,
         max_episode_count=None,
@@ -342,6 +359,8 @@ def get_demo_data_loader(control_mode, batch_size, num_workers=4) -> DataLoader:
 
 
 class FurnitureEnvWrapper:
+    normalizer = None
+
     def __init__(self, env: FurnitureSimEnv, max_env_steps=300, ee_dof=3):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
@@ -349,9 +368,10 @@ class FurnitureEnvWrapper:
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
 
-        # Define a new observation space of dim 14 + 35 in range [-inf, inf]
+        # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
+        # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(14 + 35,)
+            -float("inf"), float("inf"), shape=(16 + 35,)
         )
 
         # Define the maximum number of steps in the environment
@@ -370,7 +390,15 @@ class FurnitureEnvWrapper:
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         robot_state = obs["robot_state"]
+
+        # Make the robot state have 6D proprioception
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
         parts_poses = obs["parts_poses"]
+
+        if self.normalizer is not None:
+            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
+            parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         obs = torch.cat([robot_state, parts_poses], dim=-1)
         return obs
@@ -387,7 +415,7 @@ class FurnitureEnvWrapper:
                 ],
                 dim=-1,
             )
-        action[:, :3] = torch.clamp(action[:, :3], -10, 10) * 0.025
+        # action[:, :3] = torch.clamp(action[:, :3], -10, 10) * 0.025
 
         return action
 
@@ -420,7 +448,7 @@ class FurnitureEnvWrapper:
         tabletop_pos = obs["parts_poses"][:, :3]
 
         # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
-        reward[torch.norm(tabletop_pos - self.tabletop_goal, dim=-1) < 0.0025] = 1
+        reward[torch.norm(tabletop_pos - self.tabletop_goal, dim=-1) < 0.005] = 1
 
         # Add a penalty for jerky movements
         # reward += penalty
@@ -511,7 +539,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop4"
+    run_directory = "runs/debug-tabletop5"
     if args.debug:
         run_directory += "-delete"
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -527,8 +555,8 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda")
-    act_rot_repr = "quat"  # "quat" or "rot_6d"
-    action_type = "delta"  # "delta" or "pos"
+    act_rot_repr = "rot_6d" if args.ee_dof == 10 else "quat"
+    action_type = "pos"  # "delta" or "pos"
 
     # env setup
     with suppress_all_output(False):
@@ -556,54 +584,105 @@ if __name__ == "__main__":
         env, max_env_steps=args.num_env_steps, ee_dof=args.ee_dof
     )
     normrewenv = None
-    if args.normalize_reward:
-        print("Wrapping the environment with reward normalization")
-        env = NormalizeReward(env, device=device)
-        normrewenv = env
-    else:
-        print("Not wrapping the environment with reward normalization")
+    # if args.normalize_reward:
+    #     print("Wrapping the environment with reward normalization")
+    #     env = NormalizeReward(env, device=device)
+    #     normrewenv = env
+    # else:
+    #     print("Not wrapping the environment with reward normalization")
 
-    if args.normalize_obs:
-        print("Wrapping the environment with observation normalization")
-        env = NormalizeObservation(env)
-    else:
-        print("Not wrapping the environment with observation normalization")
+    # if args.normalize_obs:
+    #     print("Wrapping the environment with observation normalization")
+    #     env = NormalizeObservation(env)
+    # else:
+    #     print("Not wrapping the environment with observation normalization")
 
     if args.agent == "small":
         agent = SmallAgentSimple(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
-        ).to(device)
+        )
     elif args.agent == "bigger":
         agent = BiggerAgentSimple(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
-        ).to(device)
+        )
     elif args.agent == "big":
         agent = BigAgentSimple(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
-        ).to(device)
+        )
     elif args.agent == "complex":
         agent = ComplexAgentPPO(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
-        ).to(device)
+        )
+    elif args.agent == "residual":
+        agent = ResidualMLPAgent(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        )
+    elif args.agent == "residual-separate":
+        agent = ResidualMLPAgentSeparate(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        )
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
+
+    agent = agent.to(device)
+
+    normalizer = LinearNormalizer(control_mode=action_type).to(device)
+    assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
+        f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
+        f"does not match env action shape {env.action_space.shape[-1]}"
+    )
 
     # args.load_checkpoint = "runs/debug-tabletop4/1713297635__place-tabletop__bigger__48467250/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop4/1713358754__place-tabletop__bigger__87047970/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop4/1713367643__place-tabletop__bigger__2582844377/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop4/1713372359__place-tabletop__bigger__611825449/place-tabletop.cleanrl_model"
-    if args.load_checkpoint is not None:
-        agent.load_state_dict(torch.load(args.load_checkpoint))
+    # args.load_checkpoint = "runs/debug-tabletop4/1713377775__place-tabletop__bigger__609807713/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop5/1713448426__place-tabletop__big__1710768433/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "/data/scratch/ankile/robust-rearrangement/outputs/2024-04-18/11-27-13/models/royal-jazz-32/actor_chkpt_best_test_loss.pt"
 
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    if args.load_checkpoint is not None:
+        sd = torch.load(args.load_checkpoint)
+        model_weights = {
+            key.replace("model", "actor_mean"): value
+            for key, value in sd.items()
+            if "model" in key
+        }
+        agent.load_state_dict(sd, strict=False)
+
+        normalizer_params = {
+            key.replace("normalizer.", ""): value
+            for key, value in sd.items()
+            if "normalizer" in key
+        }
+        normalizer.stats["parts_poses"] = nn.ParameterDict(
+            {
+                "min": nn.Parameter(torch.zeros(35)),
+                "max": nn.Parameter(torch.ones(35)),
+            }
+        )
+        normalizer.load_state_dict(normalizer_params)
+        normalizer._turn_off_gradients()
+
+    env.normalizer = normalizer
+
+    optimizer = optim.AdamW(
+        agent.parameters(),
+        lr=args.learning_rate,
+        eps=1e-5,
+        weight_decay=1e-5,
+    )
 
     args.num_steps = math.ceil(args.num_env_steps / agent.action_horizon)
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -631,6 +710,8 @@ if __name__ == "__main__":
     demo_data_loader = get_demo_data_loader(
         control_mode=action_type,
         batch_size=args.minibatch_size,
+        act_rot_repr=act_rot_repr,
+        normalizer=normalizer,
     )
 
     # TRY NOT TO MODIFY: start the game
@@ -643,6 +724,7 @@ if __name__ == "__main__":
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
         print(f"Run name: {run_name}")
+        agent.eval()
 
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -663,7 +745,8 @@ if __name__ == "__main__":
                 values[step] = value.flatten().cpu()
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            next_obs, reward, next_done, truncated, infos = env.step(action)
+            naction = normalizer(action, "action", forward=False)
+            next_obs, reward, next_done, truncated, infos = env.step(naction)
 
             actions[step] = action.cpu()
             logprobs[step] = logprob.cpu()
@@ -704,7 +787,6 @@ if __name__ == "__main__":
         print(b_actions[:, :3].mean(dim=0))
 
         # bootstrap value if not done
-        # NOTE: Consider recalculating the advantages every update epoch
         b_advantages, b_returns = calculate_advantage(
             args,
             device,
@@ -721,6 +803,7 @@ if __name__ == "__main__":
 
         # Print the mean and std of the the part poses
         # print(f"Mean obs: {b_obs[:, 14:].mean(dim=0)}")
+        agent.train()
 
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
@@ -792,32 +875,34 @@ if __name__ == "__main__":
                 batch = next(demo_data_iter)
                 batch = dict_to_device(batch, device)
                 bc_obs = batch["obs"]
-                # Get loss (normalized by 0.025 to match the action scaling [-1, 1])
-                bc_actions = batch["action"][..., : args.ee_dof]
-                bc_actions[..., :3] = bc_actions[..., :3] / 0.025
+                norm_bc_actions = batch["action"]  # [..., : args.ee_dof]
 
-                # Print the mean and std of the the part poses
-                # print(f"Mean obs: {bc_obs[:, 14:].mean(dim=0)}")
+                # Normalize the actions
+                if args.bc_loss_type == "mse":
+                    action_pred = agent.actor_mean(bc_obs)
+                    bc_loss = F.mse_loss(action_pred, norm_bc_actions)
+                elif args.bc_loss_type == "nll":
+                    _, bc_logprob, _, bc_values = agent.get_action_and_value(
+                        bc_obs, norm_bc_actions
+                    )
+                    bc_loss = -bc_logprob.mean()
+                else:
+                    raise ValueError(
+                        f"Unknown behavior cloning loss type: {args.bc_loss_type}"
+                    )
 
                 with torch.no_grad():
-                    _, bc_logprob, _, bc_values = agent.get_action_and_value(
-                        bc_obs, bc_actions
-                    )
-                # bc_loss = -bc_logprob.mean()
-
+                    bc_values = agent.get_value(bc_obs)
                 bc_v_loss = (
                     0.5
                     * ((bc_values.squeeze() - batch["returns"].squeeze()) ** 2).mean()
                 )
 
-                # loss = (bc_loss + bc_v_loss) * args.bc_coef + (
-                #     1 - args.bc_coef
-                # ) * ppo_loss
+                bc_total_loss = (
+                    bc_loss + bc_v_loss if args.supervise_value_function else bc_loss
+                )
 
-                action_pred = agent.actor_mean(bc_obs)
-                bc_loss = F.mse_loss(action_pred, bc_actions)
-
-                loss = args.bc_coef * bc_loss + (1 - args.bc_coef) * ppo_loss
+                loss = args.bc_coef * bc_total_loss + (1 - args.bc_coef) * ppo_loss
 
                 optimizer.zero_grad()
                 loss.backward()

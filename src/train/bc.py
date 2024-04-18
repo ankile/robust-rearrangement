@@ -383,9 +383,10 @@ def main(config: DictConfig):
                     ctrl_mode=config.control.controller,
                     action_type=config.control.control_mode,
                     pos_scalar=1,
+                    headless=True,
                     rot_scalar=1,
-                    stiffness=800,
-                    damping=150,
+                    stiffness=1_000,
+                    damping=200,
                 )
 
             best_success_rate = do_rollout_evaluation(

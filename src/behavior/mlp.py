@@ -398,76 +398,6 @@ class SmallAgent(nn.Module):
         )
 
 
-class ResidualMLPAgent(MLPStateActor):
-    def __init__(self, device, normalizer, cfg):
-        super().__init__(
-            device,
-            normalizer,
-            cfg,
-        )
-        self.config = cfg
-
-        self.value_head = nn.Sequential(
-            layer_init(nn.Linear(self.model.layers[-1].in_features, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=0.1),
-        )
-
-        self.actor_logstd = nn.Parameter(torch.ones(1, 1, self.action_dim) * -4.5)
-
-    def training_obs(self, batch: dict, flatten: bool = True):
-        # The robot state is already normalized in the dataset
-        robot_state = batch["robot_state"]
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
-
-        # The parts poses are already normalized in the dataset
-        parts_poses = batch["parts_poses"]
-        nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
-
-        # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
-
-        if flatten:
-            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
-            nobs = nobs.flatten(start_dim=1)
-
-        return nobs
-
-    def get_value(self, nobs: torch.Tensor):
-        representation = self.model.forward_base(nobs)
-        return self.value_head(representation)
-
-    def get_action_and_value(self, nobs: torch.Tensor, action=None):
-        # bp()
-        representation = self.model.forward_base(nobs)
-
-        values = self.value_head(representation)
-        action_mean = self.model.action_head(representation).reshape(
-            nobs.shape[0], self.pred_horizon, self.action_dim
-        )
-
-        action_logstd = self.actor_logstd.expand_as(action_mean)
-        action_std = torch.exp(action_logstd)
-        probs = Normal(action_mean, action_std)
-
-        if action is None:
-            naction = probs.sample()
-            # naction = action_mean
-        else:
-            naction = self.normalizer(action, "action", forward=True)
-
-        action = self.normalizer(naction, "action", forward=False)
-
-        return (
-            action,
-            # Sum over all the dimensions after the batch dimension
-            probs.log_prob(naction).sum(dim=(1, 2)),
-            probs.entropy().sum(dim=(1, 2)),
-            values,
-        )
-
-
 class SmallAgentSimple(nn.Module):
     action_horizon: int = 1
 
@@ -591,4 +521,112 @@ class ComplexAgentPPO(SmallAgentSimple):
         )
         self.actor_logstd = nn.Parameter(
             torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
+
+
+class ResidualMLPAgent(nn.Module):
+
+    action_horizon: int = 1
+
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        super().__init__()
+
+        self.backbone_emb_dim = 256
+
+        self.backbone = MLP(
+            input_dim=np.array(obs_shape).prod(),
+            output_dim=self.backbone_emb_dim,
+            hidden_dims=[256, 256, 256],
+            dropout=0.1,
+            residual=True,
+        )
+
+        self.value_head = nn.Sequential(
+            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=0.1),
+        )
+
+        self.action_head = nn.Sequential(
+            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+        )
+
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
+
+    def get_value(self, nobs: torch.Tensor):
+        representation = self.backbone(nobs)
+        return self.value_head(representation)
+
+    def actor_mean(self, nobs: torch.Tensor):
+        representation = self.backbone(nobs)
+        return self.action_head(representation)
+
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        representation = self.backbone(nobs)
+        action_mean: torch.Tensor = self.action_head(representation)
+
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        if action is None:
+            action = probs.sample()
+
+        return (
+            action,
+            probs.log_prob(action).sum(dim=1),
+            probs.entropy().sum(dim=1),
+            self.value_head(representation),
+        )
+
+
+class ResidualMLPAgentSeparate(nn.Module):
+
+    action_horizon: int = 1
+
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        super().__init__()
+
+        self.actor_mean = MLP(
+            input_dim=np.array(obs_shape).prod(),
+            output_dim=np.prod(action_shape),
+            hidden_dims=[512, 512],
+            dropout=0.1,
+            residual=True,
+        )
+
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
+
+    def get_value(self, nobs: torch.Tensor):
+        return self.critic(nobs)
+
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        action_mean: torch.Tensor = self.actor_mean(nobs)
+
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        if action is None:
+            action = probs.sample()
+
+        return (
+            action,
+            probs.log_prob(action).sum(dim=1),
+            probs.entropy().sum(dim=1),
+            self.critic(nobs),
         )
