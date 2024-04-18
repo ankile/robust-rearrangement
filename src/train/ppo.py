@@ -234,6 +234,8 @@ class Args:
     """the type of the behavior cloning loss"""
     supervise_value_function: bool = False
     """if toggled, the value function will be supervised"""
+    action_type: Literal["delta", "pos"] = "delta"
+    """the type of the action space"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -512,6 +514,14 @@ def calculate_advantage(
     return advantages, returns
 
 
+def get_dataset_action(dataset, step, episode):
+    ep_ends = dataset.episode_ends
+    start_idx = ep_ends[episode - 1] if episode > 0 else 0
+    action = dataset[start_idx + step]["action"]
+    action = action.to(device)
+    return action
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
@@ -556,7 +566,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
     act_rot_repr = "rot_6d" if args.ee_dof == 10 else "quat"
-    action_type = "pos"  # "delta" or "pos"
+    action_type = args.action_type
 
     # env setup
     with suppress_all_output(False):
@@ -651,29 +661,33 @@ if __name__ == "__main__":
     # args.load_checkpoint = "runs/debug-tabletop4/1713377775__place-tabletop__bigger__609807713/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop5/1713448426__place-tabletop__big__1710768433/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "/data/scratch/ankile/robust-rearrangement/outputs/2024-04-18/11-27-13/models/royal-jazz-32/actor_chkpt_best_test_loss.pt"
+    # args.load_checkpoint = "runs/debug-tabletop5-delete/1713469999__place-tabletop__bigger__2023669825/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop5-delete/1713471943__place-tabletop__bigger__3844241219/place-tabletop.cleanrl_model"
 
     if args.load_checkpoint is not None:
-        sd = torch.load(args.load_checkpoint)
-        model_weights = {
-            key.replace("model", "actor_mean"): value
-            for key, value in sd.items()
-            if "model" in key
-        }
-        agent.load_state_dict(sd, strict=False)
+        # sd = torch.load(args.load_checkpoint)
+        # model_weights = {
+        #     key.replace("model", "actor_mean"): value
+        #     for key, value in sd.items()
+        #     if "model" in key
+        # }
+        # agent.load_state_dict(sd, strict=False)
 
-        normalizer_params = {
-            key.replace("normalizer.", ""): value
-            for key, value in sd.items()
-            if "normalizer" in key
-        }
-        normalizer.stats["parts_poses"] = nn.ParameterDict(
-            {
-                "min": nn.Parameter(torch.zeros(35)),
-                "max": nn.Parameter(torch.ones(35)),
-            }
-        )
-        normalizer.load_state_dict(normalizer_params)
-        normalizer._turn_off_gradients()
+        # normalizer_params = {
+        #     key.replace("normalizer.", ""): value
+        #     for key, value in sd.items()
+        #     if "normalizer" in key
+        # }
+        # normalizer.stats["parts_poses"] = nn.ParameterDict(
+        #     {
+        #         "min": nn.Parameter(torch.zeros(35)),
+        #         "max": nn.Parameter(torch.ones(35)),
+        #     }
+        # )
+        # normalizer.load_state_dict(normalizer_params)
+        # normalizer._turn_off_gradients()
+
+        agent.load_state_dict(torch.load(args.load_checkpoint))
 
     env.normalizer = normalizer
 
@@ -743,6 +757,9 @@ if __name__ == "__main__":
                 # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
+
+            # Get action from the dataset to test normalization and representations
+            # action = get_dataset_action(demo_data_loader.dataset, step, iteration - 1)
 
             # TRY NOT TO MODIFY: execute the game and log data.
             naction = normalizer(action, "action", forward=False)

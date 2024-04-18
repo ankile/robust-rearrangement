@@ -536,7 +536,7 @@ class ResidualMLPAgent(nn.Module):
         self.backbone = MLP(
             input_dim=np.array(obs_shape).prod(),
             output_dim=self.backbone_emb_dim,
-            hidden_dims=[256, 256, 256],
+            hidden_dims=[512, 512, 512],
             dropout=0.1,
             residual=True,
         )
@@ -594,7 +594,7 @@ class ResidualMLPAgentSeparate(nn.Module):
         self.actor_mean = MLP(
             input_dim=np.array(obs_shape).prod(),
             output_dim=np.prod(action_shape),
-            hidden_dims=[512, 512],
+            hidden_dims=[512, 512, 512],
             dropout=0.1,
             residual=True,
         )
