@@ -52,7 +52,7 @@ gym.logger.set_level(40)
 
 
 from src.gym import get_rl_env
-from src.gym import get_env
+from src.gym import get_env, turn_off_april_tags
 
 
 def update_mean_var_count_from_moments(
@@ -234,8 +234,12 @@ class Args:
     """the type of the behavior cloning loss"""
     supervise_value_function: bool = False
     """if toggled, the value function will be supervised"""
+    adaptive_bc_coef: bool = False
+    """if toggled, the behavior cloning coefficient will be adaptive"""
     action_type: Literal["delta", "pos"] = "delta"
     """the type of the action space"""
+    randomness_curriculum: bool = False
+    """if toggled, the randomness will be increased over time"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -363,7 +367,7 @@ def get_demo_data_loader(
 class FurnitureEnvWrapper:
     normalizer = None
 
-    def __init__(self, env: FurnitureSimEnv, max_env_steps=300, ee_dof=3):
+    def __init__(self, env: FurnitureRLSimEnv, max_env_steps=300, ee_dof=3):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
 
@@ -481,6 +485,17 @@ class FurnitureEnvWrapper:
         obs = self.process_obs(obs)
         return obs, reward, terminated, truncated, info
 
+    def increment_randomness(self):
+        self.env.increment_randomness()
+
+    @property
+    def force_magnitude(self):
+        return self.env.max_force_magnitude
+
+    @property
+    def torque_magnitude(self):
+        return self.env.max_torque_magnitude
+
 
 @torch.no_grad()
 def calculate_advantage(
@@ -549,9 +564,8 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop5"
-    if args.debug:
-        run_directory += "-delete"
+    run_directory = "runs/debug-tabletop7"
+    run_directory += "-delete" if args.debug else ""
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -567,6 +581,8 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     act_rot_repr = "rot_6d" if args.ee_dof == 10 else "quat"
     action_type = args.action_type
+
+    turn_off_april_tags()
 
     # env setup
     with suppress_all_output(False):
@@ -662,7 +678,8 @@ if __name__ == "__main__":
     # args.load_checkpoint = "runs/debug-tabletop5/1713448426__place-tabletop__big__1710768433/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "/data/scratch/ankile/robust-rearrangement/outputs/2024-04-18/11-27-13/models/royal-jazz-32/actor_chkpt_best_test_loss.pt"
     # args.load_checkpoint = "runs/debug-tabletop5-delete/1713469999__place-tabletop__bigger__2023669825/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop5-delete/1713471943__place-tabletop__bigger__3844241219/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
 
     if args.load_checkpoint is not None:
         # sd = torch.load(args.load_checkpoint)
@@ -713,6 +730,10 @@ if __name__ == "__main__":
     # ALGO Logic: Storage setup
     best_success_rate = 0.1  # only save models that are better than this
     best_mean_episode_return = -1000
+    running_mean_success_rate = 0.0
+    decrease_lr_counter = 0
+    steps_since_last_randomness_increase = 0
+
     obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape)
     actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape)
     logprobs = torch.zeros((args.num_steps, args.num_envs))
@@ -790,9 +811,40 @@ if __name__ == "__main__":
         reward_mask = (rewards.sum(dim=0) > 0).float()
         success_rate = reward_mask.mean().item()
 
+        running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
+
         print(
-            f"Mean episode return: {discounted_rewards}, Success rate: {success_rate:.4%}"
+            f"Mean return: {discounted_rewards}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
         )
+
+        # If we've stopped improving from pure BC, then we'll switch to PPO
+        if (
+            args.adaptive_bc_coef
+            and success_rate < running_mean_success_rate
+            and iteration >= 5
+        ):
+            print("Increasing PPO share of the loss function.")
+            # Reduce the learning rate by a factor of 10
+            if decrease_lr_counter < 4:
+                args.learning_rate /= 2
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] /= 2
+                decrease_lr_counter += 1
+
+            # Decrease the bc_coef by 10% of its current value
+            args.bc_coef = max(0.1, args.bc_coef * 0.9)
+
+        steps_since_last_randomness_increase += 1
+        if (
+            args.randomness_curriculum
+            and running_mean_success_rate > args.minimum_success_rate
+            and steps_since_last_randomness_increase > 3
+        ):
+            # Increase the randomness of the action space
+            env.increment_randomness()
+            steps_since_last_randomness_increase = 0
+
+        print(f"Learning rate: {args.learning_rate:.2e}, BC coef: {args.bc_coef:.3f}")
 
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_actions = actions.reshape((-1,) + env.action_space.shape)
@@ -886,7 +938,7 @@ if __name__ == "__main__":
                 # Entropy loss
                 entropy_loss = entropy.mean() * args.ent_coef
 
-                ppo_loss = pg_loss - entropy_loss + v_loss * args.vf_coef
+                ppo_loss = pg_loss - entropy_loss
 
                 # Behavior cloning loss
                 batch = next(demo_data_iter)
@@ -919,16 +971,24 @@ if __name__ == "__main__":
                     bc_loss + bc_v_loss if args.supervise_value_function else bc_loss
                 )
 
-                loss = args.bc_coef * bc_total_loss + (1 - args.bc_coef) * ppo_loss
+                loss = (
+                    args.bc_coef * bc_total_loss
+                    + (1 - args.bc_coef) * ppo_loss
+                    + v_loss * args.vf_coef
+                )
 
                 optimizer.zero_grad()
                 loss.backward()
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
 
-            if args.target_kl is not None and approx_kl > args.target_kl:
+            if (
+                args.target_kl is not None
+                and approx_kl > args.target_kl
+                and args.bc_coef < 1.0
+            ):
                 print(
-                    f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.2f} > {args.target_kl:.2f}"
+                    f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {args.target_kl:.4f}"
                 )
                 break
 
@@ -983,6 +1043,7 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
+        writer.add_scalar("losses/bc_coef", args.bc_coef, global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
@@ -999,14 +1060,18 @@ if __name__ == "__main__":
         writer.add_histogram("histograms/rewards", rewards, global_step)
 
         # Add histograms for the actions
-        writer.add_histogram("actions/x", actions[:, :, 0], global_step)
-        writer.add_histogram("actions/y", actions[:, :, 1], global_step)
-        writer.add_histogram("actions/z", actions[:, :, 2], global_step)
+        # writer.add_histogram("actions/x", actions[:, :, 0], global_step)
+        # writer.add_histogram("actions/y", actions[:, :, 1], global_step)
+        # writer.add_histogram("actions/z", actions[:, :, 2], global_step)
 
         # Add the mean of the actions
         writer.add_scalar("actions/x_mean", actions[:, :, 0].mean(), global_step)
         writer.add_scalar("actions/y_mean", actions[:, :, 1].mean(), global_step)
         writer.add_scalar("actions/z_mean", actions[:, :, 2].mean(), global_step)
+
+        # Log the current randomness of the environment
+        writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)
+        writer.add_scalar("env/torque_magnitude", env.torque_magnitude, global_step)
 
         # Add histograms for the gradients and the weights
         for name, param in agent.named_parameters():

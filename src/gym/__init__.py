@@ -8,6 +8,14 @@ import gym
 from src.common.context import suppress_all_output
 
 
+def turn_off_april_tags():
+    from furniture_bench.envs import furniture_sim_env
+
+    furniture_sim_env.ASSET_ROOT = str(
+        Path(__file__).parent.parent.absolute() / "assets"
+    )
+
+
 def get_env(
     gpu_id,
     furniture="one_leg",
