@@ -584,6 +584,42 @@ class ResidualMLPAgent(nn.Module):
         )
 
 
+class ResidualMLPAgentBig(ResidualMLPAgent):
+
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        super().__init__(obs_shape, action_shape, init_logstd)
+
+        self.backbone_emb_dim = 512
+
+        self.backbone = MLP(
+            input_dim=np.array(obs_shape).prod(),
+            output_dim=self.backbone_emb_dim,
+            hidden_dims=[1024, 1024, 1024],
+            dropout=0.1,
+            residual=True,
+        )
+
+        self.value_head = nn.Sequential(
+            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=0.1),
+        )
+
+        self.action_head = nn.Sequential(
+            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+        )
+
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, np.prod(action_shape)) * init_logstd
+        )
+
+
 class ResidualMLPAgentSeparate(nn.Module):
 
     action_horizon: int = 1

@@ -41,6 +41,7 @@ from src.behavior.mlp import (
     BigAgentSimple,
     ComplexAgentPPO,
     ResidualMLPAgentSeparate,
+    ResidualMLPAgentBig,
 )
 
 from ipdb import set_trace as bp
@@ -188,6 +189,50 @@ class NormalizeReward(gym.core.Wrapper):
         return rews / torch.sqrt(self.return_rms.var + self.epsilon)
 
 
+def evaluate_agent(agent, writer, global_step):
+    eval_env = FurnitureEnvWrapper(
+        env=FurnitureRLSimEnv(
+            act_rot_repr=act_rot_repr,
+            action_type=action_type,
+            april_tags=False,
+            concat_robot_state=True,
+            ctrl_mode="diffik",
+            obs_keys=DEFAULT_STATE_OBS,
+            furniture="one_leg",
+            gpu_id=0,
+            headless=False,
+            num_envs=1,
+            observation_space="state",
+            randomness="low",
+            max_env_steps=100_000_000,
+            pos_scalar=1,
+            rot_scalar=1,
+            stiffness=1_000,
+            damping=200,
+        ),
+        max_env_steps=args.num_env_steps,
+        ee_dof=args.ee_dof,
+    )
+
+    agent.eval()
+
+    eval_obs = eval_env.reset()
+    eval_reward = 0
+    eval_done = False
+
+    while not eval_done:
+        with torch.no_grad():
+            eval_action, _, _, _ = agent.get_action_and_value(eval_obs)
+
+        eval_obs, eval_reward, eval_done, _, _ = eval_env.step(eval_action)
+        eval_reward += eval_reward.item()
+
+    writer.add_scalar("eval/reward", eval_reward, global_step)
+    writer.add_scalar("eval/success", float(eval_reward > 0), global_step)
+
+    agent.train()
+
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
@@ -215,7 +260,13 @@ class Args:
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
     agent: Literal[
-        "small", "bigger", "big", "complex", "residual", "residual-separate"
+        "small",
+        "bigger",
+        "big",
+        "complex",
+        "residual",
+        "residual-big",
+        "residual-separate",
     ] = "small"
     """the agent to use"""
     normalize_reward: bool = False
@@ -225,7 +276,7 @@ class Args:
     recalculate_advantages: bool = False
     """if toggled, the advantages will be recalculated every update epoch"""
     minimum_success_rate: float = 0.0
-    """the threshold at which we'll upsample the successful episodes"""
+    """the minimum success rate before we increase randomness"""
     init_logstd: float = 0.0
     """the initial value of the log standard deviation"""
     ee_dof: int = 3
@@ -236,6 +287,10 @@ class Args:
     """if toggled, the value function will be supervised"""
     adaptive_bc_coef: bool = False
     """if toggled, the behavior cloning coefficient will be adaptive"""
+    min_bc_coef: float = 0.1
+    """the minimum value of the behavior cloning coefficient"""
+    n_decrease_lr: int = 0
+    """the number of times to decrease the learning rate"""
     action_type: Literal["delta", "pos"] = "delta"
     """the type of the action space"""
     randomness_curriculum: bool = False
@@ -246,9 +301,9 @@ class Args:
     # Algorithm specific arguments
     # env_id: str = "HalfCheetah-v4"
     # """the id of the environment"""
-    total_timesteps: int = 100_000_000
+    total_timesteps: int = 40_000_000
     """total timesteps of the experiments"""
-    learning_rate: float = 3e-4
+    learning_rate: float = 1e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
@@ -606,6 +661,10 @@ if __name__ == "__main__":
             stiffness=1_000,
             damping=200,
         )
+
+    env.max_force_magnitude = 0.4
+    env.max_torque_magnitude = 0.0125
+
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
         env, max_env_steps=args.num_env_steps, ee_dof=args.ee_dof
     )
@@ -653,6 +712,12 @@ if __name__ == "__main__":
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
         )
+    elif args.agent == "residual-big":
+        agent = ResidualMLPAgentBig(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        )
     elif args.agent == "residual-separate":
         agent = ResidualMLPAgentSeparate(
             obs_shape=env.observation_space.shape,
@@ -680,6 +745,8 @@ if __name__ == "__main__":
     # args.load_checkpoint = "runs/debug-tabletop5-delete/1713469999__place-tabletop__bigger__2023669825/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop7/1713537862__place-tabletop__residual__2826772726/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop7/1713558414__place-tabletop__residual-big__2597241958/place-tabletop.cleanrl_model"
 
     if args.load_checkpoint is not None:
         # sd = torch.load(args.load_checkpoint)
@@ -714,7 +781,6 @@ if __name__ == "__main__":
         eps=1e-5,
         weight_decay=1e-5,
     )
-
     args.num_steps = math.ceil(args.num_env_steps / agent.action_horizon)
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -755,6 +821,19 @@ if __name__ == "__main__":
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
+
+    # import threading
+
+    # # # Create a separate thread for evaluation
+    # eval_thread = threading.Thread(
+    #     target=evaluate_agent, args=(agent, writer, global_step)
+    # )
+
+    # global_step_copy = global_step  # Create a copy of global_step
+    # eval_thread = threading.Thread(
+    #     target=evaluate_agent, args=(agent, writer, global_step_copy)
+    # )
+    # eval_thread.start()
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -814,7 +893,7 @@ if __name__ == "__main__":
         running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
 
         print(
-            f"Mean return: {discounted_rewards}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
+            f"Mean return: {discounted_rewards:.4f}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
         )
 
         # If we've stopped improving from pure BC, then we'll switch to PPO
@@ -825,7 +904,7 @@ if __name__ == "__main__":
         ):
             print("Increasing PPO share of the loss function.")
             # Reduce the learning rate by a factor of 10
-            if decrease_lr_counter < 4:
+            if decrease_lr_counter < args.n_decrease_lr:
                 args.learning_rate /= 2
                 for param_group in optimizer.param_groups:
                     param_group["lr"] /= 2
