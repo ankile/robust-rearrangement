@@ -9,17 +9,14 @@ import time
 from dataclasses import dataclass
 import math
 
-from furniture_bench.envs.furniture_sim_env import FurnitureRLSimEnv
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from src.gym.furniture_sim_env import FurnitureRLSimEnv, FurnitureRLSimEnvPlaceTabletop
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
 from src.common.context import suppress_all_output
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.pytorch_util import dict_to_device
-from src.dataset import get_normalizer
 from src.dataset.dataloader import EndlessDataloader
-from src.dataset.dataset import FurnitureStateTabletopDataset
+from src.dataset.dataset import FurnitureStateDataset, FurnitureStateTabletopDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -31,10 +28,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src.dataset.normalizer import LinearNormalizer
 
-import zarr
 
 from src.behavior.mlp import (
-    SmallAgent,
     ResidualMLPAgent,
     SmallAgentSimple,
     BiggerAgentSimple,
@@ -52,141 +47,7 @@ import gym
 gym.logger.set_level(40)
 
 
-from src.gym import get_rl_env
-from src.gym import get_env, turn_off_april_tags
-
-
-def update_mean_var_count_from_moments(
-    mean, var, count, batch_mean, batch_var, batch_count
-):
-    """Updates the mean, var and count using the previous mean, var, count and batch values."""
-    delta = batch_mean - mean
-    tot_count = count + batch_count
-
-    new_mean = mean + delta * batch_count / tot_count
-    m_a = var * count
-    m_b = batch_var * batch_count
-    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
-    new_var = M2 / tot_count
-    new_count = tot_count
-
-    return new_mean, new_var, new_count
-
-
-class RunningMeanStd:
-    """Tracks the mean, variance and count of values."""
-
-    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-4, shape=(), device="cuda"):
-        """Tracks the mean, variance and count of values."""
-        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
-        self.var = torch.ones(shape, dtype=torch.float32, device=device)
-        self.count = torch.tensor(epsilon, dtype=torch.float32, device=device)
-
-    def update(self, x):
-        """Updates the mean, var and count from a batch of samples."""
-        batch_mean = torch.mean(x, dim=0)
-        batch_var = torch.var(x, dim=0, unbiased=False)
-        batch_count = x.shape[0]
-        self.update_from_moments(batch_mean, batch_var, batch_count)
-
-    def update_from_moments(self, batch_mean, batch_var, batch_count):
-        """Updates from batch mean, variance and count moments."""
-        self.mean, self.var, self.count = update_mean_var_count_from_moments(
-            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
-        )
-
-
-class NormalizeObservation(gym.Wrapper):
-    """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
-
-    Note:
-        The normalization depends on past trajectories and observations will not be normalized correctly if the wrapper was
-        newly instantiated or the policy was changed recently.
-    """
-
-    def __init__(self, env: gym.Env, epsilon: float = 1e-8):
-        """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
-
-        Args:
-            env (Env): The environment to apply the wrapper
-            epsilon: A stability parameter that is used when scaling the observations.
-        """
-        gym.Wrapper.__init__(self, env)
-
-        self.num_envs = env.num_envs
-        self.is_vector_env = True
-
-        self.obs_rms = RunningMeanStd(shape=self.observation_space.shape, device="cuda")
-        self.epsilon = epsilon
-
-    def step(self, action):
-        """Steps through the environment and normalizes the observation."""
-        obs, rews, done, truncated, infos = self.env.step(action)
-        obs = self.normalize(obs)
-        return obs, rews, done, truncated, infos
-
-    def reset(self, **kwargs):
-        """Resets the environment and normalizes the observation."""
-        obs = self.env.reset(**kwargs)
-
-        return self.normalize(obs)
-
-    def normalize(self, obs):
-        """Normalises the observation using the running mean and variance of the observations."""
-        self.obs_rms.update(obs)
-        return (obs - self.obs_rms.mean) / torch.sqrt(self.obs_rms.var + self.epsilon)
-
-
-class NormalizeReward(gym.core.Wrapper):
-    r"""This wrapper will normalize immediate rewards s.t. their exponential moving average has a fixed variance.
-
-    The exponential moving average will have variance :math:`(1 - \gamma)^2`.
-
-    Note:
-        The scaling depends on past trajectories and rewards will not be scaled correctly if the wrapper was newly
-        instantiated or the policy was changed recently.
-    """
-
-    def __init__(
-        self,
-        env: gym.Env,
-        gamma: float = 0.99,
-        epsilon: float = 1e-8,
-        device: str = "cpu",
-    ):
-        """This wrapper will normalize immediate rewards s.t. their exponential moving average has a fixed variance.
-
-        Args:
-            env (env): The environment to apply the wrapper
-            epsilon (float): A stability parameter
-            gamma (float): The discount factor that is used in the exponential moving average.
-            device (str): The device to use for PyTorch tensors ("cpu" or "cuda").
-        """
-        gym.Wrapper.__init__(self, env)
-
-        self.num_envs = env.num_envs
-        self.is_vector_env = True
-
-        self.return_rms = RunningMeanStd(shape=(), device=device)
-        self.returns = torch.zeros(self.num_envs, device=device)
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.device = device
-
-    def step(self, action):
-        """Steps through the environment, normalizing the rewards returned."""
-        obs, rews, done, truncated, infos = self.env.step(action)
-
-        self.returns = self.returns * self.gamma * (1 - done.float()) + rews
-        rews = self.normalize(rews)
-
-        return obs, rews, done, truncated, infos
-
-    def normalize(self, rews):
-        """Normalizes the rewards with the running mean rewards and their variance."""
-        self.return_rms.update(self.returns)
-        return rews / torch.sqrt(self.return_rms.var + self.epsilon)
+from src.gym import turn_off_april_tags
 
 
 def evaluate_agent(agent, writer, global_step):
@@ -358,7 +219,8 @@ def get_demo_data_loader(
     num_workers=4,
     normalizer=None,
 ) -> DataLoader:
-    demo_data = FurnitureStateTabletopDataset(
+    # demo_data = FurnitureStateTabletopDataset(
+    demo_data = FurnitureStateDataset(
         # dataset_paths=Path(cfg.data_path[0]),
         # pred_horizon=cfg.data.pred_horizon,
         # obs_horizon=cfg.data.obs_horizon,
@@ -397,28 +259,6 @@ def get_demo_data_loader(
     return demo_data_loader
 
 
-# class ActionChunkWrapper:
-#     def __init__(self, env: FurnitureSimEnv, chunk_size: int):
-#         self.env = env
-#         self.chunk_size = chunk_size
-#         self.action_space = env.action_space
-#         self.observation_space = env.observation_space
-
-#     def reset(self):
-#         return self.env.reset()
-
-#     def step(self, action_chunk):
-#         total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
-#         for i in range(self.chunk_size):
-#             # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
-#             # bp()
-#             obs, reward, done, info = self.env.step(action_chunk[:, i, :])
-#             total_reward += reward.squeeze()
-#             if done.all():
-#                 break
-#         return obs, total_reward, done, info
-
-
 class FurnitureEnvWrapper:
     normalizer = None
 
@@ -445,9 +285,6 @@ class FurnitureEnvWrapper:
         self.no_rotation_or_gripper = torch.tensor(
             [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
         ).repeat(self.num_envs, 1)
-
-        # Make a goal for the tabletop part to reach
-        self.tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157], device=device)
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         robot_state = obs["robot_state"]
@@ -503,18 +340,6 @@ class FurnitureEnvWrapper:
 
         # Move the robot
         obs, reward, done, info = self.env.step(action)
-
-        # Calculate reward
-        # Get the end effector position
-        tabletop_pos = obs["parts_poses"][:, :3]
-
-        # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
-        reward[torch.norm(tabletop_pos - self.tabletop_goal, dim=-1) < 0.005] = 1
-
-        # Add a penalty for jerky movements
-        # reward += penalty
-
-        reward = reward.squeeze()
 
         # Episodes that received reward are terminated
         terminated = reward > 0
@@ -619,7 +444,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop7"
+    run_directory = "runs/debug-oneleg-1"
     run_directory += "-delete" if args.debug else ""
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
@@ -642,7 +467,7 @@ if __name__ == "__main__":
     # env setup
     with suppress_all_output(False):
         env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-            # env: FurnitureSimEnv = FurnitureSimEnv(
+            # env = FurnitureRLSimEnvPlaceTabletop(
             act_rot_repr=act_rot_repr,
             action_type=action_type,
             april_tags=False,
@@ -662,8 +487,8 @@ if __name__ == "__main__":
             damping=200,
         )
 
-    env.max_force_magnitude = 0.4
-    env.max_torque_magnitude = 0.0125
+    env.max_force_magnitude = 0.1
+    env.max_torque_magnitude = 0.005
 
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
         env, max_env_steps=args.num_env_steps, ee_dof=args.ee_dof
@@ -746,30 +571,9 @@ if __name__ == "__main__":
     # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
     # args.load_checkpoint = "runs/debug-tabletop7/1713537862__place-tabletop__residual__2826772726/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop7/1713558414__place-tabletop__residual-big__2597241958/place-tabletop.cleanrl_model"
+    # args.load_checkpoint = "runs/debug-tabletop7/1713557724__place-tabletop__residual-big__3641021996/place-tabletop.cleanrl_model"
 
     if args.load_checkpoint is not None:
-        # sd = torch.load(args.load_checkpoint)
-        # model_weights = {
-        #     key.replace("model", "actor_mean"): value
-        #     for key, value in sd.items()
-        #     if "model" in key
-        # }
-        # agent.load_state_dict(sd, strict=False)
-
-        # normalizer_params = {
-        #     key.replace("normalizer.", ""): value
-        #     for key, value in sd.items()
-        #     if "normalizer" in key
-        # }
-        # normalizer.stats["parts_poses"] = nn.ParameterDict(
-        #     {
-        #         "min": nn.Parameter(torch.zeros(35)),
-        #         "max": nn.Parameter(torch.ones(35)),
-        #     }
-        # )
-        # normalizer.load_state_dict(normalizer_params)
-        # normalizer._turn_off_gradients()
 
         agent.load_state_dict(torch.load(args.load_checkpoint))
 
@@ -847,6 +651,9 @@ if __name__ == "__main__":
             optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, args.num_steps):
+            if iteration == 1:
+                # Skip the first step to avoid the initial randomness
+                continue
             global_step += args.num_envs
             obs[step] = next_obs
             dones[step] = next_done
@@ -1023,6 +830,12 @@ if __name__ == "__main__":
                 batch = next(demo_data_iter)
                 batch = dict_to_device(batch, device)
                 bc_obs = batch["obs"]
+
+                # Add a little bit of noise to the observations from dim 16+7 to 51-7
+                # bc_obs[:, 16 + 7 : 51 - 7] += (
+                #     torch.randn_like(bc_obs[:, 16 + 7 : 51 - 7]) * 0.001
+                # )
+
                 norm_bc_actions = batch["action"]  # [..., : args.ee_dof]
 
                 # Normalize the actions

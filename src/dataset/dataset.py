@@ -244,14 +244,15 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 class FurnitureStateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_paths: Union[List[str], str],
+        dataset_paths: Union[List[Path], Path],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: Normalizer,
+        normalizer: Union[Normalizer, None],
         data_subset: int = None,
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
+        act_rot_repr: str = "quat",
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
     ):
@@ -260,16 +261,16 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.obs_horizon = obs_horizon
         self.control_mode = control_mode
 
-        normalizer = normalizer.cpu()
-
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
             dataset_paths,
             [
                 "parts_poses",
                 "robot_state",
+                # "color_image2",  # Debugging
                 f"action/{control_mode}",
                 "skill",
+                "reward",
             ],
             max_episodes=data_subset,
             max_ep_cnt=max_episode_count,
@@ -277,7 +278,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = combined_data["episode_ends"]
+        self.episode_ends: np.ndarray = combined_data["episode_ends"]
         self.metadata = metadata
         print(f"Loading dataset of {len(self.episode_ends)} episodes:")
         for path, data in metadata.items():
@@ -285,22 +286,80 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
             )
 
+        # Convert robot_state orientation to quaternion
+        robot_state = torch.from_numpy(combined_data["robot_state"])
+
+        if act_rot_repr == "quat":
+            robot_state = torch.cat(
+                [
+                    robot_state[:, :3],
+                    rot_6d_to_isaac_quat(robot_state[:, 3:9]),
+                    robot_state[:, 9:],
+                ],
+                dim=-1,
+            )
+
+        # Convert action orientation to quaternion
+        action = torch.from_numpy(combined_data[f"action/{control_mode}"])
+
+        if act_rot_repr == "quat":
+            action = torch.cat(
+                [
+                    action[:, :3],
+                    rot_6d_to_isaac_quat(action[:, 3:9]),
+                    action[:, 9:],
+                ],
+                dim=-1,
+            )
+
         self.train_data = {
-            "parts_poses": combined_data["parts_poses"],
-            "robot_state": combined_data["robot_state"],
-            "action": combined_data[f"action/{control_mode}"],
+            "robot_state": robot_state,
+            "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
+            "action": action,
+            # "color_image2": torch.from_numpy(combined_data["color_image2"]),  # Debugging
         }
 
-        normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
+        if normalizer is not None:
+            normalizer.cpu()
+            for key in self.train_data:
+                if key in normalizer.keys():
+                    continue
+                normalizer.fit({key: self.train_data[key].numpy()})
 
-        print("normalizer.stats.keys()", normalizer.stats.keys())
+            normalizer.cuda()
 
-        # Normalize data to [-1,1]
-        for key in normalizer.keys():
-            if key not in self.train_data:
-                continue
+        if normalizer is not None:
+            normalizer.cpu()
+            for key in self.train_data:
+                self.train_data[key] = normalizer(
+                    self.train_data[key], key, forward=True
+                )
 
-            self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
+            normalizer.cuda()
+
+        # Recalculate the rewards and returns
+        rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
+        rewards[self.episode_ends - 1] = 1.0
+
+        gamma = 0.99
+        returns = []
+        ee = [0] + self.episode_ends.tolist()
+        for start, end in zip(ee[:-1], ee[1:]):
+            ep_rewards = rewards[start:end]
+            timesteps = torch.arange(len(ep_rewards), device=ep_rewards.device)
+            discounts = gamma**timesteps
+            ep_returns = (
+                torch.flip(
+                    torch.cumsum(torch.flip(ep_rewards * discounts, dims=[0]), dim=0),
+                    dims=[0],
+                )
+                / discounts
+            )
+            returns.append(ep_returns)
+
+        # Concatenate the returns for all episodes into a single tensor
+        returns = torch.cat(returns)
+        self.train_data["returns"] = returns
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -354,24 +413,27 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             sample_end_idx=sample_end_idx,
         )
 
-        # Discard unused observations
-        nsample["robot_state"] = torch.from_numpy(
-            nsample["robot_state"][: self.obs_horizon, :]
-        )
-
         # Discard unused actions
-        nsample["action"] = torch.from_numpy(
-            nsample["action"][self.first_action_idx : self.final_action_idx, :]
-        )
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
+
+        # Discard unused observations
+        robot_state = nsample["robot_state"][: self.obs_horizon, :]
 
         # Discard unused parts poses
-        nsample["parts_poses"] = torch.from_numpy(
-            nsample["parts_poses"][: self.obs_horizon, :]
-        )
+        parts_poses = nsample["parts_poses"][: self.obs_horizon, :]
 
-        # Add the task index and success flag to the sample
-        nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
-        nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
+        nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
+
+        # Discard unused returns
+        nsample["returns"] = nsample["returns"][
+            self.first_action_idx : self.final_action_idx
+        ]
+
+        # # Add the task index and success flag to the sample
+        # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
+        # nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
 
         return nsample
 

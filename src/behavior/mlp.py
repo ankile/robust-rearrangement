@@ -589,35 +589,53 @@ class ResidualMLPAgentBig(ResidualMLPAgent):
     def __init__(self, obs_shape, action_shape, init_logstd=0):
         super().__init__(obs_shape, action_shape, init_logstd)
 
-        self.backbone_emb_dim = 512
+        self.backbone_emb_dim = 1024
 
         self.backbone = MLP(
             input_dim=np.array(obs_shape).prod(),
             output_dim=self.backbone_emb_dim,
-            hidden_dims=[1024, 1024, 1024],
-            dropout=0.1,
+            hidden_dims=[1024] * 5,
+            dropout=0.2,
             residual=True,
+            # layer_norm=True,  # Add LayerNorm to the backbone MLP
+            # activation=nn.ReLU,  # Use ReLU activation in the backbone MLP
         )
 
         self.value_head = nn.Sequential(
-            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=0.1),
+            nn.Linear(self.backbone_emb_dim, 512),
+            nn.LayerNorm(512),  # Add LayerNorm after the linear layer
+            nn.ReLU(),  # Use ReLU activation
+            nn.Linear(512, 512),
+            nn.LayerNorm(512),  # Add LayerNorm after the linear layer
+            nn.ReLU(),  # Use ReLU activation
+            nn.Linear(512, 1),
         )
+        self.value_head.apply(
+            self.init_weights
+        )  # Apply weight initialization to the value head
 
         self.action_head = nn.Sequential(
-            layer_init(nn.Linear(self.backbone_emb_dim, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
-            nn.Tanh(),
-            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+            nn.Linear(self.backbone_emb_dim, 512),
+            nn.LayerNorm(512),  # Add LayerNorm after the linear layer
+            nn.ReLU(),  # Use ReLU activation
+            nn.Linear(512, 512),
+            nn.LayerNorm(512),  # Add LayerNorm after the linear layer
+            nn.ReLU(),  # Use ReLU activation
+            nn.Linear(512, np.prod(action_shape)),
         )
+        self.action_head.apply(
+            self.init_weights
+        )  # Apply weight initialization to the action head
 
         self.actor_logstd = nn.Parameter(
             torch.ones(1, np.prod(action_shape)) * init_logstd
         )
+
+    def init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.orthogonal_(module.weight, gain=nn.init.calculate_gain("relu"))
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
 
 
 class ResidualMLPAgentSeparate(nn.Module):
