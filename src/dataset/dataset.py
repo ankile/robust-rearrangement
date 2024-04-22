@@ -427,9 +427,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
 
         # Discard unused returns
-        nsample["returns"] = nsample["returns"][
-            self.first_action_idx : self.final_action_idx
-        ]
+        nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
 
         # # Add the task index and success flag to the sample
         # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
@@ -663,9 +661,7 @@ class FurnitureStateTabletopDataset(torch.utils.data.Dataset):
         nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
 
         # Discard unused returns
-        nsample["returns"] = nsample["returns"][
-            self.first_action_idx : self.final_action_idx
-        ]
+        nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
 
         # # Add the task index and success flag to the sample
         # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])

@@ -17,6 +17,7 @@ from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.pytorch_util import dict_to_device
 from src.dataset.dataloader import EndlessDataloader
 from src.dataset.dataset import FurnitureStateDataset, FurnitureStateTabletopDataset
+from src.gym.utils import NormalizeReward
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -156,6 +157,8 @@ class Args:
     """the type of the action space"""
     randomness_curriculum: bool = False
     """if toggled, the randomness will be increased over time"""
+    chunk_size: int = 1
+    """the chunk size for the action space"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -214,13 +217,14 @@ class Args:
 
 def get_demo_data_loader(
     control_mode,
-    batch_size,
+    n_batches,
     act_rot_repr="quat",
     num_workers=4,
     normalizer=None,
+    action_horizon=1,
 ) -> DataLoader:
-    # demo_data = FurnitureStateTabletopDataset(
-    demo_data = FurnitureStateDataset(
+    demo_data = FurnitureStateTabletopDataset(
+        # demo_data = FurnitureStateDataset(
         # dataset_paths=Path(cfg.data_path[0]),
         # pred_horizon=cfg.data.pred_horizon,
         # obs_horizon=cfg.data.obs_horizon,
@@ -234,9 +238,9 @@ def get_demo_data_loader(
         dataset_paths=Path(
             "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
         ),
-        pred_horizon=1,
         obs_horizon=1,
-        action_horizon=1,
+        pred_horizon=action_horizon,
+        action_horizon=action_horizon,
         normalizer=normalizer,
         data_subset=None,
         control_mode=control_mode,
@@ -246,7 +250,9 @@ def get_demo_data_loader(
         max_episode_count=None,
     )
 
-    demo_data_loader = EndlessDataloader(
+    batch_size = len(demo_data) // n_batches
+
+    demo_data_loader = DataLoader(
         dataset=demo_data,
         batch_size=batch_size,
         num_workers=num_workers,
@@ -262,12 +268,15 @@ def get_demo_data_loader(
 class FurnitureEnvWrapper:
     normalizer = None
 
-    def __init__(self, env: FurnitureRLSimEnv, max_env_steps=300, ee_dof=3):
+    def __init__(
+        self, env: FurnitureRLSimEnv, max_env_steps=300, ee_dof=10, chunk_size=1
+    ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
+        self.chunk_size: int = chunk_size
 
         # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
+        self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
 
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
@@ -302,19 +311,10 @@ class FurnitureEnvWrapper:
         return obs
 
     def process_action(self, action: torch.Tensor):
-        # Accept delta actions in range [-1, 1] -> normalize and clip to [-0.025, 0.025]
-
-        if action.shape[-1] == 3:
-            # Accept actions of dim 3 (x, y, z) and convert to dim 6 (x, y, z, qx=0, qy=0, qz=0, qw=1, gripper=0)
-            action = torch.cat(
-                [
-                    action,
-                    self.no_rotation_or_gripper,
-                ],
-                dim=-1,
-            )
-        # action[:, :3] = torch.clamp(action[:, :3], -10, 10) * 0.025
-
+        """
+        Done any desired processing to the action before
+        it is passed to the environment.
+        """
         return action
 
     def reset(self, **kwargs):
@@ -326,7 +326,7 @@ class FurnitureEnvWrapper:
         ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
 
         # Calculate the dot product between the action and the end-effector velocity
-        dot_product = torch.sum(action[:, :3] * ee_velocity, dim=1, keepdim=True)
+        dot_product = torch.sum(action[..., :3] * ee_velocity, dim=1, keepdim=True)
 
         # Calculate the velocity-based penalty
         velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
@@ -334,33 +334,36 @@ class FurnitureEnvWrapper:
         # Add the velocity-based penalty to the rewards
         return velocity_penalty
 
+    def _inner_step(self, action_chunk: torch.Tensor):
+        total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
+        dones = torch.zeros(
+            action_chunk.shape[0], dtype=torch.bool, device=action_chunk.device
+        )
+        for i in range(self.chunk_size):
+            # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
+            obs, reward, done, info = self.env.step(action_chunk[:, i, :])
+            total_reward += reward.squeeze()
+            dones = dones | done.squeeze()
+
+        return obs, total_reward, done, info
+
     def step(self, action: torch.Tensor):
-        penalty = self.jerkinesss_penalty(action)
+        assert action.shape[-2:] == self.action_space.shape
+
         action = self.process_action(action)
 
         # Move the robot
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = self._inner_step(action)
 
         # Episodes that received reward are terminated
         terminated = reward > 0
-        # Zero out the terminated bool tensor
-        terminated_indices = (
-            torch.nonzero(terminated).to(torch.int32).view(-1).to(device)
-        )
 
         # Check if any envs have reached the max number of steps
-        # self.env.env_steps += 1
         truncated = self.env.env_steps >= self.max_env_steps
-        truncated_indices = torch.nonzero(truncated).view(-1).to(torch.int32).to(device)
 
         # Reset the envs that have reached the max number of steps or got reward
-        reset_indices = torch.cat([terminated_indices, truncated_indices])
-        if reset_indices.numel() > 0:
-            obs = self.env.reset(reset_indices)
-
-        # if truncated_indices.numel() > 0:
-        #     print("Resetting all envs")
-        #     obs = self.env.reset()
+        if torch.any(done := terminated | truncated):
+            obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
         return obs, reward, terminated, truncated, info
@@ -444,7 +447,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-oneleg-1"
+    run_directory = "runs/debug-tabletop-chunked-1"
     run_directory += "-delete" if args.debug else ""
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
@@ -466,8 +469,8 @@ if __name__ == "__main__":
 
     # env setup
     with suppress_all_output(False):
-        env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-            # env = FurnitureRLSimEnvPlaceTabletop(
+        # env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+        env = FurnitureRLSimEnvPlaceTabletop(
             act_rot_repr=act_rot_repr,
             action_type=action_type,
             april_tags=False,
@@ -491,21 +494,19 @@ if __name__ == "__main__":
     env.max_torque_magnitude = 0.005
 
     env: FurnitureEnvWrapper = FurnitureEnvWrapper(
-        env, max_env_steps=args.num_env_steps, ee_dof=args.ee_dof
+        env,
+        max_env_steps=args.num_env_steps,
+        ee_dof=args.ee_dof,
+        chunk_size=args.chunk_size,
     )
-    normrewenv = None
-    # if args.normalize_reward:
-    #     print("Wrapping the environment with reward normalization")
-    #     env = NormalizeReward(env, device=device)
-    #     normrewenv = env
-    # else:
-    #     print("Not wrapping the environment with reward normalization")
 
-    # if args.normalize_obs:
-    #     print("Wrapping the environment with observation normalization")
-    #     env = NormalizeObservation(env)
-    # else:
-    #     print("Not wrapping the environment with observation normalization")
+    if args.normalize_reward:
+        print("Wrapping the environment with reward normalization")
+        env = NormalizeReward(env, device=device)
+        normrewenv = env
+    else:
+        normrewenv = None
+        print("Not wrapping the environment with reward normalization")
 
     if args.agent == "small":
         agent = SmallAgentSimple(
@@ -536,6 +537,7 @@ if __name__ == "__main__":
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
+            dropout=0.1,
         )
     elif args.agent == "residual-big":
         agent = ResidualMLPAgentBig(
@@ -559,19 +561,6 @@ if __name__ == "__main__":
         f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
         f"does not match env action shape {env.action_space.shape[-1]}"
     )
-
-    # args.load_checkpoint = "runs/debug-tabletop4/1713297635__place-tabletop__bigger__48467250/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop4/1713358754__place-tabletop__bigger__87047970/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop4/1713367643__place-tabletop__bigger__2582844377/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop4/1713372359__place-tabletop__bigger__611825449/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop4/1713377775__place-tabletop__bigger__609807713/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop5/1713448426__place-tabletop__big__1710768433/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "/data/scratch/ankile/robust-rearrangement/outputs/2024-04-18/11-27-13/models/royal-jazz-32/actor_chkpt_best_test_loss.pt"
-    # args.load_checkpoint = "runs/debug-tabletop5-delete/1713469999__place-tabletop__bigger__2023669825/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop6/1713481308__place-tabletop__residual__1519843459/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop7/1713537862__place-tabletop__residual__2826772726/place-tabletop.cleanrl_model"
-    # args.load_checkpoint = "runs/debug-tabletop7/1713557724__place-tabletop__residual-big__3641021996/place-tabletop.cleanrl_model"
 
     if args.load_checkpoint is not None:
 
@@ -614,10 +603,14 @@ if __name__ == "__main__":
     # # Get the dataloader for the demo data for the behavior cloning
     demo_data_loader = get_demo_data_loader(
         control_mode=action_type,
-        batch_size=args.minibatch_size,
+        n_batches=args.num_minibatches,
         act_rot_repr=act_rot_repr,
         normalizer=normalizer,
+        action_horizon=agent.action_horizon,
     )
+
+    # Print the number of batches in the dataloader
+    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
@@ -651,7 +644,7 @@ if __name__ == "__main__":
             optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, args.num_steps):
-            if iteration == 1:
+            if iteration == 1 and args.bc_coef == 1 and False:
                 # Skip the first step to avoid the initial randomness
                 continue
             global_step += args.num_envs
@@ -718,7 +711,7 @@ if __name__ == "__main__":
                 decrease_lr_counter += 1
 
             # Decrease the bc_coef by 10% of its current value
-            args.bc_coef = max(0.1, args.bc_coef * 0.9)
+            args.bc_coef = max(args.min_bc_coef, args.bc_coef * 0.9)
 
         steps_since_last_randomness_increase += 1
         if (
@@ -738,8 +731,6 @@ if __name__ == "__main__":
         b_rewards = rewards.reshape(-1)
         b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
-
-        print(b_actions[:, :3].mean(dim=0))
 
         # bootstrap value if not done
         b_advantages, b_returns = calculate_advantage(
@@ -784,7 +775,6 @@ if __name__ == "__main__":
                 )
                 logratio = newlogprob - mb_logprobs
                 ratio = logratio.exp()
-                # bp()
 
                 with torch.no_grad():
                     # calculate approx_kl http://joschu.net/blog/kl-approx.html
@@ -829,14 +819,9 @@ if __name__ == "__main__":
                 # Behavior cloning loss
                 batch = next(demo_data_iter)
                 batch = dict_to_device(batch, device)
-                bc_obs = batch["obs"]
+                bc_obs = batch["obs"].squeeze()
 
-                # Add a little bit of noise to the observations from dim 16+7 to 51-7
-                # bc_obs[:, 16 + 7 : 51 - 7] += (
-                #     torch.randn_like(bc_obs[:, 16 + 7 : 51 - 7]) * 0.001
-                # )
-
-                norm_bc_actions = batch["action"]  # [..., : args.ee_dof]
+                norm_bc_actions = batch["action"]
 
                 # Normalize the actions
                 if args.bc_loss_type == "mse":
@@ -952,14 +937,14 @@ if __name__ == "__main__":
         writer.add_histogram("histograms/rewards", rewards, global_step)
 
         # Add histograms for the actions
-        # writer.add_histogram("actions/x", actions[:, :, 0], global_step)
-        # writer.add_histogram("actions/y", actions[:, :, 1], global_step)
-        # writer.add_histogram("actions/z", actions[:, :, 2], global_step)
+        # writer.add_histogram("actions/x", actions[..., 0], global_step)
+        # writer.add_histogram("actions/y", actions[..., 1], global_step)
+        # writer.add_histogram("actions/z", actions[..., 2], global_step)
 
         # Add the mean of the actions
-        writer.add_scalar("actions/x_mean", actions[:, :, 0].mean(), global_step)
-        writer.add_scalar("actions/y_mean", actions[:, :, 1].mean(), global_step)
-        writer.add_scalar("actions/z_mean", actions[:, :, 2].mean(), global_step)
+        # writer.add_scalar("actions/x_mean", actions[..., 0].mean(), global_step)
+        # writer.add_scalar("actions/y_mean", actions[..., 1].mean(), global_step)
+        # writer.add_scalar("actions/z_mean", actions[..., 2].mean(), global_step)
 
         # Log the current randomness of the environment
         writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)
