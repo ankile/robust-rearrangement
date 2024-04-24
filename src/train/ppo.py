@@ -20,7 +20,7 @@ from src.common.context import suppress_all_output
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.pytorch_util import dict_to_device
 from src.dataset.dataloader import EndlessDataloader
-from src.dataset.dataset import FurnitureStateDataset, FurnitureStateTabletopDataset
+from src.dataset.dataset import FurnitureStateDataset
 from src.gym.utils import NormalizeReward
 import torch
 import torch.nn as nn
@@ -233,7 +233,7 @@ def get_demo_data_loader(
     action_horizon=1,
 ) -> DataLoader:
 
-    kwargs = dict(
+    demo_data = FurnitureStateDataset(
         dataset_paths=Path(
             "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
         ),
@@ -247,14 +247,8 @@ def get_demo_data_loader(
         first_action_idx=0,
         pad_after=False,
         max_episode_count=None,
+        task=task,
     )
-
-    if task == "place-tabletop":
-        demo_data = FurnitureStateTabletopDataset(**kwargs)
-    elif task == "oneleg":
-        demo_data = FurnitureStateDataset(**kwargs)
-    else:
-        raise ValueError(f"Unknown task: {task}")
 
     batch_size = len(demo_data) // n_batches
 
@@ -460,7 +454,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = "runs/debug-tabletop-chunked-1"
+    run_directory = f"runs/debug-{args.exp_name}-5"
     run_directory += "-delete" if args.debug else ""
     print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -632,6 +626,7 @@ if __name__ == "__main__":
             normalizer=normalizer,
             action_horizon=agent.action_horizon,
             num_workers=4 if not args.debug else 0,
+            action_filter_threshold=args.action_filter_threshold,
         )
 
         # Print the number of batches in the dataloader
@@ -848,7 +843,6 @@ if __name__ == "__main__":
                 if args.bc_coef > 0:
                     batch = next(demo_data_iter)
                     batch = dict_to_device(batch, device)
-                    bp()
                     bc_obs = batch["obs"].squeeze()
 
                     norm_bc_actions = batch["action"]

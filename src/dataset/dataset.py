@@ -255,6 +255,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         act_rot_repr: str = "quat",
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
+        task: str = None,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -312,8 +313,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             )
 
         self.train_data = {
-            "robot_state": robot_state,
             "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
+            "robot_state": robot_state,
             "action": action,
         }
 
@@ -325,6 +326,9 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 normalizer.fit({key: self.train_data[key].numpy()})
 
             normalizer.cuda()
+
+        if task == "place-tabletop":
+            self._make_tabletop_goal()
 
         if normalizer is not None:
             normalizer.cpu()
@@ -397,6 +401,36 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         del self.train_data["robot_state"]
         del self.train_data["parts_poses"]
 
+    def _make_tabletop_goal(self):
+        ee = np.array([0] + self.episode_ends.tolist())
+        tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157])
+        new_episode_starts = []
+        new_episode_ends = []
+        curr_cumulate_timesteps = 0
+        self.episode_ends = []
+        for prev_ee, curr_ee in zip(ee[:-1], ee[1:]):
+            # Find the first index at which the tabletop goal is reached (if at all)
+            for i in range(prev_ee, curr_ee):
+                if torch.allclose(
+                    self.train_data["parts_poses"][i, :3], tabletop_goal, atol=1e-2
+                ):
+                    new_episode_starts.append(prev_ee)
+                    end = i + 10
+                    new_episode_ends.append(end)
+                    curr_cumulate_timesteps += end - prev_ee
+                    self.episode_ends.append(curr_cumulate_timesteps)
+                    break
+
+        # Slice the train_data using the new episode starts and ends
+        for key in self.train_data:
+            data_slices = [
+                self.train_data[key][start:end]
+                for start, end in zip(new_episode_starts, new_episode_ends)
+            ]
+            self.train_data[key] = torch.cat(data_slices)
+
+        self.episode_ends = torch.tensor(self.episode_ends)
+
     def __len__(self):
         return len(self.indices)
 
@@ -427,240 +461,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # Discard unused observations
         nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
-
-        # Discard unused returns
-        nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
-
-        # # Add the task index and success flag to the sample
-        # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
-        # nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
-
-        return nsample
-
-    def train(self):
-        pass
-
-    def eval(self):
-        pass
-
-
-class FurnitureStateTabletopDataset(torch.utils.data.Dataset):
-    def __init__(
-        self,
-        dataset_paths: Union[List[Path], Path],
-        pred_horizon: int,
-        obs_horizon: int,
-        action_horizon: int,
-        normalizer: Union[Normalizer, None],
-        data_subset: int = None,
-        first_action_idx: int = 0,
-        control_mode: ControlMode = ControlMode.delta,
-        act_rot_repr: str = "quat",
-        pad_after: bool = True,
-        max_episode_count: Union[dict, None] = None,
-    ):
-        self.pred_horizon = pred_horizon
-        self.action_horizon = action_horizon
-        self.obs_horizon = obs_horizon
-        self.control_mode = control_mode
-
-        # Read from zarr dataset
-        combined_data, metadata = combine_zarr_datasets(
-            dataset_paths,
-            [
-                "parts_poses",
-                "robot_state",
-                # "color_image2",  # Debugging
-                f"action/{control_mode}",
-                "skill",
-                "reward",
-            ],
-            max_episodes=data_subset,
-            max_ep_cnt=max_episode_count,
-        )
-
-        # (N, D)
-        # Get only the first data_subset episodes
-        self.episode_ends: np.ndarray = combined_data["episode_ends"]
-        self.metadata = metadata
-        print(f"Loading dataset of {len(self.episode_ends)} episodes:")
-        for path, data in metadata.items():
-            print(
-                f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
-            )
-
-        # Convert robot_state orientation to quaternion
-        robot_state = torch.from_numpy(combined_data["robot_state"])
-
-        if act_rot_repr == "quat":
-            robot_state = torch.cat(
-                [
-                    robot_state[:, :3],
-                    rot_6d_to_isaac_quat(robot_state[:, 3:9]),
-                    robot_state[:, 9:],
-                ],
-                dim=-1,
-            )
-
-        # Convert action orientation to quaternion
-        action = torch.from_numpy(combined_data[f"action/{control_mode}"])
-
-        if act_rot_repr == "quat":
-            action = torch.cat(
-                [
-                    action[:, :3],
-                    rot_6d_to_isaac_quat(action[:, 3:9]),
-                    action[:, 9:],
-                ],
-                dim=-1,
-            )
-
-        self.train_data = {
-            "robot_state": robot_state,
-            "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
-            "action": action,
-            # "color_image2": torch.from_numpy(combined_data["color_image2"]),  # Debugging
-        }
-
-        if normalizer is not None:
-            normalizer.cpu()
-            for key in self.train_data:
-                if key in normalizer.keys():
-                    continue
-                normalizer.fit({key: self.train_data[key].numpy()})
-
-            normalizer.cuda()
-
-        # print("[NB] The actions are stored with rotations in 6D format")
-        # Trim the data so that it's only up until the task is completed, i.e., the tabletop
-        # is in location (0.0819, 0.2866, -0.0157)
-
-        ee = np.array([0] + self.episode_ends.tolist())
-        tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157])
-        new_episode_starts = []
-        new_episode_ends = []
-        curr_cumulate_timesteps = 0
-        self.episode_ends = []
-        for prev_ee, curr_ee in zip(ee[:-1], ee[1:]):
-            # Find the first index at which the tabletop goal is reached (if at all)
-            for i in range(prev_ee, curr_ee):
-                if torch.allclose(
-                    self.train_data["parts_poses"][i, :3], tabletop_goal, atol=1e-2
-                ):
-                    new_episode_starts.append(prev_ee)
-                    end = i + 10
-                    new_episode_ends.append(end)
-                    curr_cumulate_timesteps += end - prev_ee
-                    self.episode_ends.append(curr_cumulate_timesteps)
-                    break
-
-        # Slice the train_data using the new episode starts and ends
-        for key in self.train_data:
-            data_slices = [
-                self.train_data[key][start:end]
-                for start, end in zip(new_episode_starts, new_episode_ends)
-            ]
-            self.train_data[key] = torch.cat(data_slices)
-
-        self.episode_ends = torch.tensor(self.episode_ends)
-
-        if normalizer is not None:
-            normalizer.cpu()
-            for key in self.train_data:
-                self.train_data[key] = normalizer(
-                    self.train_data[key], key, forward=True
-                )
-
-            normalizer.cuda()
-
-        # Recalculate the rewards and returns
-        rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
-        rewards[self.episode_ends - 1] = 1.0
-
-        gamma = 0.99
-        returns = []
-        ee = [0] + self.episode_ends.tolist()
-        for start, end in zip(ee[:-1], ee[1:]):
-            ep_rewards = rewards[start:end]
-            timesteps = torch.arange(len(ep_rewards), device=ep_rewards.device)
-            discounts = gamma**timesteps
-            ep_returns = (
-                torch.flip(
-                    torch.cumsum(torch.flip(ep_rewards * discounts, dims=[0]), dim=0),
-                    dims=[0],
-                )
-                / discounts
-            )
-            returns.append(ep_returns)
-
-        # Concatenate the returns for all episodes into a single tensor
-        returns = torch.cat(returns)
-        self.train_data["returns"] = returns
-
-        # compute start and end of each state-action sequence
-        # also handles padding
-        self.indices = create_sample_indices(
-            episode_ends=self.episode_ends,
-            sequence_length=pred_horizon,
-            pad_before=obs_horizon - 1,
-            pad_after=action_horizon - 1 if pad_after else 0,
-        )
-
-        self.task_idxs = np.array(
-            [furniture2idx[f] for f in combined_data["furniture"]]
-        )
-        self.successes = combined_data["success"].astype(np.uint8)
-        self.skills = combined_data["skill"].astype(np.uint8)
-        self.failure_idx = combined_data["failure_idx"]
-
-        # Add action, robot_state, and parts_poses dimensions to the dataset
-        self.action_dim = self.train_data["action"].shape[-1]
-        self.robot_state_dim = self.train_data["robot_state"].shape[-1]
-        self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
-
-        # Take into account possibility of predicting an action that doesn't align with the first observation
-        # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
-        self.first_action_idx = first_action_idx
-        if first_action_idx < 0:
-            self.first_action_idx = self.obs_horizon + first_action_idx
-
-        self.final_action_idx = self.first_action_idx + self.pred_horizon
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        # get the start/end indices for this datapoint
-        (
-            buffer_start_idx,
-            buffer_end_idx,
-            sample_start_idx,
-            sample_end_idx,
-            demo_idx,
-        ) = self.indices[idx]
-
-        # get normalized data using these indices
-        nsample = sample_sequence(
-            train_data=self.train_data,
-            sequence_length=self.pred_horizon,
-            buffer_start_idx=buffer_start_idx,
-            buffer_end_idx=buffer_end_idx,
-            sample_start_idx=sample_start_idx,
-            sample_end_idx=sample_end_idx,
-        )
-
-        # Discard unused actions
-        nsample["action"] = nsample["action"][
-            self.first_action_idx : self.final_action_idx, :
-        ]
-
-        # Discard unused observations
-        robot_state = nsample["robot_state"][: self.obs_horizon, :]
-
-        # Discard unused parts poses
-        parts_poses = nsample["parts_poses"][: self.obs_horizon, :]
-
-        nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
 
         # Discard unused returns
         nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
