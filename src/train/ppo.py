@@ -97,7 +97,10 @@ def evaluate_agent(agent, writer, global_step):
 
 @dataclass
 class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+    exp_name: Literal[
+        "oneleg",
+        "place-tabletop",
+    ] = "oneleg"
     """the name of this experiment"""
     seed: int = None
     """seed of the experiment"""
@@ -218,23 +221,14 @@ class Args:
 def get_demo_data_loader(
     control_mode,
     n_batches,
+    task,
     act_rot_repr="quat",
     num_workers=4,
     normalizer=None,
     action_horizon=1,
 ) -> DataLoader:
-    demo_data = FurnitureStateTabletopDataset(
-        # demo_data = FurnitureStateDataset(
-        # dataset_paths=Path(cfg.data_path[0]),
-        # pred_horizon=cfg.data.pred_horizon,
-        # obs_horizon=cfg.data.obs_horizon,
-        # action_horizon=cfg.data.action_horizon,
-        # normalizer=normalizer,
-        # data_subset=cfg.data.data_subset,
-        # control_mode=cfg.control.control_mode,
-        # first_action_idx=cfg.actor.first_action_index,
-        # pad_after=cfg.data.get("pad_after", True),
-        # max_episode_count=cfg.data.get("max_episode_count", None),
+
+    kwargs = dict(
         dataset_paths=Path(
             "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
         ),
@@ -249,6 +243,13 @@ def get_demo_data_loader(
         pad_after=False,
         max_episode_count=None,
     )
+
+    if task == "place-tabletop":
+        demo_data = FurnitureStateTabletopDataset(**kwargs)
+    elif task == "oneleg":
+        demo_data = FurnitureStateDataset(**kwargs)
+    else:
+        raise ValueError(f"Unknown task: {task}")
 
     batch_size = len(demo_data) // n_batches
 
@@ -449,6 +450,7 @@ if __name__ == "__main__":
 
     run_directory = "runs/debug-tabletop-chunked-1"
     run_directory += "-delete" if args.debug else ""
+    print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -469,8 +471,7 @@ if __name__ == "__main__":
 
     # env setup
     with suppress_all_output(False):
-        # env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-        env = FurnitureRLSimEnvPlaceTabletop(
+        kwargs = dict(
             act_rot_repr=act_rot_repr,
             action_type=action_type,
             april_tags=False,
@@ -489,6 +490,12 @@ if __name__ == "__main__":
             stiffness=1_000,
             damping=200,
         )
+        if args.exp_name == "oneleg":
+            env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
+        elif args.exp_name == "place-tabletop":
+            env: FurnitureRLSimEnv = FurnitureRLSimEnvPlaceTabletop(**kwargs)
+        else:
+            raise ValueError(f"Unknown experiment name: {args.exp_name}")
 
     env.max_force_magnitude = 0.1
     env.max_torque_magnitude = 0.005
@@ -604,6 +611,7 @@ if __name__ == "__main__":
     demo_data_loader = get_demo_data_loader(
         control_mode=action_type,
         n_batches=args.num_minibatches,
+        task=args.exp_name,
         act_rot_repr=act_rot_repr,
         normalizer=normalizer,
         action_horizon=agent.action_horizon,
