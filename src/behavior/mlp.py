@@ -245,14 +245,7 @@ class MLPStateActor(nn.Module):
 
     # === Training ===
     def _training_obs(self, batch, flatten: bool = True):
-        # The robot state is already normalized in the dataset
-        nrobot_state = batch["robot_state"]
-
-        # The parts poses are already normalized in the dataset
-        nparts_poses = batch["parts_poses"]
-
-        # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+        nobs = batch["obs"]
 
         if flatten:
             # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)

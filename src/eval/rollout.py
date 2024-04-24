@@ -222,6 +222,8 @@ def calculate_success_rate(
         # Update the progress bar
         pbar.pbar_desc(i, n_success)
 
+        bp()
+
     total_reward = np.sum([np.sum(rewards.numpy()) for rewards in all_rewards])
     episode_returns = [
         np.sum(rewards.numpy() * gamma ** np.arange(len(rewards)))

@@ -52,6 +52,7 @@ def set_dryrun_params(config: DictConfig):
         OmegaConf.set_struct(config, False)
         config.training.steps_per_epoch = 10
         config.data.data_subset = 1
+        config.data.dataloader_workers = 0
 
         if config.rollout.rollouts:
             config.rollout.every = 1
@@ -118,6 +119,7 @@ def main(config: DictConfig):
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
+            act_rot_repr=config.control.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -175,6 +177,15 @@ def main(config: DictConfig):
         drop_last=False,
         persistent_workers=False,
     )
+    # trainloader = DataLoader(
+    #     dataset=train_dataset,
+    #     batch_size=config.training.batch_size,
+    #     num_workers=config.data.dataloader_workers,
+    #     shuffle=True,
+    #     pin_memory=True,
+    #     drop_last=False,
+    #     persistent_workers=False,
+    # )
 
     testloader = DataLoader(
         dataset=test_dataset,

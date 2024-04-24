@@ -9,7 +9,11 @@ import time
 from dataclasses import dataclass
 import math
 
-from src.gym.furniture_sim_env import FurnitureRLSimEnv, FurnitureRLSimEnvPlaceTabletop
+from src.gym.furniture_sim_env import (
+    FurnitureRLSimEnv,
+    FurnitureRLSimEnvPlaceTabletop,
+    FurnitureRLSimEnvReacher,
+)
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
@@ -98,6 +102,7 @@ def evaluate_agent(agent, writer, global_step):
 @dataclass
 class Args:
     exp_name: Literal[
+        "reacher",
         "oneleg",
         "place-tabletop",
     ] = "oneleg"
@@ -270,11 +275,17 @@ class FurnitureEnvWrapper:
     normalizer = None
 
     def __init__(
-        self, env: FurnitureRLSimEnv, max_env_steps=300, ee_dof=10, chunk_size=1
+        self,
+        env: FurnitureRLSimEnv,
+        max_env_steps=300,
+        ee_dof=10,
+        chunk_size=1,
+        task="oneleg",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.chunk_size: int = chunk_size
+        self.task = task
 
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
@@ -306,7 +317,8 @@ class FurnitureEnvWrapper:
 
         if self.normalizer is not None:
             robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+            if self.task != "reacher":
+                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         obs = torch.cat([robot_state, parts_poses], dim=-1)
         return obs
@@ -494,6 +506,9 @@ if __name__ == "__main__":
             env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
         elif args.exp_name == "place-tabletop":
             env: FurnitureRLSimEnv = FurnitureRLSimEnvPlaceTabletop(**kwargs)
+        elif args.exp_name == "reacher":
+            assert args.bc_coef == 0, "Behavior cloning is not supported for Reacher"
+            env: FurnitureRLSimEnv = FurnitureRLSimEnvReacher(**kwargs)
         else:
             raise ValueError(f"Unknown experiment name: {args.exp_name}")
 
@@ -505,6 +520,7 @@ if __name__ == "__main__":
         max_env_steps=args.num_env_steps,
         ee_dof=args.ee_dof,
         chunk_size=args.chunk_size,
+        task=args.exp_name,
     )
 
     if args.normalize_reward:
@@ -570,7 +586,6 @@ if __name__ == "__main__":
     )
 
     if args.load_checkpoint is not None:
-
         agent.load_state_dict(torch.load(args.load_checkpoint))
 
     env.normalizer = normalizer
@@ -607,18 +622,20 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs))
     values = torch.zeros((args.num_steps, args.num_envs))
 
-    # # Get the dataloader for the demo data for the behavior cloning
-    demo_data_loader = get_demo_data_loader(
-        control_mode=action_type,
-        n_batches=args.num_minibatches,
-        task=args.exp_name,
-        act_rot_repr=act_rot_repr,
-        normalizer=normalizer,
-        action_horizon=agent.action_horizon,
-    )
+    # Get the dataloader for the demo data for the behavior cloning
+    if args.bc_coef > 0:
+        demo_data_loader = get_demo_data_loader(
+            control_mode=action_type,
+            n_batches=args.num_minibatches,
+            task=args.exp_name,
+            act_rot_repr=act_rot_repr,
+            normalizer=normalizer,
+            action_horizon=agent.action_horizon,
+            num_workers=4 if not args.debug else 0,
+        )
 
-    # Print the number of batches in the dataloader
-    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
+        # Print the number of batches in the dataloader
+        print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
@@ -763,7 +780,9 @@ if __name__ == "__main__":
         b_inds = np.arange(args.batch_size)
         clipfracs = []
         for epoch in trange(args.update_epochs, desc="Policy update"):
-            demo_data_iter = iter(demo_data_loader)
+            if args.bc_coef > 0:
+                demo_data_iter = iter(demo_data_loader)
+
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -823,44 +842,52 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean() * args.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
+                policy_loss = ppo_loss
 
                 # Behavior cloning loss
-                batch = next(demo_data_iter)
-                batch = dict_to_device(batch, device)
-                bc_obs = batch["obs"].squeeze()
+                if args.bc_coef > 0:
+                    batch = next(demo_data_iter)
+                    batch = dict_to_device(batch, device)
+                    bp()
+                    bc_obs = batch["obs"].squeeze()
 
-                norm_bc_actions = batch["action"]
+                    norm_bc_actions = batch["action"]
 
-                # Normalize the actions
-                if args.bc_loss_type == "mse":
-                    action_pred = agent.actor_mean(bc_obs)
-                    bc_loss = F.mse_loss(action_pred, norm_bc_actions)
-                elif args.bc_loss_type == "nll":
-                    _, bc_logprob, _, bc_values = agent.get_action_and_value(
-                        bc_obs, norm_bc_actions
+                    # Normalize the actions
+                    if args.bc_loss_type == "mse":
+                        action_pred = agent.actor_mean(bc_obs)
+                        bc_loss = F.mse_loss(action_pred, norm_bc_actions)
+                    elif args.bc_loss_type == "nll":
+                        _, bc_logprob, _, bc_values = agent.get_action_and_value(
+                            bc_obs, norm_bc_actions
+                        )
+                        bc_loss = -bc_logprob.mean()
+                    else:
+                        raise ValueError(
+                            f"Unknown behavior cloning loss type: {args.bc_loss_type}"
+                        )
+
+                    with torch.no_grad():
+                        bc_values = agent.get_value(bc_obs)
+                    bc_v_loss = (
+                        0.5
+                        * (
+                            (bc_values.squeeze() - batch["returns"].squeeze()) ** 2
+                        ).mean()
                     )
-                    bc_loss = -bc_logprob.mean()
-                else:
-                    raise ValueError(
-                        f"Unknown behavior cloning loss type: {args.bc_loss_type}"
+
+                    bc_total_loss = (
+                        bc_loss + bc_v_loss
+                        if args.supervise_value_function
+                        else bc_loss
                     )
 
-                with torch.no_grad():
-                    bc_values = agent.get_value(bc_obs)
-                bc_v_loss = (
-                    0.5
-                    * ((bc_values.squeeze() - batch["returns"].squeeze()) ** 2).mean()
-                )
+                    policy_loss = (
+                        1 - args.bc_coef
+                    ) * policy_loss + args.bc_coef * bc_total_loss
 
-                bc_total_loss = (
-                    bc_loss + bc_v_loss if args.supervise_value_function else bc_loss
-                )
-
-                loss = (
-                    args.bc_coef * bc_total_loss
-                    + (1 - args.bc_coef) * ppo_loss
-                    + v_loss * args.vf_coef
-                )
+                # Total loss
+                loss = policy_loss + args.vf_coef * v_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -920,8 +947,9 @@ if __name__ == "__main__":
             global_step,
         )
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
-        writer.add_scalar("losses/bc_v_loss", bc_v_loss.item(), global_step)
+        if args.bc_coef > 0:
+            writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+            writer.add_scalar("losses/bc_v_loss", bc_v_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)

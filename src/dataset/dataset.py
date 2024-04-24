@@ -63,8 +63,8 @@ def sample_sequence(
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
-            data = np.zeros(
-                shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
+            data = torch.zeros(
+                size=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
             )
             if sample_start_idx > 0:
                 data[:sample_start_idx] = sample[0]
@@ -267,7 +267,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             [
                 "parts_poses",
                 "robot_state",
-                # "color_image2",  # Debugging
                 f"action/{control_mode}",
                 "skill",
                 "reward",
@@ -316,7 +315,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             "robot_state": robot_state,
             "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
             "action": action,
-            # "color_image2": torch.from_numpy(combined_data["color_image2"]),  # Debugging
         }
 
         if normalizer is not None:
@@ -336,6 +334,11 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 )
 
             normalizer.cuda()
+
+        # Concatenate the robot_state and parts_poses into a single observation
+        self.train_data["obs"] = torch.cat(
+            [self.train_data["robot_state"], self.train_data["parts_poses"]], dim=-1
+        )
 
         # Recalculate the rewards and returns
         rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
@@ -381,6 +384,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
         self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
+        self.obs_dim = (self.robot_state_dim + self.parts_poses_dim) * self.obs_horizon
 
         # Take into account possibility of predicting an action that doesn't align with the first observation
         # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
@@ -389,6 +393,9 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             self.first_action_idx = self.obs_horizon + first_action_idx
 
         self.final_action_idx = self.first_action_idx + self.pred_horizon
+
+        del self.train_data["robot_state"]
+        del self.train_data["parts_poses"]
 
     def __len__(self):
         return len(self.indices)
@@ -419,12 +426,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         ]
 
         # Discard unused observations
-        robot_state = nsample["robot_state"][: self.obs_horizon, :]
-
-        # Discard unused parts poses
-        parts_poses = nsample["parts_poses"][: self.obs_horizon, :]
-
-        nsample["obs"] = torch.cat([robot_state, parts_poses], dim=-1)
+        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
 
         # Discard unused returns
         nsample["returns"] = nsample["returns"][self.final_action_idx - 1]

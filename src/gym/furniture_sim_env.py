@@ -252,12 +252,33 @@ class FurnitureRLSimEnvPlaceTabletop(FurnitureRLSimEnv):
     def _reward(self):
         """Calculates the reward for the current state of the environment."""
         # Get the end effector position
-        parts_poses, founds = self._get_parts_poses(sim_coord=False)
+        parts_poses, _ = self._get_parts_poses(sim_coord=False)
         tabletop_pos = parts_poses[:, :3]
 
         reward = torch.zeros(self.num_envs, device=self.device)
 
         # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
         reward[torch.norm(tabletop_pos - self.tabletop_goal, dim=-1) < 0.005] = 1
+
+        return reward
+
+
+class FurnitureRLSimEnvReacher(FurnitureRLSimEnv):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Define the goal position for the end effector
+        self.goal_pos = torch.tensor([0.5934, -0.2813, 0.5098], device=self.device)
+
+    def _reward(self):
+        """Calculates the reward for the current state of the environment."""
+        # Get the end effector position
+        ee_pos, _ = self.get_ee_pose()
+
+        reward = torch.zeros(self.num_envs, device=self.device)
+
+        # Set the reward to be 1 if the distance is less than 0.1 (10 cm) from the goal
+        reward[torch.norm(ee_pos - self.goal_pos, dim=-1) < 0.1] = 1
 
         return reward
