@@ -3,6 +3,33 @@ import torch
 import pytorch3d.transforms as pt
 from ipdb import set_trace as bp
 from scipy.spatial.transform import Rotation as R
+import furniture_bench.controllers.control_utils as C
+
+
+def quat_xyzw_error(from_quat_xyzw, to_quat_xyzw):
+    """Computes the quaternion error between two quaternions."""
+    from_quat_wxyz = C.quat_xyzw_to_wxyz(from_quat_xyzw)
+    to_quat_wxyz = C.quat_xyzw_to_wxyz(to_quat_xyzw)
+    rel_quat_wxyz = pt.quaternion_multiply(
+        pt.quaternion_invert(from_quat_wxyz), to_quat_wxyz
+    )
+    rel_quat_xyzw = C.quat_wxyz_to_xyzw(rel_quat_wxyz)
+    return rel_quat_xyzw
+
+
+def pose_error(from_pose, to_pose):
+    """
+    Computes the pose error between two poses.
+
+    The pose is represented as a 7D vector: (x, y, z, qx, qy, qz, qw)
+    """
+    from_pos, from_quat = from_pose[..., :3], from_pose[..., 3:]
+    to_pos, to_quat = to_pose[..., :3], to_pose[..., 3:]
+
+    pos_error = to_pos - from_pos
+    quat_error = quat_xyzw_error(from_quat, to_quat)
+
+    return torch.cat([pos_error, quat_error], dim=-1)
 
 
 def isaac_quat_to_pytorch3d_quat(quat):

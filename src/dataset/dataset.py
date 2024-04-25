@@ -12,8 +12,7 @@ from src.common.vision import (
     FrontCameraTransform,
     WristCameraTransform,
 )
-from src.common.geometry import rot_6d_to_isaac_quat
-
+import src.common.geometry as G
 
 from ipdb import set_trace as bp
 
@@ -256,6 +255,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
         task: str = None,
+        add_relative_pose: bool = False,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -286,34 +286,13 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
             )
 
-        # Convert robot_state orientation to quaternion
+        # Get the data and convert to torch tensors
         robot_state = torch.from_numpy(combined_data["robot_state"])
-
-        if act_rot_repr == "quat":
-            robot_state = torch.cat(
-                [
-                    robot_state[:, :3],
-                    rot_6d_to_isaac_quat(robot_state[:, 3:9]),
-                    robot_state[:, 9:],
-                ],
-                dim=-1,
-            )
-
-        # Convert action orientation to quaternion
         action = torch.from_numpy(combined_data[f"action/{control_mode}"])
-
-        if act_rot_repr == "quat":
-            action = torch.cat(
-                [
-                    action[:, :3],
-                    rot_6d_to_isaac_quat(action[:, 3:9]),
-                    action[:, 9:],
-                ],
-                dim=-1,
-            )
+        parts_poses = torch.from_numpy(combined_data["parts_poses"])
 
         self.train_data = {
-            "parts_poses": torch.from_numpy(combined_data["parts_poses"]),
+            "parts_poses": parts_poses,
             "robot_state": robot_state,
             "action": action,
         }
@@ -343,6 +322,34 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.train_data["obs"] = torch.cat(
             [self.train_data["robot_state"], self.train_data["parts_poses"]], dim=-1
         )
+
+        # Add parts poses relative to the end-effector as a new key in the train_data
+        if add_relative_pose:
+            parts_poses, robot_state = (
+                self.train_data["parts_poses"],
+                self.train_data["robot_state"],
+            )
+            # Parts is (N, P * 7)
+            N = parts_poses.shape[0]
+            n_parts = parts_poses.shape[1] // 7
+
+            # Get the robot state
+            ee_pos = robot_state[:, None, :3]
+            ee_quat_xyzw = G.rot_6d_to_isaac_quat(robot_state[:, 3:9]).view(N, 1, 4)
+            ee_pose = torch.cat([ee_pos, ee_quat_xyzw], dim=-1)
+
+            # Reshape the parts poses into (N, P, 7)
+            parts_pose = parts_poses.view(N, n_parts, 7)
+
+            # Concatenate the relative pose into a single tensor
+            rel_pose = G.pose_error(ee_pose, parts_pose)
+
+            # Flatten the relative pose tensor and add it to the train_data
+            self.train_data["rel_poses"] = rel_pose.view(N, -1)
+
+            self.train_data["obs"] = torch.cat(
+                [self.train_data["obs"], self.train_data["rel_poses"]], dim=-1
+            )
 
         # Recalculate the rewards and returns
         rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
@@ -400,6 +407,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         del self.train_data["robot_state"]
         del self.train_data["parts_poses"]
+        if add_relative_pose:
+            del self.train_data["rel_poses"]
 
     def _make_tabletop_goal(self):
         ee = np.array([0] + self.episode_ends.tolist())

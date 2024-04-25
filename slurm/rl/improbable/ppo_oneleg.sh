@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-3090
-#SBATCH -q vision-pulkitag-main
+#SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
+#SBATCH -q vision-pulkitag-main,vision-pulkitag-high
 #SBATCH --job-name=ppo_oneleg
 #SBATCH --output=output_%j.log
 #SBATCH --error=error_%j.log
@@ -12,6 +12,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --gres=gpu:1
 
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/scratch/ankile/miniconda3/envs/rr/lib
 # conda activate /data/scratch/ankile/miniconda3/envs/rr
 
 # Run your command with the provided arguments

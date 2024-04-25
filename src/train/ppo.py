@@ -32,7 +32,7 @@ import tyro
 from torch.utils.tensorboard import SummaryWriter
 
 from src.dataset.normalizer import LinearNormalizer
-
+import src.common.geometry as G
 
 from src.behavior.mlp import (
     ResidualMLPAgent,
@@ -167,6 +167,10 @@ class Args:
     """if toggled, the randomness will be increased over time"""
     chunk_size: int = 1
     """the chunk size for the action space"""
+    data_collection_steps: int = None
+    """the number of steps to collect data"""
+    add_relative_pose: bool = False
+    """if toggled, the relative pose will be added to the observation"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -231,6 +235,7 @@ def get_demo_data_loader(
     num_workers=4,
     normalizer=None,
     action_horizon=1,
+    add_relative_pose=False,
 ) -> DataLoader:
 
     demo_data = FurnitureStateDataset(
@@ -248,6 +253,7 @@ def get_demo_data_loader(
         pad_after=False,
         max_episode_count=None,
         task=task,
+        add_relative_pose=add_relative_pose,
     )
 
     batch_size = len(demo_data) // n_batches
@@ -275,11 +281,13 @@ class FurnitureEnvWrapper:
         ee_dof=10,
         chunk_size=1,
         task="oneleg",
+        add_relative_pose=False,
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.chunk_size: int = chunk_size
         self.task = task
+        self.add_relative_pose = add_relative_pose
 
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
@@ -287,7 +295,7 @@ class FurnitureEnvWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35,)
+            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
         )
 
         # Define the maximum number of steps in the environment
@@ -302,12 +310,15 @@ class FurnitureEnvWrapper:
         ).repeat(self.num_envs, 1)
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
+        # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
         robot_state = obs["robot_state"]
+        N = robot_state.shape[0]
+
+        # Parts poses is [pos, ori_quat] for each part
+        parts_poses = obs["parts_poses"]
 
         # Make the robot state have 6D proprioception
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-
-        parts_poses = obs["parts_poses"]
 
         if self.normalizer is not None:
             robot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -315,6 +326,20 @@ class FurnitureEnvWrapper:
                 parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         obs = torch.cat([robot_state, parts_poses], dim=-1)
+
+        if self.add_relative_pose:
+            ee_pose = robot_state[..., :7].unsqueeze(1)
+            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
+                N, -1
+            )
+
+            # if self.normalizer is not None:
+            #     relative_poses = self.normalizer(
+            #         relative_poses, "rel_poses", forward=True
+            #     )
+
+            obs = torch.cat([obs, relative_poses], dim=-1)
+
         return obs
 
     def process_action(self, action: torch.Tensor):
@@ -441,6 +466,9 @@ if __name__ == "__main__":
     else:
         run_name = f"{int(time.time())}__{args.exp_name}__{args.agent}__{args.seed}"
 
+    if args.data_collection_steps is None:
+        args.data_collection_steps = args.num_env_steps
+
     if args.track:
         import wandb
 
@@ -515,6 +543,7 @@ if __name__ == "__main__":
         ee_dof=args.ee_dof,
         chunk_size=args.chunk_size,
         task=args.exp_name,
+        add_relative_pose=args.add_relative_pose,
     )
 
     if args.normalize_reward:
@@ -573,6 +602,7 @@ if __name__ == "__main__":
 
     agent = agent.to(device)
 
+    # normalizer = None
     normalizer = LinearNormalizer(control_mode=action_type).to(device)
     assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
         f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
@@ -590,12 +620,13 @@ if __name__ == "__main__":
         eps=1e-5,
         weight_decay=1e-5,
     )
-    args.num_steps = math.ceil(args.num_env_steps / agent.action_horizon)
+    policy_steps = math.ceil(args.num_env_steps / agent.action_horizon)
+    args.num_steps = args.data_collection_steps
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
     print(
-        f"With chunk size {agent.action_horizon}, we have {args.num_steps} policy steps."
+        f"With chunk size {agent.action_horizon}, we have {policy_steps} policy steps."
     )
     print(f"Total timesteps: {args.total_timesteps}, batch size: {args.batch_size}")
     print(
@@ -626,7 +657,7 @@ if __name__ == "__main__":
             normalizer=normalizer,
             action_horizon=agent.action_horizon,
             num_workers=4 if not args.debug else 0,
-            action_filter_threshold=args.action_filter_threshold,
+            add_relative_pose=args.add_relative_pose,
         )
 
         # Print the number of batches in the dataloader
@@ -682,7 +713,9 @@ if __name__ == "__main__":
             # action = get_dataset_action(demo_data_loader.dataset, step, iteration - 1)
 
             # TRY NOT TO MODIFY: execute the game and log data.
-            naction = normalizer(action, "action", forward=False)
+            naction = (
+                normalizer(action, "action", forward=False) if normalizer else action
+            )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
             actions[step] = action.cpu()
