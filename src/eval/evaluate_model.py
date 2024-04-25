@@ -171,7 +171,7 @@ if __name__ == "__main__":
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
     parser.add_argument(
-        "--action-type", type=str, default="delta", choices=["delta", "pos"]
+        "--action-type", type=str, default="pos", choices=["delta", "pos"]
     )
     parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--multitask", action="store_true")
@@ -180,6 +180,11 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--max-rollout-steps", type=int, default=None)
     parser.add_argument("--no-april-tags", action="store_true")
+
+    parser.add_argument("--controller", choices=["osc", "diffik"], default="diffik")
+    parser.add_argument(
+        "--observation-space", choices=["image", "state"], default="state"
+    )
     # Parse the arguments
     args = parser.parse_args()
 
@@ -281,11 +286,11 @@ if __name__ == "__main__":
                         furniture=args.furniture,
                         num_envs=args.n_envs,
                         randomness=args.randomness,
-                        observation_space="state",
+                        observation_space=args.observation_space,
                         max_env_steps=5_000,
                         resize_img=False,
                         act_rot_repr="rot_6d",
-                        ctrl_mode="diffik",
+                        ctrl_mode=args.controller,
                         action_type=args.action_type,
                         april_tags=not args.no_april_tags,
                         verbose=args.verbose,

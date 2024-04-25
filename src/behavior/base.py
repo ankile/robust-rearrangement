@@ -165,13 +165,14 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         return feature1, feature2
 
     def _training_obs(self, batch, flatten: bool = True):
-        # The robot state is already normalized in the dataset
-        nrobot_state = batch["robot_state"]
-        B = nrobot_state.shape[0]
 
         # Check if we're in training mode and we want to add noise to the robot state
 
         if self.training and self.state_noise:
+            # The robot state is already normalized in the dataset
+            nrobot_state = batch["robot_state"]
+            B = nrobot_state.shape[0]
+
             # Add noise to the robot state akin to Ke et al., “Grasping with Chopsticks.”
             # Extract only the current position and orientation (x, y, x and 6D rotation)
             pos = nrobot_state[:, :, :3]
@@ -193,6 +194,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             nrobot_state[mask, :, 3:9] = rot[mask]
 
         if self.observation_type == "image":
+            # The robot state is already normalized in the dataset
+            nrobot_state = batch["robot_state"]
+            B = nrobot_state.shape[0]
+
             image1: torch.Tensor = batch["color_image1"]
             image2: torch.Tensor = batch["color_image2"]
 
@@ -212,6 +217,9 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
 
         elif self.observation_type == "feature":
+            # The robot state is already normalized in the dataset
+            nrobot_state = batch["robot_state"]
+
             # All observations already normalized in the dataset
             feature1 = self.encoder1_proj(batch["feature1"])
             feature2 = self.encoder2_proj(batch["feature2"])
@@ -223,10 +231,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
         elif self.observation_type == "state":
             # Parts poses are already normalized in the dataset
-            parts_poses = batch["parts_poses"]
-
-            # Combine the robot_state and parts_poses, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, parts_poses], dim=-1)
+            nobs = batch["obs"]
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
