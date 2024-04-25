@@ -2,9 +2,7 @@
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
 #SBATCH -q vision-pulkitag-main
-#SBATCH --job-name=ppo_oneleg
-#SBATCH --output=output_%j.log
-#SBATCH --error=error_%j.log
+#SBATCH --job-name=ppo_oneleg_chunked
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
@@ -16,9 +14,9 @@
 # conda activate /data/scratch/ankile/miniconda3/envs/rr
 
 # Run your command with the provided arguments
-python -m src.train.ppo --num-env-steps 1000 --data-collection-steps 500 --num-envs 2048 --bc-coef 0.95 \
+python -m src.train.ppo --num-env-steps 800 --data-collection-steps 400 --num-envs 2048 --bc-coef 0.95 \
     --learning-rate 1e-5 --save-model --total-timesteps 60000000 \
     --headless --exp-name oneleg --no-normalize-reward --update-epochs 10 \
     --no-normalize-obs --no-clip-vloss --num-minibatches 64 --init-logstd -4 \
     --agent residual-big --ee-dof 10 --bc-loss-type nll --no-supervise-value-function \
-    --action-type pos --adaptive-bc-coef --min-bc-coef 0.5 --n-decrease-lr 2 --chunk-size 8
+    --action-type pos --no-adaptive-bc-coef --min-bc-coef 0.95 --n-decrease-lr 0 --chunk-size 8

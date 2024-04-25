@@ -26,6 +26,7 @@ from src.common.pytorch_util import dict_to_device
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
+from src.models.ema import SwitchEMA
 
 from gym import logger
 
@@ -204,6 +205,10 @@ def main(config: DictConfig):
         weight_decay=config.regularization.weight_decay,
     )
 
+    if config.training.ema.use:
+        ema = SwitchEMA(actor, config.training.ema.decay)
+        ema.register()
+
     n_batches = len(trainloader)
 
     lr_scheduler = get_scheduler(
@@ -294,6 +299,9 @@ def main(config: DictConfig):
             opt_noise.step()
             lr_scheduler.step()
 
+            if config.training.ema.use:
+                ema.update()
+
             # logging
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
@@ -319,6 +327,10 @@ def main(config: DictConfig):
         # Evaluation loop
         actor.eval_mode()
         dataset.eval()
+
+        if config.training.ema.use:
+            ema.apply_shadow()
+
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -396,8 +408,8 @@ def main(config: DictConfig):
                     pos_scalar=1,
                     headless=True,
                     rot_scalar=1,
-                    stiffness=1_000,
-                    damping=200,
+                    stiffness=800,
+                    damping=150,
                 )
 
             best_success_rate = do_rollout_evaluation(
@@ -408,6 +420,15 @@ def main(config: DictConfig):
                 best_success_rate,
                 epoch_idx,
             )
+
+            # After eval is done, we restore the model to the original state
+            if config.training.ema.use:
+                # If using normal EMA, restore the model
+                ema.restore()
+
+                # If using switch EMA, set the model to the shadow
+                if config.training.ema.switch:
+                    ema.copy_to_model()
 
         if config.wandb.mode == "offline":
             trigger_sync()
