@@ -724,7 +724,7 @@ if __name__ == "__main__":
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if (env_step := step * agent.action_horizon + 1) % 100 == 0:
+            if step > 0 and (env_step := step * agent.action_horizon) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )

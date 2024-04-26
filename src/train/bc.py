@@ -364,6 +364,14 @@ def main(config: DictConfig):
             print(
                 f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
             )
+            # Log to wandb the final counter
+            wandb.log(
+                {
+                    "early_stopper/counter": early_stopper.counter,
+                    "early_stopper/best_loss": early_stopper.best_loss,
+                    "early_stopper/ema_loss": early_stopper.ema_loss,
+                }
+            )
             break
 
         # Log epoch stats

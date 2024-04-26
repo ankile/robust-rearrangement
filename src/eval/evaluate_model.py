@@ -383,6 +383,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
+                        suffix=args.controller,
                         create=False,
                     )
                     if args.save_rollouts

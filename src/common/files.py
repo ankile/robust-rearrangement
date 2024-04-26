@@ -60,10 +60,14 @@ def get_processed_paths(
     demo_source: Union[List[DemoSources], DemoSources, None] = None,
     randomness: Union[List[Randomness], Randomness, None] = None,
     demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
+    suffix: Union[str, None] = None,
 ) -> Path:
     """
     Takes in a set of parameters and returns a list of paths to
     zarr files that should be combined into the final dataset.
+
+    The suffix parameter is used to choose any bespoke datasets that
+    are not covered by the other parameters (e.g., diffik-produced data).
     """
 
     path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
@@ -88,6 +92,9 @@ def get_processed_paths(
     # Add ** if we are not using an explicit demo outcome
     if demo_outcome is None and paths[0].parts[-1] != "**":
         paths = add_glob_part(paths, "**")
+
+    # Add the suffix pattern to all paths
+    paths = add_glob_part(paths, suffix)
 
     # Add the extension pattern to all paths
     paths = [path.with_suffix(".zarr") for path in paths]
@@ -121,7 +128,15 @@ def get_raw_paths(
     demo_source: List[DemoSources] = ["teleop"],
     randomness: List[Randomness] = ["low"],
     demo_outcome: List[DemoStatus] = ["success"],
+    suffix: Union[str, None] = None,
 ) -> List[Path]:
+    """
+    Takes in a set of parameters and returns a list of paths to
+    pickle files that should be combined into the final dataset.
+
+    The suffix parameter is used to choose any bespoke datasets that
+    are not covered by the other parameters (e.g., diffik-produced data).
+    """
     path = Path(os.environ["DATA_DIR_RAW"]) / "raw"
 
     paths = [path]
@@ -164,6 +179,7 @@ def trajectory_save_dir(
     demo_source: DemoSources,
     randomness: Randomness,
     create: bool = True,
+    suffix: str = "",
 ) -> Path:
     # Make the path to the directory
     path = (
@@ -173,6 +189,7 @@ def trajectory_save_dir(
         / task
         / demo_source
         / randomness
+        / suffix
     )
 
     if create:

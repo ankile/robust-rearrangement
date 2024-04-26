@@ -199,6 +199,22 @@ class GaussianNormalizer(Normalizer):
         return x
 
 
+class NoNormalizer(Normalizer):
+    def __init__(self, control_mode="delta"):
+        super().__init__(control_mode=control_mode)
+        self.normalization_mode = "none"
+        self.stats = nn.ParameterDict()
+
+    def _normalize(self, x, key):
+        return x
+
+    def _denormalize(self, x, key):
+        return x
+
+    def fit(self, data_dict: Dict[str, np.ndarray]):
+        pass
+
+
 if __name__ == "__main__":
     # Create the normalizers
     linear_normalizer = LinearNormalizer()
