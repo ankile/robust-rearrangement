@@ -818,8 +818,6 @@ if __name__ == "__main__":
         b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
 
-        bp()
-
         # bootstrap value if not done
         b_advantages, b_returns = calculate_advantage(
             args,

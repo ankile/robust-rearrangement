@@ -8,6 +8,7 @@ from furniture_bench.config import config
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
 from src.data_collection.keyboard_interface import KeyboardInterface
 from src.common.files import trajectory_save_dir
+from src.gym import turn_off_april_tags
 
 
 def main():
@@ -52,6 +53,9 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if not args.draw_marker:
+        turn_off_april_tags()
 
     keyboard_device_interface = KeyboardInterface()
     keyboard_device_interface.print_usage()

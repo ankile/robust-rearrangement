@@ -12,4 +12,5 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg dryrun=false
+python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg \
+    action_horizon=4 pred_horizon=4 dryrun=false

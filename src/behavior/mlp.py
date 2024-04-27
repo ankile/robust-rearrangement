@@ -1,7 +1,7 @@
 from omegaconf import OmegaConf
 import torch
 import torch.nn as nn
-from typing import Tuple, Union
+from typing import Dict, Tuple, Union
 from collections import deque
 from ipdb import set_trace as bp  # noqa
 
@@ -244,7 +244,7 @@ class MLPStateActor(nn.Module):
         return self.actions.popleft()
 
     # === Training ===
-    def _training_obs(self, batch, flatten: bool = True):
+    def _training_obs(self, batch, flatten: bool = True) -> torch.Tensor:
         nobs = batch["obs"]
 
         if flatten:
@@ -253,19 +253,22 @@ class MLPStateActor(nn.Module):
 
         return nobs
 
-    def compute_loss(self, batch):
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch, flatten=True)
 
         # Action already normalized in the dataset
-        naction = batch["action"]
+        naction: torch.Tensor = batch["action"]
 
         # forward pass
-        naction_pred = self.model(obs_cond).reshape(
+        naction_pred: torch.Tensor = self.model(obs_cond).reshape(
             naction.shape[0], self.pred_horizon, self.action_dim
         )
 
-        loss = self.loss_fn(naction_pred, naction)
+        loss: torch.Tensor = self.loss_fn(naction_pred, naction)
+
+        if loss > 1:
+            print("Loss is greater than 1", loss.item())
 
         return loss
 
