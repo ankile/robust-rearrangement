@@ -12,9 +12,4 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/mlp furniture=one_leg dryrun=false \
-    rollout=rollout rollout.every=5 rollout.max_steps=650 \
-    rollout.num_envs=128 pred_horizon=16 action_horizon=8 control.controller=diffik \
-    actor.hidden_dims='[1024,1024,1024,1024,1024]' \
-    demo_source='[teleop,rollout]' data.data_subset=100 \
-    data.normalization=none
+python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg dryrun=false

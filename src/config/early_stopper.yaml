@@ -1,3 +1,4 @@
 early_stopper:
   smooth_factor: 0.9
   patience: 5
+  metric: val_loss

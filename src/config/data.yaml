@@ -13,3 +13,4 @@ data:
   normalization: min_max # min_max, mean_std, none
   demo_outcome: ${demo_outcome}
   pad_after: true
+  suffix: null

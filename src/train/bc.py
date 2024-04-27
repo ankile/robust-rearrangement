@@ -52,7 +52,7 @@ def set_dryrun_params(config: DictConfig):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
         config.training.steps_per_epoch = 10
-        config.data.data_subset = 1
+        config.data.data_subset = 5
         config.data.dataloader_workers = 0
 
         if config.rollout.rollouts:
@@ -86,6 +86,7 @@ def main(config: DictConfig):
         demo_source=to_native(config.data.demo_source),
         randomness=to_native(config.data.randomness),
         demo_outcome=to_native(config.data.demo_outcome),
+        suffix=to_native(config.data.suffix),
     )
 
     normalizer: Normalizer = get_normalizer(
@@ -242,15 +243,15 @@ def main(config: DictConfig):
     # save stats to wandb and update the config object
     wandb.log(
         {
-            "num_samples_train": len(train_dataset),
-            "num_samples_test": len(test_dataset),
-            "num_episodes_train": int(
+            "dataset/num_samples_train": len(train_dataset),
+            "dataset/num_samples_test": len(test_dataset),
+            "dataset/num_episodes_train": int(
                 len(dataset.episode_ends) * (1 - config.data.test_split)
             ),
-            "num_episodes_test": int(
+            "dataset/num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
-            "dataset_metadata": dataset.metadata,
+            "dataset/dataset_metadata": dataset.metadata,
         }
     )
 
@@ -262,10 +263,11 @@ def main(config: DictConfig):
     best_test_loss = float("inf")
     test_loss_mean = float("inf")
     best_success_rate = 0
+    prev_best_success_rate = 0
 
     print(f"Job started at: {now()}")
 
-    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder_model}' if config.observation_type == 'image' else ''})"
+    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder.model}' if config.observation_type == 'image' else ''})"
 
     tglobal = trange(
         config.training.start_epoch,
@@ -307,10 +309,10 @@ def main(config: DictConfig):
             epoch_loss.append(loss_cpu)
             lr = lr_scheduler.get_last_lr()[0]
             wandb.log(
-                dict(
-                    lr=lr,
-                    batch_loss=loss_cpu,
-                )
+                {
+                    "training/lr": lr,
+                    "batch_loss": loss_cpu,
+                }
             )
 
             tepoch.set_postfix(loss=loss_cpu, lr=lr)
@@ -318,11 +320,6 @@ def main(config: DictConfig):
         tepoch.close()
 
         train_loss_mean = np.mean(epoch_loss)
-        tglobal.set_postfix(
-            loss=train_loss_mean,
-            test_loss=test_loss_mean,
-            best_success_rate=best_success_rate,
-        )
 
         # Evaluation loop
         actor.eval_mode()
@@ -389,6 +386,7 @@ def main(config: DictConfig):
             time=now(),
             loss=train_loss_mean,
             test_loss=test_loss_mean,
+            best_success_rate=best_success_rate,
             stopper_counter=early_stopper.counter,
         )
 
@@ -428,6 +426,19 @@ def main(config: DictConfig):
                 best_success_rate,
                 epoch_idx,
             )
+
+            # Save the model if the success rate is the best so far
+            if (
+                config.training.checkpoint_model
+                and best_success_rate > prev_best_success_rate
+            ):
+                prev_best_success_rate = best_success_rate
+                save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
+                torch.save(
+                    actor.state_dict(),
+                    save_path,
+                )
+                wandb.save(save_path)
 
             # After eval is done, we restore the model to the original state
             if config.training.ema.use:

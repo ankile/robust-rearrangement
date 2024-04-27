@@ -647,7 +647,7 @@ class ResidualMLPAgentSeparate(SmallAgentSimple):
             MLP(
                 input_dim=np.array(obs_shape).prod(),
                 output_dim=np.prod(action_shape),
-                hidden_dims=[512, 512, 512],
+                hidden_dims=[1024] * 5,
                 dropout=0.1,
                 residual=True,
             ),
@@ -659,5 +659,5 @@ class ResidualMLPAgentSeparate(SmallAgentSimple):
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=1.0),
+            layer_init(nn.Linear(256, 1), std=0.01),
         )

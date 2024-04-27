@@ -192,7 +192,7 @@ def proprioceptive_quat_to_6d_rotation(robot_state: torch.tensor) -> torch.tenso
 
     Accepts any number of leading dimensions.
     """
-    assert robot_state.shape[-1] == 14, "Robot state must be 14D"
+    # assert robot_state.shape[-1] == 14, "Robot state must be 14D"
 
     # Get each part of the robot state
     pos = robot_state[..., :3]  # (x, y, z)
@@ -225,7 +225,7 @@ def np_proprioceptive_quat_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray
 
     Accepts any number of leading dimensions.
     """
-    assert robot_state.shape[-1] == 14, "Robot state must be 14D"
+    # assert robot_state.shape[-1] == 14, "Robot state must be 14D"
 
     robot_state = torch.from_numpy(robot_state)
     robot_state_6d = proprioceptive_quat_to_6d_rotation(robot_state)

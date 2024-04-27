@@ -121,10 +121,10 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         self.train_data = {
-            "color_image1": combined_data["color_image1"],
-            "color_image2": combined_data["color_image2"],
-            "robot_state": combined_data["robot_state"],
-            "action": combined_data[f"action/{control_mode}"],
+            "color_image1": torch.from_numpy(combined_data["color_image1"]),
+            "color_image2": torch.from_numpy(combined_data["color_image2"]),
+            "robot_state": torch.from_numpy(combined_data["robot_state"]),
+            "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
         }
 
         # Normalize data to [-1,1]
@@ -199,26 +199,24 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Discard unused observations
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
-        nsample["robot_state"] = torch.from_numpy(
-            nsample["robot_state"][: self.obs_horizon, :]
-        )
+        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         # Discard unused actions
-        nsample["action"] = torch.from_numpy(
-            nsample["action"][self.first_action_idx : self.final_action_idx, :]
-        )
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
 
         # Apply the image augmentation
         nsample["color_image1"] = torch.stack(
             [
                 self.image1_transform(img)
-                for img in torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
+                for img in nsample["color_image1"].permute(0, 3, 1, 2)
             ]
         ).permute(0, 2, 3, 1)
         nsample["color_image2"] = torch.stack(
             [
                 self.image2_transform(img)
-                for img in torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
+                for img in nsample["color_image2"].permute(0, 3, 1, 2)
             ]
         ).permute(0, 2, 3, 1)
 
@@ -290,6 +288,11 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         robot_state = torch.from_numpy(combined_data["robot_state"])
         action = torch.from_numpy(combined_data[f"action/{control_mode}"])
         parts_poses = torch.from_numpy(combined_data["parts_poses"])
+
+        # Take the sign function of the 10th action dimension
+        # TODO: Find out why this is necessary
+        print("[NB] Taking the sign of the 10th action dimension")
+        action[:, 9] = torch.sign(action[:, 9])
 
         self.train_data = {
             "parts_poses": parts_poses,

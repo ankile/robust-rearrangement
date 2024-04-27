@@ -85,7 +85,7 @@ class DiffusionPolicy(Actor):
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
         self.loss_fn = getattr(nn, loss_fn_name)()
 
-    def _initiate_image_encoder(self, encoder_name, config):
+    def _initiate_image_encoder(self, config):
         # === Encoder ===
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
         device = self.device

@@ -10,7 +10,9 @@ class EarlyStopper:
         if self.ema_loss is None:
             self.ema_loss = val_loss
         else:
-            self.ema_loss = self.smooth_factor * self.ema_loss + (1 - self.smooth_factor) * val_loss
+            self.ema_loss = (
+                self.smooth_factor * self.ema_loss + (1 - self.smooth_factor) * val_loss
+            )
 
         if self.best_loss is None:
             self.best_loss = self.ema_loss

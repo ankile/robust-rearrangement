@@ -50,6 +50,7 @@ from ipdb import set_trace as bp
 import gym
 
 gym.logger.set_level(40)
+import wandb
 
 
 from src.gym import turn_off_april_tags
@@ -97,6 +98,18 @@ def evaluate_agent(agent, writer, global_step):
     writer.add_scalar("eval/success", float(eval_reward > 0), global_step)
 
     agent.train()
+
+
+def get_model_weights(run_id: str):
+    api = wandb.Api()
+    run = api.run(run_id)
+    model_path = (
+        [f for f in run.files() if f.name.endswith(".pt")][0]
+        .download(exist_ok=True)
+        .name
+    )
+    print(f"Loading checkpoint from {run_id}")
+    return torch.load(model_path)
 
 
 @dataclass
@@ -240,7 +253,8 @@ def get_demo_data_loader(
 
     demo_data = FurnitureStateDataset(
         dataset_paths=Path(
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
+            # "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
+            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/rollout/low/diffik/success.zarr"
         ),
         obs_horizon=1,
         pred_horizon=action_horizon,
@@ -333,12 +347,10 @@ class FurnitureEnvWrapper:
                 N, -1
             )
 
-            # if self.normalizer is not None:
-            #     relative_poses = self.normalizer(
-            #         relative_poses, "rel_poses", forward=True
-            #     )
-
             obs = torch.cat([obs, relative_poses], dim=-1)
+
+        # Clamp the observation to be bounded to [-5, 5]
+        obs = torch.clamp(obs, -5, 5)
 
         return obs
 
@@ -398,6 +410,7 @@ class FurnitureEnvWrapper:
             obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
+
         return obs, reward, terminated, truncated, info
 
     def increment_randomness(self):
@@ -482,7 +495,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = f"runs/debug-{args.exp_name}-5"
+    run_directory = f"runs/debug-{args.exp_name}-6"
     run_directory += "-delete" if args.debug else ""
     print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -600,6 +613,15 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
+    wts = get_model_weights("ankile/one_leg-mlp-state-1/runs/it0kgb0g")
+
+    # Filter out keys not starting with "model"
+    model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+    # Change the "model" prefix to "actor_mean"
+    model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+
+    print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
+
     agent = agent.to(device)
 
     # normalizer = None
@@ -648,20 +670,25 @@ if __name__ == "__main__":
     values = torch.zeros((args.num_steps, args.num_envs))
 
     # Get the dataloader for the demo data for the behavior cloning
-    if args.bc_coef > 0:
-        demo_data_loader = get_demo_data_loader(
-            control_mode=action_type,
-            n_batches=args.num_minibatches,
-            task=args.exp_name,
-            act_rot_repr=act_rot_repr,
-            normalizer=normalizer,
-            action_horizon=agent.action_horizon,
-            num_workers=4 if not args.debug else 0,
-            add_relative_pose=args.add_relative_pose,
-        )
+    demo_data_loader = get_demo_data_loader(
+        control_mode=action_type,
+        n_batches=args.num_minibatches,
+        task=args.exp_name,
+        act_rot_repr=act_rot_repr,
+        normalizer=normalizer,
+        action_horizon=agent.action_horizon,
+        num_workers=4 if not args.debug else 0,
+        add_relative_pose=args.add_relative_pose,
+    )
 
-        # Print the number of batches in the dataloader
-        print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
+    # Print the number of batches in the dataloader
+    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
+
+    # Load in the weights for the normalizer
+    normalizer_wts = {
+        k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
+    }
+    print(normalizer.load_state_dict(normalizer_wts))
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
@@ -709,6 +736,9 @@ if __name__ == "__main__":
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
+            # Clamp action to be [-5, 5]
+            action = torch.clamp(action, -5, 5)
+
             # Get action from the dataset to test normalization and representations
             # action = get_dataset_action(demo_data_loader.dataset, step, iteration - 1)
 
@@ -717,6 +747,9 @@ if __name__ == "__main__":
                 normalizer(action, "action", forward=False) if normalizer else action
             )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
+
+            if (next_obs > 10).any():
+                print("Obs, big value encountered")
 
             actions[step] = action.cpu()
             logprobs[step] = logprob.cpu()
@@ -784,6 +817,8 @@ if __name__ == "__main__":
         b_rewards = rewards.reshape(-1)
         b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
+
+        bp()
 
         # bootstrap value if not done
         b_advantages, b_returns = calculate_advantage(
