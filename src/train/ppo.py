@@ -252,10 +252,13 @@ def get_demo_data_loader(
 ) -> DataLoader:
 
     demo_data = FurnitureStateDataset(
-        dataset_paths=Path(
-            # "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/success.zarr"
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/rollout/low/diffik/success.zarr"
+        dataset_paths=[
+        Path(
+            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/diffik/success.zarr"
         ),
+        Path(
+            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/med/diffik/success.zarr"
+        )],
         obs_horizon=1,
         pred_horizon=action_horizon,
         action_horizon=action_horizon,
@@ -613,14 +616,14 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
-    wts = get_model_weights("ankile/one_leg-mlp-state-1/runs/it0kgb0g")
+    # wts = get_model_weights("ankile/one_leg-mlp-state-1/runs/it0kgb0g")
 
-    # Filter out keys not starting with "model"
-    model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-    # Change the "model" prefix to "actor_mean"
-    model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+    # # Filter out keys not starting with "model"
+    # model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+    # # Change the "model" prefix to "actor_mean"
+    # model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
 
-    print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
+    # print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
 
     agent = agent.to(device)
 
@@ -684,11 +687,11 @@ if __name__ == "__main__":
     # Print the number of batches in the dataloader
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    # Load in the weights for the normalizer
-    normalizer_wts = {
-        k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-    }
-    print(normalizer.load_state_dict(normalizer_wts))
+    # # Load in the weights for the normalizer
+    # normalizer_wts = {
+    #     k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
+    # }
+    # print(normalizer.load_state_dict(normalizer_wts))
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0

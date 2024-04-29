@@ -20,4 +20,4 @@ python -m src.train.ppo --num-env-steps 800 --data-collection-steps 100 --num-en
     --no-normalize-obs --no-clip-vloss --num-minibatches 16 --init-logstd -4 \
     --agent residual-big --ee-dof 10 --bc-loss-type mse --no-supervise-value-function \
     --action-type pos --no-adaptive-bc-coef --min-bc-coef 0.90 --n-decrease-lr 0 --chunk-size 8 \
-    --gamma 0.95 --normalize-reward
+    --gamma 0.95

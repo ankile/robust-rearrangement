@@ -411,11 +411,11 @@ def main(config: DictConfig):
                     act_rot_repr=config.control.act_rot_repr,
                     ctrl_mode=config.control.controller,
                     action_type=config.control.control_mode,
-                    pos_scalar=1,
                     headless=True,
+                    pos_scalar=1,
                     rot_scalar=1,
-                    stiffness=800,
-                    damping=150,
+                    stiffness=1_000,
+                    damping=200,
                 )
 
             best_success_rate = do_rollout_evaluation(

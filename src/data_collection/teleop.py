@@ -32,7 +32,7 @@ def main():
         type=str,
         help="Type of low level controller to use.",
         choices=["osc", "diffik"],
-        default="osc",
+        required=True,
     )
     parser.add_argument(
         "--draw-marker",
@@ -65,6 +65,7 @@ def main():
         task=args.furniture,
         demo_source="teleop",
         randomness=args.randomness,
+        suffix=args.ctrl_mode,
     )
 
     from pathlib import Path

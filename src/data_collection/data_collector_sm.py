@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
 
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import gym
 import torch
 from tqdm import tqdm, trange
@@ -45,6 +46,8 @@ class DataCollectorSpaceMouse:
     """Demonstration collection class.
     `pkl` files have resized images while `mp4` / `png` files save raw camera inputs.
     """
+
+    env: FurnitureSimEnv
 
     def __init__(
         self,
@@ -219,8 +222,8 @@ class DataCollectorSpaceMouse:
         args.command_latency = 0.01
         args.deadzone = 0.05
         if self.env.ctrl_mode == "diffik":
-            args.max_pos_speed = 0.3
-            args.max_rot_speed = 0.7
+            args.max_pos_speed = 0.8
+            args.max_rot_speed = 4.0
         else:
             args.max_pos_speed = 0.8
             # args.max_rot_speed = 2.5
@@ -380,16 +383,10 @@ class DataCollectorSpaceMouse:
                         rm=self.right_multiply_rot,
                     )
 
-                    pos_bounds_m = 0.02 if self.env.ctrl_mode == "diffik" else 0.025
-                    ori_bounds_deg = 15 if self.env.ctrl_mode == "diffik" else 20
-
-                    # bp()
-                    action = scale_scripted_action(
-                        action.detach().cpu().clone(),
-                        pos_bounds_m=pos_bounds_m,
-                        ori_bounds_deg=ori_bounds_deg,
-                        device=self.env.device,
+                    pos_bounds_m = (
+                        0.025  # 0.02 if self.env.ctrl_mode == "diffik" else 0.025
                     )
+                    ori_bounds_deg = 20  # 15 if self.env.ctrl_mode == "diffik" else 20
 
                     if not (np.allclose(keyboard_action[:6], 0.0)):
                         action[0, :7] = (
@@ -399,6 +396,13 @@ class DataCollectorSpaceMouse:
                         )
                         action_taken = True
                         target_pose_last_action_rv = None
+
+                    action = scale_scripted_action(
+                        action.detach().cpu().clone(),
+                        pos_bounds_m=pos_bounds_m,
+                        ori_bounds_deg=ori_bounds_deg,
+                        device=self.env.device,
+                    )
 
                     skill_complete = int(collect_enum == CollectEnum.SKILL)
                     if skill_complete == 1:
@@ -518,7 +522,7 @@ class DataCollectorSpaceMouse:
         gripper_width = self.env.gripper_width()
         rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         target_pose_rv = np.array([*translation, *rotvec])
-        gripper_open = gripper_width >= 0.06
+        gripper_open = gripper_width >= 0.05
         grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
             self.env.device
         )
