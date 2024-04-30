@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 import torchvision
 
-torchvision.disable_beta_transforms_warning()
+# torchvision.disable_beta_transforms_warning()
 
-from torchvision.transforms import v2 as transforms
+from torchvision import transforms 
+# from torchvision.transforms import v2 as transforms
 from ipdb import set_trace as bp  # noqa
 
 
