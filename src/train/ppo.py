@@ -36,13 +36,10 @@ from src.dataset.normalizer import LinearNormalizer
 import src.common.geometry as G
 
 from src.behavior.mlp import (
+    SmallMLPAgent,
+    BigMLPAgent,
     ResidualMLPAgent,
-    SmallAgentSimple,
-    BiggerAgentSimple,
-    BigAgentSimple,
-    ComplexAgentPPO,
     ResidualMLPAgentSeparate,
-    ResidualMLPAgentBig,
 )
 
 from ipdb import set_trace as bp
@@ -145,11 +142,8 @@ class Args:
     """if toggled, the environment will be set to headless mode"""
     agent: Literal[
         "small",
-        "bigger",
         "big",
-        "complex",
         "residual",
-        "residual-big",
         "residual-separate",
     ] = "small"
     """the agent to use"""
@@ -438,7 +432,7 @@ class FurnitureEnvWrapper:
 def calculate_advantage(
     args: Args,
     device: torch.device,
-    agent: SmallAgentSimple,
+    agent: SmallMLPAgent,
     obs: torch.Tensor,
     next_obs: torch.Tensor,
     rewards: torch.Tensor,
@@ -577,25 +571,13 @@ if __name__ == "__main__":
         print("Not wrapping the environment with reward normalization")
 
     if args.agent == "small":
-        agent = SmallAgentSimple(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "bigger":
-        agent = BiggerAgentSimple(
+        agent = SmallMLPAgent(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
         )
     elif args.agent == "big":
-        agent = BigAgentSimple(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "complex":
-        agent = ComplexAgentPPO(
+        agent = BigMLPAgent(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
@@ -606,12 +588,6 @@ if __name__ == "__main__":
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
             dropout=0.1,
-        )
-    elif args.agent == "residual-big":
-        agent = ResidualMLPAgentBig(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
         )
     elif args.agent == "residual-separate":
         agent = ResidualMLPAgentSeparate(
