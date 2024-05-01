@@ -33,13 +33,13 @@ source ~/.zshrc
 Create a new Conda environment by running:
 
 ```bash
-conda create -n imitation-juicer python=3.8 -y
+conda create -n rr python=3.8 -y
 ```
 
 Activate the environment by running:
 
 ```bash
-conda activate imitation-juicer
+conda activate rr
 ```
 
 Once installed and activated, make some compatibility changes to the environment by running:
@@ -87,7 +87,7 @@ You can now safely delete the downloaded zipped file and navigate back to the ro
 To allow for data collection with the SpaceMouse, etc. we used a [custom fork](https://github.com/ankile/furniture-bench/tree/iros-2024-release-v1) of the [FurnitureBench code](https://github.com/clvrai/furniture-bench). The fork is included in this codebase as a submodule. To install the FurnitureBench package, first run:
 
 ```bash
-git clone --recursive git@github.com:ankile/imitation-juicer.git
+git clone --recursive git@github.com:ankile/robust-rearrangement.git
 ```
 
 _Note: If you forgot to clone the submodule, you can run `git submodule update --init --recursive` to fetch the submodule._
@@ -95,7 +95,7 @@ _Note: If you forgot to clone the submodule, you can run `git submodule update -
 Then, install the FurnitureBench package by running:
 
 ```bash
-cd imitation-juicer/furniture-bench
+cd robust-rearrangement/furniture-bench
 pip install -e .
 ```
 
@@ -112,6 +112,18 @@ If you encounter the error `ImportError: libpython3.8.so.1.0: cannot open shared
 ```bash
 export LD_LIBRARY_PATH=YOUR_CONDA_PATH/envs/YOUR_CONDA_ENV_NAME/lib
 ```
+
+If you encounter `[Error] [carb.gym.plugin] cudaImportExternalMemory failed on rgbImage buffer with error 999` (and you're using a Nvidia GTX 3070), try running:
+
+```bash
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+```
+
+
+
+
+10:45
+https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4
 
 ### Install the robust-rearrangement Package
 
@@ -132,8 +144,8 @@ TODO: Write this up.
 Depending on what parts of the codebase you want to run, you may need to install additional dependencies. Especially different vision encoders might require additional dependencies. To install the R3M or VIP encoder, respectively, run:
 
 ```bash
-pip install -e imitation-juicer/furniture-bench/r3m
-pip install -e imitation-juicer/furniture-bench/vip
+pip install -e robust-rearrangement/furniture-bench/r3m
+pip install -e robust-rearrangement/furniture-bench/vip
 ```
 
 The Spatial Softmax encoder and BC_RNN policy require the `robomimic` package to be installed:
