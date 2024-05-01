@@ -180,15 +180,6 @@ def main(config: DictConfig):
         drop_last=False,
         persistent_workers=False,
     )
-    # trainloader = DataLoader(
-    #     dataset=train_dataset,
-    #     batch_size=config.training.batch_size,
-    #     num_workers=config.data.dataloader_workers,
-    #     shuffle=True,
-    #     pin_memory=True,
-    #     drop_last=False,
-    #     persistent_workers=False,
-    # )
 
     testloader = DataLoader(
         dataset=test_dataset,
