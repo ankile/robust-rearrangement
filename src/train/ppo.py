@@ -51,50 +51,6 @@ import wandb
 from src.gym import turn_off_april_tags
 
 
-def evaluate_agent(agent, writer, global_step):
-    eval_env = FurnitureEnvRLWrapper(
-        env=FurnitureRLSimEnv(
-            act_rot_repr=act_rot_repr,
-            action_type=action_type,
-            april_tags=False,
-            concat_robot_state=True,
-            ctrl_mode="diffik",
-            obs_keys=DEFAULT_STATE_OBS,
-            furniture="one_leg",
-            gpu_id=0,
-            headless=False,
-            num_envs=1,
-            observation_space="state",
-            randomness="low",
-            max_env_steps=100_000_000,
-            pos_scalar=1,
-            rot_scalar=1,
-            stiffness=1_000,
-            damping=200,
-        ),
-        max_env_steps=args.num_env_steps,
-        ee_dof=args.ee_dof,
-    )
-
-    agent.eval()
-
-    eval_obs = eval_env.reset()
-    eval_reward = 0
-    eval_done = False
-
-    while not eval_done:
-        with torch.no_grad():
-            eval_action, _, _, _ = agent.get_action_and_value(eval_obs)
-
-        eval_obs, eval_reward, eval_done, _, _ = eval_env.step(eval_action)
-        eval_reward += eval_reward.item()
-
-    writer.add_scalar("eval/reward", eval_reward, global_step)
-    writer.add_scalar("eval/success", float(eval_reward > 0), global_step)
-
-    agent.train()
-
-
 def get_model_weights(run_id: str):
     api = wandb.Api()
     run = api.run(run_id)
@@ -150,8 +106,6 @@ class Args:
     """if toggled, the observations will be normalized"""
     recalculate_advantages: bool = False
     """if toggled, the advantages will be recalculated every update epoch"""
-    minimum_success_rate: float = 0.0
-    """the minimum success rate before we increase randomness"""
     init_logstd: float = 0.0
     """the initial value of the log standard deviation"""
     ee_dof: int = 3
@@ -160,16 +114,8 @@ class Args:
     """the type of the behavior cloning loss"""
     supervise_value_function: bool = False
     """if toggled, the value function will be supervised"""
-    adaptive_bc_coef: bool = False
-    """if toggled, the behavior cloning coefficient will be adaptive"""
-    min_bc_coef: float = 0.1
-    """the minimum value of the behavior cloning coefficient"""
-    n_decrease_lr: int = 0
-    """the number of times to decrease the learning rate"""
     action_type: Literal["delta", "pos"] = "delta"
     """the type of the action space"""
-    randomness_curriculum: bool = False
-    """if toggled, the randomness will be increased over time"""
     chunk_size: int = 1
     """the chunk size for the action space"""
     data_collection_steps: int = None
@@ -532,25 +478,11 @@ if __name__ == "__main__":
     }
     print(normalizer.load_state_dict(normalizer_wts))
 
-    # TRY NOT TO MODIFY: start the game
     global_step = 0
     start_time = time.time()
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
-
-    # import threading
-
-    # # # Create a separate thread for evaluation
-    # eval_thread = threading.Thread(
-    #     target=evaluate_agent, args=(agent, writer, global_step)
-    # )
-
-    # global_step_copy = global_step  # Create a copy of global_step
-    # eval_thread = threading.Thread(
-    #     target=evaluate_agent, args=(agent, writer, global_step_copy)
-    # )
-    # eval_thread.start()
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -565,31 +497,24 @@ if __name__ == "__main__":
 
         for step in range(0, args.num_steps):
             if iteration == 1 and args.bc_coef == 1 and False:
-                # Skip the first step to avoid the initial randomness
+                # Skip the first step to avoid the initial randomness if we're only doing BC
                 continue
+
             global_step += args.num_envs
             obs[step] = next_obs
             dones[step] = next_done
 
-            # ALGO LOGIC: action logic
             with torch.no_grad():
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
-            # Clamp action to be [-5, 5]
+            # Clamp action to be [-5, 5], arbitrary value
             action = torch.clamp(action, -5, 5)
 
-            # Get action from the dataset to test normalization and representations
-            # action = get_dataset_action(demo_data_loader.dataset, step, iteration - 1)
-
-            # TRY NOT TO MODIFY: execute the game and log data.
             naction = (
                 normalizer(action, "action", forward=False) if normalizer else action
             )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
-
-            if (next_obs > 10).any():
-                print("Obs, big value encountered")
 
             actions[step] = action.cpu()
             logprobs[step] = logprob.cpu()
@@ -623,35 +548,6 @@ if __name__ == "__main__":
         print(
             f"Mean return: {discounted_rewards:.4f}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
         )
-
-        # If we've stopped improving from pure BC, then we'll switch to PPO
-        if (
-            args.adaptive_bc_coef
-            and success_rate < running_mean_success_rate
-            and iteration >= 5
-        ):
-            print("Increasing PPO share of the loss function.")
-            # Reduce the learning rate by a factor of 10
-            if decrease_lr_counter < args.n_decrease_lr:
-                args.learning_rate /= 2
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] /= 2
-                decrease_lr_counter += 1
-
-            # Decrease the bc_coef by 10% of its current value
-            args.bc_coef = max(args.min_bc_coef, args.bc_coef * 0.9)
-
-        steps_since_last_randomness_increase += 1
-        if (
-            args.randomness_curriculum
-            and running_mean_success_rate > args.minimum_success_rate
-            and steps_since_last_randomness_increase > 3
-        ):
-            # Increase the randomness of the action space
-            env.increment_randomness()
-            steps_since_last_randomness_increase = 0
-
-        print(f"Learning rate: {args.learning_rate:.2e}, BC coef: {args.bc_coef:.3f}")
 
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_actions = actions.reshape((-1,) + env.action_space.shape)
@@ -875,16 +771,6 @@ if __name__ == "__main__":
         writer.add_histogram("histograms/advantages", advantages, global_step)
         writer.add_histogram("histograms/logprobs", logprobs, global_step)
         writer.add_histogram("histograms/rewards", rewards, global_step)
-
-        # Add histograms for the actions
-        # writer.add_histogram("actions/x", actions[..., 0], global_step)
-        # writer.add_histogram("actions/y", actions[..., 1], global_step)
-        # writer.add_histogram("actions/z", actions[..., 2], global_step)
-
-        # Add the mean of the actions
-        # writer.add_scalar("actions/x_mean", actions[..., 0].mean(), global_step)
-        # writer.add_scalar("actions/y_mean", actions[..., 1].mean(), global_step)
-        # writer.add_scalar("actions/z_mean", actions[..., 2].mean(), global_step)
 
         # Log the current randomness of the environment
         writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)

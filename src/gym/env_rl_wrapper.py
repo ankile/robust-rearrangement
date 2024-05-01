@@ -1,4 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+from typing import Dict
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
 )

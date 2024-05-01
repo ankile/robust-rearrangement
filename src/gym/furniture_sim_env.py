@@ -32,8 +32,7 @@ import pytorch3d.transforms as pt
 import furniture_bench.utils.transform as T
 import furniture_bench.controllers.control_utils as C
 from furniture_bench.envs.initialization_mode import Randomness, str_to_enum
-from furniture_bench.controllers.osc import osc_factory
-from furniture_bench.controllers.diffik import diffik_factory
+from src.controllers.diffik import diffik_factory
 
 # from furniture_bench.controllers.diffik_qp import diffik_factory
 from furniture_bench.furniture import furniture_factory
@@ -41,9 +40,7 @@ from furniture_bench.sim_config import sim_config
 from furniture_bench.config import ROBOT_HEIGHT, config
 from furniture_bench.utils.pose import get_mat, rot_mat
 from furniture_bench.envs.observation import (
-    FULL_OBS,
     DEFAULT_VISUAL_OBS,
-    DEFAULT_STATE_OBS,
 )
 from furniture_bench.robot.robot_state import ROBOT_STATE_DIMS
 from furniture_bench.furniture.parts.part import Part
