@@ -42,11 +42,6 @@ def validate_args(args: argparse.Namespace):
         "Invalid run-state: "
         f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
     )
-    # assert (
-    #     not args.continuous_mode
-    #     or args.sweep_id is not None
-    #     or args.project_id is not None
-    # ), "Continuous mode is only supported when sweep_id is provided"
 
     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
 
@@ -316,7 +311,12 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
+                checkpoint_type = "best_success_rate"  # or "best_test_loss"
+                model_file = [
+                    f
+                    for f in run.files()
+                    if f.name.endswith(".pt") and checkpoint_type in f.name
+                ][0]
                 model_path = model_file.download(
                     root=f"./models/{run.name}", exist_ok=True, replace=True
                 ).name
