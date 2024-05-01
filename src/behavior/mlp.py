@@ -52,8 +52,8 @@ class MLPActor(Actor):
         self.normalizer = normalizer.to(device)
 
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
-        encoder_name = encoder_kwargs.model
-        freeze_encoder = encoder_kwargs.freeze
+        encoder_name = config.vision_encoder.model
+        freeze_encoder = config.vision_encoder.freeze
 
         self.encoder1 = get_encoder(
             encoder_name,
@@ -658,9 +658,11 @@ class ResidualMLPAgentSeparate(SmallAgentSimple):
         )
 
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 512)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
+            layer_init(nn.Linear(512, 512)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=0.01),
+            layer_init(nn.Linear(512, 512)),
+            nn.Tanh(),
+            layer_init(nn.Linear(512, 1), std=0.01),
         )

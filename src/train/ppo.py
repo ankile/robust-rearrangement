@@ -9,6 +9,7 @@ import time
 from dataclasses import dataclass
 import math
 
+from src.common.files import get_processed_paths
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
     FurnitureRLSimEnvPlaceTabletop,
@@ -184,6 +185,8 @@ class Args:
     """the number of steps to collect data"""
     add_relative_pose: bool = False
     """if toggled, the relative pose will be added to the observation"""
+    n_iterations_train_only_value: int = 0
+    """the number of iterations to train only the value function"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -251,14 +254,17 @@ def get_demo_data_loader(
     add_relative_pose=False,
 ) -> DataLoader:
 
+    paths = get_processed_paths(
+        environment="sim",
+        task="one_leg",
+        demo_source="teleop",
+        randomness=["low", "med"],
+        demo_outcome="success",
+        suffix="diffik",
+    )
+
     demo_data = FurnitureStateDataset(
-        dataset_paths=[
-        Path(
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/diffik/success.zarr"
-        ),
-        Path(
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/med/diffik/success.zarr"
-        )],
+        dataset_paths=paths,
         obs_horizon=1,
         pred_horizon=action_horizon,
         action_horizon=action_horizon,
@@ -498,7 +504,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = f"runs/debug-{args.exp_name}-6"
+    run_directory = f"runs/debug-{args.exp_name}-8"
     run_directory += "-delete" if args.debug else ""
     print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -616,14 +622,14 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
-    # wts = get_model_weights("ankile/one_leg-mlp-state-1/runs/it0kgb0g")
+    wts = get_model_weights("ankile/one_leg-mlp-state-1/6bh9dn66")
 
-    # # Filter out keys not starting with "model"
-    # model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-    # # Change the "model" prefix to "actor_mean"
-    # model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+    # Filter out keys not starting with "model"
+    model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+    # Change the "model" prefix to "actor_mean"
+    model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
 
-    # print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
+    print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
 
     agent = agent.to(device)
 
@@ -687,11 +693,11 @@ if __name__ == "__main__":
     # Print the number of batches in the dataloader
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    # # Load in the weights for the normalizer
-    # normalizer_wts = {
-    #     k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-    # }
-    # print(normalizer.load_state_dict(normalizer_wts))
+    # Load in the weights for the normalizer
+    normalizer_wts = {
+        k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
+    }
+    print(normalizer.load_state_dict(normalizer_wts))
 
     # TRY NOT TO MODIFY: start the game
     global_step = 0
@@ -733,9 +739,7 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             # ALGO LOGIC: action logic
-            # bp()
             with torch.no_grad():
-                # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
@@ -769,6 +773,8 @@ if __name__ == "__main__":
             print(f"Current return_rms.var: {normrewenv.return_rms.var.item()}")
 
         # Calculate the discounted rewards
+        # TODO: Change this so that it takes into account cyclic resets and multiple episodes
+        # per experience collection iteration
         discounted_rewards = (
             (rewards * args.gamma ** torch.arange(args.num_steps).float().unsqueeze(1))
             .sum(dim=0)
@@ -836,8 +842,6 @@ if __name__ == "__main__":
         b_advantages = b_advantages.reshape(-1).cpu()
         b_returns = b_returns.reshape(-1).cpu()
 
-        # Print the mean and std of the the part poses
-        # print(f"Mean obs: {b_obs[:, 14:].mean(dim=0)}")
         agent.train()
 
         # Optimizing the policy and value network
@@ -880,6 +884,8 @@ if __name__ == "__main__":
                         mb_advantages.std() + 1e-8
                     )
 
+                policy_loss = 0
+
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * torch.clamp(
@@ -906,7 +912,9 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean() * args.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
-                policy_loss = ppo_loss
+
+                if iteration > args.n_iterations_train_only_value:
+                    policy_loss += ppo_loss
 
                 # Behavior cloning loss
                 if args.bc_coef > 0:

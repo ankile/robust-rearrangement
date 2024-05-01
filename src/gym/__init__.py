@@ -86,9 +86,9 @@ def get_rl_env(
     resize_img=True,
     observation_space="image",  # Observation space for the robot. Options are 'image' and 'state'.
     act_rot_repr="quat",
-    ctrl_mode: str = "osc",
-    action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
-    april_tags=True,
+    ctrl_mode: str = "diffik",
+    action_type="pos",  # Action type for the robot. Options are 'delta' and 'pos'.
+    april_tags=False,
     verbose=False,
     headless=True,
     **kwargs,

@@ -58,11 +58,11 @@ def rollout(
     resize_video: bool = True,
 ):
     # get first observation
-    with suppress_all_output(True):
+    with suppress_all_output(False):
         obs = env.reset()
 
     if env.furniture_name == "lamp":
-        # Before we start, let the environment settle by doing nothing for 1 second
+        # Before we start, let the environment settle by doing nothing for 5 second
         for _ in range(50):
             obs, reward, done, _ = env.step_noop()
 

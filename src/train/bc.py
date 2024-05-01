@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 from src.common.context import suppress_stdout
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
     import furniture_bench
@@ -16,7 +17,7 @@ from src.dataset.dataset import (
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env
+from src.gym import get_env, get_rl_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
@@ -399,7 +400,8 @@ def main(config: DictConfig):
             if env is None:
                 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-                env: FurnitureSimEnv = get_env(
+                # env: FurnitureSimEnv = get_env(
+                env: FurnitureRLSimEnv = get_rl_env(
                     config.training.gpu_id,
                     furniture=config.rollout.furniture,
                     num_envs=config.rollout.num_envs,
