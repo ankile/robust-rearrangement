@@ -12,8 +12,8 @@
 
 # Run your command with the provided arguments
 python -m src.train.ppo --num-env-steps 1024 --data-collection-steps 128 --num-envs 2048 \
-    --bc-coef 0.1 --learning-rate 1e-5 --save-model --total-timesteps 60000000 --headless \
-    --exp-name oneleg --normalize-reward --update-epochs 5 \
-    --no-normalize-obs --no-clip-vloss --num-minibatches 4 --init-logstd -4 \
+    --bc-coef 0.90 --learning-rate 1e-4 --save-model --total-timesteps 60000000 --headless \
+    --exp-name oneleg --normalize-reward --update-epochs 5 --bc-loss-type nll \
+    --no-normalize-obs --no-clip-vloss --num-minibatches 4 --init-logstd -3 \
     --agent residual-separate --ee-dof 10 --clip-coef 0.02 \
-    --action-type pos --chunk-size 8 --gamma 0.95 --n-iterations-train-only-value 2
+    --action-type pos --chunk-size 8 --gamma 0.95 --n-iterations-train-only-value 0

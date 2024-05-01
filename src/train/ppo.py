@@ -124,6 +124,8 @@ class Args:
     """if toggled, the relative pose will be added to the observation"""
     n_iterations_train_only_value: int = 0
     """the number of iterations to train only the value function"""
+    load_checkpoint: bool = True
+    """the checkpoint to load the model from"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -176,8 +178,6 @@ class Args:
     """the number of steps (computed in runtime)"""
     continue_run_id: str = None
     """the run id to continue training from"""
-    load_checkpoint: str = None
-    """the checkpoint to load the model from"""
 
 
 def get_demo_data_loader(
@@ -401,26 +401,12 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
-    wts = get_model_weights("ankile/one_leg-mlp-state-1/6bh9dn66")
-
-    # Filter out keys not starting with "model"
-    model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-    # Change the "model" prefix to "actor_mean"
-    model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
-
-    print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
-
-    agent = agent.to(device)
-
     # normalizer = None
     normalizer = LinearNormalizer(control_mode=action_type).to(device)
     assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
         f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
         f"does not match env action shape {env.action_space.shape[-1]}"
     )
-
-    if args.load_checkpoint is not None:
-        agent.load_state_dict(torch.load(args.load_checkpoint))
 
     env.normalizer = normalizer
 
@@ -472,12 +458,23 @@ if __name__ == "__main__":
     # Print the number of batches in the dataloader
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    # Load in the weights for the normalizer
-    normalizer_wts = {
-        k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-    }
-    print(normalizer.load_state_dict(normalizer_wts))
+    if args.load_checkpoint is not None:
+        wts = get_model_weights("ankile/one_leg-mlp-state-1/6bh9dn66")
 
+        # Filter out keys not starting with "model"
+        model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+        # Change the "model" prefix to "actor_mean"
+        model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+
+        print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
+
+        # Load in the weights for the normalizer
+        normalizer_wts = {
+            k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
+        }
+        print(normalizer.load_state_dict(normalizer_wts))
+
+    agent = agent.to(device)
     global_step = 0
     start_time = time.time()
     # bp()
