@@ -1,6 +1,11 @@
 # @package _global_
 defaults:
-  - override /vision_encoder: r3m
+  - override /vision_encoder: resnet
+  - override /actor: mlp
+
+actor:
+  hidden_dims: [1024, 1024, 1024, 1024, 1024]
+  residual: true
 
 observation_type: image
 
