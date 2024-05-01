@@ -52,7 +52,7 @@ from src.gym import turn_off_april_tags
 
 
 def get_model_weights(run_id: str):
-    api = wandb.Api()
+    api = wandb.Api(overrides=dict(entity="ankile"))
     run = api.run(run_id)
     model_path = (
         [f for f in run.files() if f.name.endswith(".pt")][0]
@@ -459,7 +459,7 @@ if __name__ == "__main__":
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     if args.load_checkpoint is not None:
-        wts = get_model_weights("ankile/one_leg-mlp-state-1/6bh9dn66")
+        wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
 
         # Filter out keys not starting with "model"
         model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
