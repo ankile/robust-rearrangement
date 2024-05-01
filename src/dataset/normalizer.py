@@ -4,6 +4,8 @@ import torch.nn as nn
 import numpy as np
 import copy
 
+from ipdb import set_trace as bp
+
 
 from src.dataset.data_stats import get_stats_for_field, get_data_stats
 
@@ -195,6 +197,22 @@ class GaussianNormalizer(Normalizer):
         stats = self.stats[key]
         x = x * stats["std"] + stats["mean"]
         return x
+
+
+class NoNormalizer(Normalizer):
+    def __init__(self, control_mode="delta"):
+        super().__init__(control_mode=control_mode)
+        self.normalization_mode = "none"
+        self.stats = nn.ParameterDict()
+
+    def _normalize(self, x, key):
+        return x
+
+    def _denormalize(self, x, key):
+        return x
+
+    def fit(self, data_dict: Dict[str, np.ndarray]):
+        pass
 
 
 if __name__ == "__main__":

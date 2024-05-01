@@ -8,6 +8,7 @@ from furniture_bench.config import config
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
 from src.data_collection.keyboard_interface import KeyboardInterface
 from src.common.files import trajectory_save_dir
+from src.gym import turn_off_april_tags
 
 
 def main():
@@ -31,7 +32,7 @@ def main():
         type=str,
         help="Type of low level controller to use.",
         choices=["osc", "diffik"],
-        default="osc",
+        required=True,
     )
     parser.add_argument(
         "--draw-marker",
@@ -53,6 +54,9 @@ def main():
 
     args = parser.parse_args()
 
+    if not args.draw_marker:
+        turn_off_april_tags()
+
     keyboard_device_interface = KeyboardInterface()
     keyboard_device_interface.print_usage()
 
@@ -61,6 +65,7 @@ def main():
         task=args.furniture,
         demo_source="teleop",
         randomness=args.randomness,
+        suffix=args.ctrl_mode,
     )
 
     from pathlib import Path

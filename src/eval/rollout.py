@@ -58,11 +58,11 @@ def rollout(
     resize_video: bool = True,
 ):
     # get first observation
-    with suppress_all_output(True):
+    with suppress_all_output(False):
         obs = env.reset()
 
     if env.furniture_name == "lamp":
-        # Before we start, let the environment settle by doing nothing for 1 second
+        # Before we start, let the environment settle by doing nothing for 5 second
         for _ in range(50):
             obs, reward, done, _ = env.step_noop()
 
@@ -168,6 +168,8 @@ def calculate_success_rate(
             f"Performing rollouts ({env.furniture_name}): round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
         )
 
+    save_rollouts_wandb = True
+
     if n_parts_assemble is None:
         n_parts_assemble = len(env.furniture.should_be_assembled)
 
@@ -226,7 +228,7 @@ def calculate_success_rate(
         for rewards in all_rewards
     ]
 
-    if rollout_save_dir is not None:
+    if (rollout_save_dir is not None or save_rollouts_wandb) and len(all_imgs1) > 0:
         total_reward = 0
         table_rows = []
         for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
@@ -253,18 +255,19 @@ def calculate_success_rate(
             # Calculate the reward and return for this rollout
             episode_return = episode_returns[rollout_idx]
 
-            table_rows.append(
-                [
-                    wandb.Video(video, fps=20, format="mp4"),
-                    success,
-                    epoch_idx,
-                    np.sum(rewards),
-                    episode_return,
-                    n_steps,
-                ]
-            )
+            if save_rollouts_wandb:
+                table_rows.append(
+                    [
+                        wandb.Video(video, fps=20, format="mp4"),
+                        success,
+                        epoch_idx,
+                        np.sum(rewards),
+                        episode_return,
+                        n_steps,
+                    ]
+                )
 
-            if save_failures or success:
+            if rollout_save_dir is not None and (save_failures or success):
                 # Save the raw rollout data
                 save_raw_rollout(
                     robot_states=robot_states[: n_steps + 1],
@@ -280,20 +283,21 @@ def calculate_success_rate(
                     compress_pickles=compress_pickles,
                 )
 
-        # Sort the table rows by return (highest at the top)
-        table_rows = sorted(table_rows, key=lambda x: x[4], reverse=True)
+        if save_rollouts_wandb:
+            # Sort the table rows by return (highest at the top)
+            table_rows = sorted(table_rows, key=lambda x: x[4], reverse=True)
 
-        for row in table_rows:
-            tbl.add_data(*row)
+            for row in table_rows:
+                tbl.add_data(*row)
 
-        # Log the videos to wandb table if a run is active
-        if wandb.run is not None:
-            wandb.log(
-                {
-                    "rollouts": tbl,
-                    "epoch": epoch_idx,
-                }
-            )
+            # Log the videos to wandb table if a run is active
+            if wandb.run is not None:
+                wandb.log(
+                    {
+                        "rollouts": tbl,
+                        "epoch": epoch_idx,
+                    }
+                )
 
     pbar.close()
 

@@ -4,13 +4,14 @@ from typing import List
 import furniture_bench
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 from src.behavior.base import Actor  # noqa
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 import torch
 from omegaconf import OmegaConf, DictConfig
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
-from src.gym import get_env
+from src.gym import get_env, get_rl_env
 from src.dataset import get_normalizer
 
 from ipdb import set_trace as bp  # noqa
@@ -41,11 +42,6 @@ def validate_args(args: argparse.Namespace):
         "Invalid run-state: "
         f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
     )
-    # assert (
-    #     not args.continuous_mode
-    #     or args.sweep_id is not None
-    #     or args.project_id is not None
-    # ), "Continuous mode is only supported when sweep_id is provided"
 
     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
 
@@ -171,7 +167,7 @@ if __name__ == "__main__":
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
     parser.add_argument(
-        "--action-type", type=str, default="delta", choices=["delta", "pos"]
+        "--action-type", type=str, default="pos", choices=["delta", "pos"]
     )
     parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--multitask", action="store_true")
@@ -180,6 +176,13 @@ if __name__ == "__main__":
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--max-rollout-steps", type=int, default=None)
     parser.add_argument("--no-april-tags", action="store_true")
+
+    parser.add_argument("--controller", choices=["osc", "diffik"], default="diffik")
+    parser.add_argument(
+        "--observation-space", choices=["image", "state"], default="state"
+    )
+    parser.add_argument("--use-new-env", action="store_true")
+    parser.add_argument("--action-horizon", type=int, default=None)
     # Parse the arguments
     args = parser.parse_args()
 
@@ -276,21 +279,29 @@ if __name__ == "__main__":
 
                 # Only actually load the environment after we know we've got at least one run to evaluate
                 if env is None:
-                    env: FurnitureSimEnv = get_env(
+                    kwargs = dict(
                         gpu_id=args.gpu,
                         furniture=args.furniture,
                         num_envs=args.n_envs,
                         randomness=args.randomness,
-                        observation_space="state",
+                        observation_space=args.observation_space,
                         max_env_steps=5_000,
                         resize_img=False,
                         act_rot_repr="rot_6d",
-                        ctrl_mode="osc",
+                        ctrl_mode=args.controller,
                         action_type=args.action_type,
                         april_tags=not args.no_april_tags,
                         verbose=args.verbose,
                         headless=not args.visualize,
+                        pos_scalar=1,
+                        rot_scalar=1,
+                        stiffness=1000,
+                        damping=200,
                     )
+                    if args.use_new_env:
+                        env: FurnitureRLSimEnv = get_rl_env(**kwargs)
+                    else:
+                        env: FurnitureSimEnv = get_env(**kwargs)
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if args.wandb:
@@ -300,7 +311,12 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
+                checkpoint_type = "best_success_rate"  # or "best_test_loss"
+                model_file = [
+                    f
+                    for f in run.files()
+                    if f.name.endswith(".pt") and checkpoint_type in f.name
+                ][0]
                 model_path = model_file.download(
                     root=f"./models/{run.name}", exist_ok=True, replace=True
                 ).name
@@ -318,7 +334,15 @@ if __name__ == "__main__":
                     {
                         **run.config,
                         "project_name": run.project,
-                        "actor": {**run.config["actor"], "inference_steps": 4},
+                        "actor": {
+                            **run.config["actor"],
+                            "inference_steps": 4,
+                            "action_horizon": (
+                                args.action_horizon
+                                if args.action_horizon is not None
+                                else run.config["actor"]["action_horizon"]
+                            ),
+                        },
                     },
                     flags={"readonly": True},
                 )
@@ -374,6 +398,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
+                        suffix=args.controller,
                         create=False,
                     )
                     if args.save_rollouts

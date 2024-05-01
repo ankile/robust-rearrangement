@@ -30,6 +30,7 @@ def get_processed_path(
     demo_source: Union[List[DemoSources], DemoSources, None] = "scripted",
     randomness: Union[List[Randomness], Randomness, None] = None,
     demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
+    suffix: Union[str, None] = None,
 ) -> Path:
     path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
 
@@ -44,6 +45,9 @@ def get_processed_path(
 
     # We can mix randomness
     path = add_subdir(path, randomness)
+
+    # We can mix suffixes
+    path = add_subdir(path, suffix)
 
     # We can mix demo outcomes
     path = add_subdir(path, demo_outcome)
@@ -60,10 +64,14 @@ def get_processed_paths(
     demo_source: Union[List[DemoSources], DemoSources, None] = None,
     randomness: Union[List[Randomness], Randomness, None] = None,
     demo_outcome: Union[List[DemoStatus], DemoStatus] = "success",
+    suffix: Union[str, None] = None,
 ) -> Path:
     """
     Takes in a set of parameters and returns a list of paths to
     zarr files that should be combined into the final dataset.
+
+    The suffix parameter is used to choose any bespoke datasets that
+    are not covered by the other parameters (e.g., diffik-produced data).
     """
 
     path = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
@@ -82,6 +90,9 @@ def get_processed_paths(
     # Add the randomness pattern to all paths
     paths = add_glob_part(paths, randomness)
 
+    # Add the suffix pattern to all paths
+    paths = add_glob_part(paths, suffix)
+
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)
 
@@ -94,10 +105,6 @@ def get_processed_paths(
 
     # Use glob to find all the zarr paths
     paths = [Path(path) for p in paths for path in glob(str(p), recursive=True)]
-
-    print("Found the following paths:")
-    for p in paths:
-        print("   ", p)
 
     return paths
 
@@ -121,7 +128,15 @@ def get_raw_paths(
     demo_source: List[DemoSources] = ["teleop"],
     randomness: List[Randomness] = ["low"],
     demo_outcome: List[DemoStatus] = ["success"],
+    suffix: Union[str, None] = None,
 ) -> List[Path]:
+    """
+    Takes in a set of parameters and returns a list of paths to
+    pickle files that should be combined into the final dataset.
+
+    The suffix parameter is used to choose any bespoke datasets that
+    are not covered by the other parameters (e.g., diffik-produced data).
+    """
     path = Path(os.environ["DATA_DIR_RAW"]) / "raw"
 
     paths = [path]
@@ -137,6 +152,9 @@ def get_raw_paths(
 
     # Add the randomness pattern to all paths
     paths = add_glob_part(paths, randomness)
+
+    # Add the suffix pattern to all paths
+    paths = add_glob_part(paths, suffix)
 
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)
@@ -164,6 +182,7 @@ def trajectory_save_dir(
     demo_source: DemoSources,
     randomness: Randomness,
     create: bool = True,
+    suffix: str = "",
 ) -> Path:
     # Make the path to the directory
     path = (
@@ -173,6 +192,7 @@ def trajectory_save_dir(
         / task
         / demo_source
         / randomness
+        / suffix
     )
 
     if create:
@@ -184,13 +204,21 @@ def trajectory_save_dir(
 
 if __name__ == "__main__":
     paths = get_processed_paths(
-        environment="sim",
-        task=None,
-        demo_source=["scripted", "teleop"],
-        randomness=None,
+        environment="real",
+        task="place_shade",
+        demo_source="teleop",
+        randomness="low",
         demo_outcome="success",
     )
 
     print("Found these zarr files:")
     for path in paths:
         print("   ", path)
+
+    paths = get_raw_paths(
+        environment="real",
+        task="place_shade",
+        demo_source="teleop",
+        randomness="low",
+        demo_outcome="success",
+    )

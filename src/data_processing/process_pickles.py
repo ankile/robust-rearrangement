@@ -21,9 +21,8 @@ from src.common.geometry import (
     np_action_quat_to_6d_rotation,
     np_extract_ee_pose_6d,
     np_apply_quat,
-    np_action_6d_to_quat,
 )
-from src.data_processing.utils import clip_axis_rotation
+from src.data_processing.utils import clip_quat_xyzw_magnitude
 
 from ipdb import set_trace as bp  # noqa
 
@@ -77,56 +76,62 @@ def process_pickle_file(
     data: Trajectory = unpickle_data(pickle_path)
     obs = data["observations"]
 
+    action_delta_quat = np.array(data["actions"], dtype=np.float32)
+    assert (
+        action_delta_quat.shape[-1] == 8
+    ), "Expecting actions to be 8D (pos, quat, gripper)"
+
+    if len(obs) == len(action_delta_quat) + 1:
+        # The simulator data collection stores the observation received after
+        # the last action. We need to remove this observation to match the lengths
+        obs = obs[:-1]
+    if len(obs) == len(action_delta_quat):
+        # In the real world, we apparently don't do that
+        pass
+    else:
+        raise ValueError(
+            f"Observations and actions have different lengths: {len(obs)} vs {len(action_delta_quat)}"
+        )
+
     # Extract the observations from the pickle file and convert to 6D rotation
-    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)[:-1]
-    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)[:-1]
+    color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
+    color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
 
     if isinstance(obs[0]["robot_state"], dict):
         # Convert the robot state to a numpy array
-        all_robot_state_quat = np.array(
+        robot_state_quat = np.array(
             [filter_and_concat_robot_state(o["robot_state"]) for o in obs],
             dtype=np.float32,
         )
     else:
-        all_robot_state_quat = np.array(
-            [o["robot_state"] for o in obs], dtype=np.float32
-        )
+        robot_state_quat = np.array([o["robot_state"] for o in obs], dtype=np.float32)
 
-    all_robot_state_6d = np_proprioceptive_quat_to_6d_rotation(all_robot_state_quat)
-
-    robot_state_6d = all_robot_state_6d[:-1]
-    parts_poses = np.array([o["parts_poses"] for o in obs], dtype=np.float32)[:-1]
-
-    # Extract the delta actions from the pickle file and convert to 6D rotation
-    action_delta = np.array(data["actions"], dtype=np.float32)
-    if action_delta.shape[-1] == 8:
-        action_delta_quat = action_delta
-        action_delta_6d = np_action_quat_to_6d_rotation(action_delta_quat)
-    elif action_delta.shape[-1] == 10:
-        raise Exception("Expecting 8D actions, not 10D actions.")
-        action_delta_6d = action_delta
-        action_delta_quat = np_action_6d_to_quat(action_delta_6d)
-    else:
-        raise ValueError(
-            f"Unexpected action shape: {action_delta.shape}. Expected (N, 8) or (N, 10)"
-        )
+    robot_state_6d = np_proprioceptive_quat_to_6d_rotation(robot_state_quat)
+    parts_poses = (
+        np.array([o["parts_poses"] for o in obs], dtype=np.float32)
+        if "parts_poses" in obs[0]
+        else np.array([], dtype=np.float32)
+    )
 
     # TODO: Make sure this is rectified in the controller-end and
+    # Clip xyz delta position actions to ±0.025
+    action_delta_quat[:, :3] = np.clip(action_delta_quat[:, :3], -0.025, 0.025)
+
     # figure out what to do with the corrupted raw data
     # For now, clip the z-axis rotation to 0.35
-    action_delta_6d = clip_axis_rotation(action_delta_6d, clip_mag=0.35, axis="z")
+    action_delta_quat[:, 3:7] = clip_quat_xyzw_magnitude(
+        action_delta_quat[:, 3:7], clip_mag=0.35
+    )
 
-    # Clip xyz delta position actions to ±0.025
-    action_delta_6d[:, :3] = np.clip(action_delta_6d[:, :3], -0.025, 0.025)
+    # Take the sign of the gripper action
+    action_delta_quat[:, -1] = np.sign(action_delta_quat[:, -1])
 
     # Calculate the position actions
     if calculate_pos_action_from_delta:
         action_pos = np.concatenate(
             [
-                all_robot_state_quat[:-1, :3] + action_delta_quat[:, :3],
-                np_apply_quat(
-                    all_robot_state_quat[:-1, 3:7], action_delta_quat[:, 3:7]
-                ),
+                robot_state_quat[:, :3] + action_delta_quat[:, :3],
+                np_apply_quat(robot_state_quat[:, 3:7], action_delta_quat[:, 3:7]),
                 # Append the gripper action
                 action_delta_quat[:, -1:],
             ],
@@ -135,13 +140,19 @@ def process_pickle_file(
         action_pos_6d = np_action_quat_to_6d_rotation(action_pos)
 
     else:
-        # Extract the position control actions from the pickle file
-        # and concat onto the position actions the gripper actions
-        action_pos_6d = np_extract_ee_pose_6d(all_robot_state_6d[1:])
-        action_pos_6d = np.concatenate([action_pos, action_delta_6d[:, -1:]], axis=1)
+        raise NotImplementedError(
+            "This script only supports calculating position actions from delta actions."
+        )
 
-    # Extract the rewards, skills, and parts_poses from the pickle file
-    reward = np.array(data["rewards"], dtype=np.float32)
+    # Convert delta action to use 6D rotation
+    action_delta_6d = np_action_quat_to_6d_rotation(action_delta_quat)
+
+    # Extract the rewards and skills from the pickle file
+    reward = (
+        np.array(data["rewards"], dtype=np.float32)
+        if "rewards" in data
+        else np.zeros(len(action_delta_6d))
+    )
     skill = (
         np.array(data["skills"], dtype=np.float32)
         if "skills" in data
@@ -283,7 +294,9 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 # === Entry Point of the Script ===
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", "-e", type=str, nargs="+", default=None)
+    parser.add_argument(
+        "--domain", "-d", type=str, nargs="+", default=None, choices=["sim", "real"]
+    )
     parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
     parser.add_argument(
         "--source",
@@ -302,13 +315,17 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--demo-outcome",
-        "-d",
+        "-o",
         type=str,
         choices=["success", "failure", "partial_success"],
         default=None,
         nargs="+",
     )
-    parser.add_argument("--calculate-pos-action-from-delta", action="store_true")
+    parser.add_argument(
+        "--suffix",
+        type=str,
+        default=None,
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--randomize-order", action="store_true")
@@ -318,13 +335,12 @@ if __name__ == "__main__":
 
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
-            environment=args.env,
+            environment=args.domain,
             task=args.furniture,
             demo_source=args.source,
             randomness=args.randomness,
             demo_outcome=args.demo_outcome,
-            # print("NBNB: IMplemented hack for balancing lamp demos")
-            # demo_outcome="balanced",
+            suffix=args.suffix,
         )
     )
 
@@ -339,11 +355,12 @@ if __name__ == "__main__":
     print(f"Found {len(pickle_paths)} pickle files")
 
     output_path = get_processed_path(
-        environment=args.env,
+        environment=args.domain,
         task=args.furniture,
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
+        suffix=args.suffix,
     )
 
     print(f"Output path: {output_path}")
@@ -366,7 +383,7 @@ if __name__ == "__main__":
         pickle_paths,
         noop_threshold,
         n_cpus,
-        calculate_pos_action_from_delta=args.calculate_pos_action_from_delta,
+        calculate_pos_action_from_delta=True,
     )
 
     # Define the full shapes for each dataset
@@ -413,8 +430,7 @@ if __name__ == "__main__":
     z.attrs["mean_episode_length"] = round(
         len(z["action/delta"]) / len(z["episode_ends"])
     )
-    z.attrs["calculated_pos_action_from_delta"] = args.calculate_pos_action_from_delta
+    z.attrs["calculated_pos_action_from_delta"] = True
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
     z.attrs["demo_source"] = args.source[0]
-    # z.attrs["balanced"] = True

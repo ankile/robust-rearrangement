@@ -8,6 +8,7 @@ furniture2idx = {
     "stool": 5,
     "chair": 6,
     "drawer": 7,
+    "place_shade": 9,
 }
 
 

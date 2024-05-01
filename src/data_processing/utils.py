@@ -6,7 +6,7 @@ import torch
 from torchvision.transforms import functional as F, InterpolationMode
 from PIL import Image
 
-from src.common.geometry import np_rot_6d_to_rotvec, np_rotvec_to_rot_6d
+from scipy.spatial.transform import Rotation as R
 
 
 def zipped_img_generator(filename, max_samples=1000):
@@ -92,31 +92,19 @@ def resize_crop(img: Union[np.ndarray, torch.Tensor]):
     return img
 
 
-def clip_axis_rotation(delta_action: np.ndarray, clip_mag=0.35, axis="z") -> np.ndarray:
+def clip_quat_xyzw_magnitude(delta_quat_xyzw: np.ndarray, clip_mag=0.35) -> np.ndarray:
     """
-    Clips the rotation magnitude of the given axis.
-
-    Args:
-        delta_action: The action to clip.
-        clip_mag: The magnitude to clip the rotation to.
-        axis: The axis to clip the rotation magnitude of.
-
-    Returns:
-        The clipped action.
+    Clips the rotation magnitude
     """
-    assert axis in "xyz", "Axis must be one of 'x', 'y', or 'z'."
-    # Make a copy of the action
-    delta_action = np.copy(delta_action)
+    assert delta_quat_xyzw.shape[-1] == 4
 
-    # Convert to rotation vectors
-    rot_vec = np_rot_6d_to_rotvec(delta_action[:, 3:9])
+    delta_rotvec = R.from_quat(delta_quat_xyzw).as_rotvec()
 
-    # Clip the axis specified of the magnitude of the rotation vectors
-    rot_vec[:, "xyz".index(axis)] = np.clip(
-        rot_vec[:, "xyz".index(axis)], -clip_mag, clip_mag
-    )
+    magnitude = np.linalg.norm(delta_rotvec)
+    if magnitude > clip_mag:
+        scale_factor = clip_mag / magnitude
+        delta_rotvec = scale_factor * delta_rotvec
 
-    # Convert back to 6D
-    delta_action[:, 3:9] = np_rotvec_to_rot_6d(rot_vec)
+    delta_quat_xyzw = R.from_rotvec(delta_rotvec).as_quat()
 
-    return delta_action
+    return delta_quat_xyzw

@@ -15,3 +15,8 @@ training:
   load_checkpoint_run_id: null
   checkpoint_model: true
   model_save_dir: models
+
+  ema:
+    use: false
+    decay: 0.999
+    switch: false

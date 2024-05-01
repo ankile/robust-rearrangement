@@ -1,0 +1,39 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: resnet
+  - override /actor: mlp
+
+actor:
+  hidden_dims: [1024, 1024, 1024, 1024, 1024]
+  residual: true
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+  
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 20
+
+training:
+  batch_size: 256
+
+regularization:
+  feature_layernorm: false
+  feature_noise: false
+  feature_dropout: false
+
+furniture: ???
+randomness: low
+demo_source: teleop
+environment: real
+
+wandb:
+  project: real-place-shade-1

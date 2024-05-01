@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 from src.common.context import suppress_stdout
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
     import furniture_bench
@@ -16,7 +17,7 @@ from src.dataset.dataset import (
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env
+from src.gym import get_env, get_rl_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
@@ -26,6 +27,7 @@ from src.common.pytorch_util import dict_to_device
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths
+from src.models.ema import SwitchEMA
 
 from gym import logger
 
@@ -51,7 +53,8 @@ def set_dryrun_params(config: DictConfig):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
         config.training.steps_per_epoch = 10
-        config.data.data_subset = 1
+        config.data.data_subset = 5
+        config.data.dataloader_workers = 0
 
         if config.rollout.rollouts:
             config.rollout.every = 1
@@ -84,6 +87,7 @@ def main(config: DictConfig):
         demo_source=to_native(config.data.demo_source),
         randomness=to_native(config.data.randomness),
         demo_outcome=to_native(config.data.demo_outcome),
+        suffix=to_native(config.data.suffix),
     )
 
     normalizer: Normalizer = get_normalizer(
@@ -118,6 +122,7 @@ def main(config: DictConfig):
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
+            act_rot_repr=config.control.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -193,6 +198,10 @@ def main(config: DictConfig):
         weight_decay=config.regularization.weight_decay,
     )
 
+    if config.training.ema.use:
+        ema = SwitchEMA(actor, config.training.ema.decay)
+        ema.register()
+
     n_batches = len(trainloader)
 
     lr_scheduler = get_scheduler(
@@ -226,15 +235,15 @@ def main(config: DictConfig):
     # save stats to wandb and update the config object
     wandb.log(
         {
-            "num_samples_train": len(train_dataset),
-            "num_samples_test": len(test_dataset),
-            "num_episodes_train": int(
+            "dataset/num_samples_train": len(train_dataset),
+            "dataset/num_samples_test": len(test_dataset),
+            "dataset/num_episodes_train": int(
                 len(dataset.episode_ends) * (1 - config.data.test_split)
             ),
-            "num_episodes_test": int(
+            "dataset/num_episodes_test": int(
                 len(dataset.episode_ends) * config.data.test_split
             ),
-            "dataset_metadata": dataset.metadata,
+            "dataset/dataset_metadata": dataset.metadata,
         }
     )
 
@@ -246,10 +255,11 @@ def main(config: DictConfig):
     best_test_loss = float("inf")
     test_loss_mean = float("inf")
     best_success_rate = 0
+    prev_best_success_rate = 0
 
     print(f"Job started at: {now()}")
 
-    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder_model}' if config.observation_type == 'image' else ''})"
+    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder.model}' if config.observation_type == 'image' else ''})"
 
     tglobal = trange(
         config.training.start_epoch,
@@ -283,15 +293,18 @@ def main(config: DictConfig):
             opt_noise.step()
             lr_scheduler.step()
 
+            if config.training.ema.use:
+                ema.update()
+
             # logging
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
             lr = lr_scheduler.get_last_lr()[0]
             wandb.log(
-                dict(
-                    lr=lr,
-                    batch_loss=loss_cpu,
-                )
+                {
+                    "training/lr": lr,
+                    "batch_loss": loss_cpu,
+                }
             )
 
             tepoch.set_postfix(loss=loss_cpu, lr=lr)
@@ -299,15 +312,14 @@ def main(config: DictConfig):
         tepoch.close()
 
         train_loss_mean = np.mean(epoch_loss)
-        tglobal.set_postfix(
-            loss=train_loss_mean,
-            test_loss=test_loss_mean,
-            best_success_rate=best_success_rate,
-        )
 
         # Evaluation loop
         actor.eval_mode()
         dataset.eval()
+
+        if config.training.ema.use:
+            ema.apply_shadow()
+
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -341,6 +353,14 @@ def main(config: DictConfig):
             print(
                 f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
             )
+            # Log to wandb the final counter
+            wandb.log(
+                {
+                    "early_stopper/counter": early_stopper.counter,
+                    "early_stopper/best_loss": early_stopper.best_loss,
+                    "early_stopper/ema_loss": early_stopper.ema_loss,
+                }
+            )
             break
 
         # Log epoch stats
@@ -358,6 +378,7 @@ def main(config: DictConfig):
             time=now(),
             loss=train_loss_mean,
             test_loss=test_loss_mean,
+            best_success_rate=best_success_rate,
             stopper_counter=early_stopper.counter,
         )
 
@@ -370,17 +391,24 @@ def main(config: DictConfig):
             if env is None:
                 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-                env: FurnitureSimEnv = get_env(
+                # env: FurnitureSimEnv = get_env(
+                env: FurnitureRLSimEnv = get_rl_env(
                     config.training.gpu_id,
                     furniture=config.rollout.furniture,
                     num_envs=config.rollout.num_envs,
                     randomness=config.rollout.randomness,
+                    observation_space=config.observation_type,
                     # Now using full size images in sim and resizing to be consistent
                     # observation_space=config.observation_type,
                     resize_img=False,
                     act_rot_repr=config.control.act_rot_repr,
-                    ctrl_mode="osc",
+                    ctrl_mode=config.control.controller,
                     action_type=config.control.control_mode,
+                    headless=True,
+                    pos_scalar=1,
+                    rot_scalar=1,
+                    stiffness=1_000,
+                    damping=200,
                 )
 
             best_success_rate = do_rollout_evaluation(
@@ -391,6 +419,28 @@ def main(config: DictConfig):
                 best_success_rate,
                 epoch_idx,
             )
+
+            # Save the model if the success rate is the best so far
+            if (
+                config.training.checkpoint_model
+                and best_success_rate > prev_best_success_rate
+            ):
+                prev_best_success_rate = best_success_rate
+                save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
+                torch.save(
+                    actor.state_dict(),
+                    save_path,
+                )
+                wandb.save(save_path)
+
+            # After eval is done, we restore the model to the original state
+            if config.training.ema.use:
+                # If using normal EMA, restore the model
+                ema.restore()
+
+                # If using switch EMA, set the model to the shadow
+                if config.training.ema.switch:
+                    ema.copy_to_model()
 
         if config.wandb.mode == "offline":
             trigger_sync()

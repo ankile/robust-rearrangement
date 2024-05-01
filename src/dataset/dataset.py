@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import torch
 from typing import Union, List
@@ -11,7 +12,7 @@ from src.common.vision import (
     FrontCameraTransform,
     WristCameraTransform,
 )
-
+import src.common.geometry as G
 
 from ipdb import set_trace as bp
 
@@ -61,8 +62,8 @@ def sample_sequence(
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
         if (sample_start_idx > 0) or (sample_end_idx < sequence_length):
-            data = np.zeros(
-                shape=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
+            data = torch.zeros(
+                size=(sequence_length,) + input_arr.shape[1:], dtype=input_arr.dtype
             )
             if sample_start_idx > 0:
                 data[:sample_start_idx] = sample[0]
@@ -120,10 +121,10 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         self.train_data = {
-            "color_image1": combined_data["color_image1"],
-            "color_image2": combined_data["color_image2"],
-            "robot_state": combined_data["robot_state"],
-            "action": combined_data[f"action/{control_mode}"],
+            "color_image1": torch.from_numpy(combined_data["color_image1"]),
+            "color_image2": torch.from_numpy(combined_data["color_image2"]),
+            "robot_state": torch.from_numpy(combined_data["robot_state"]),
+            "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
         }
 
         # Normalize data to [-1,1]
@@ -198,26 +199,24 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Discard unused observations
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
-        nsample["robot_state"] = torch.from_numpy(
-            nsample["robot_state"][: self.obs_horizon, :]
-        )
+        nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
 
         # Discard unused actions
-        nsample["action"] = torch.from_numpy(
-            nsample["action"][self.first_action_idx : self.final_action_idx, :]
-        )
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
 
         # Apply the image augmentation
         nsample["color_image1"] = torch.stack(
             [
                 self.image1_transform(img)
-                for img in torch.from_numpy(nsample["color_image1"]).permute(0, 3, 1, 2)
+                for img in nsample["color_image1"].permute(0, 3, 1, 2)
             ]
         ).permute(0, 2, 3, 1)
         nsample["color_image2"] = torch.stack(
             [
                 self.image2_transform(img)
-                for img in torch.from_numpy(nsample["color_image2"]).permute(0, 3, 1, 2)
+                for img in nsample["color_image2"].permute(0, 3, 1, 2)
             ]
         ).permute(0, 2, 3, 1)
 
@@ -242,23 +241,24 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 class FurnitureStateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_paths: Union[List[str], str],
+        dataset_paths: Union[List[Path], Path],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: Normalizer,
+        normalizer: Union[Normalizer, None],
         data_subset: int = None,
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
+        act_rot_repr: str = "quat",
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
+        task: str = None,
+        add_relative_pose: bool = False,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
         self.control_mode = control_mode
-
-        normalizer = normalizer.cpu()
 
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
@@ -268,6 +268,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 "robot_state",
                 f"action/{control_mode}",
                 "skill",
+                "reward",
             ],
             max_episodes=data_subset,
             max_ep_cnt=max_episode_count,
@@ -275,7 +276,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # (N, D)
         # Get only the first data_subset episodes
-        self.episode_ends = combined_data["episode_ends"]
+        self.episode_ends: np.ndarray = combined_data["episode_ends"]
         self.metadata = metadata
         print(f"Loading dataset of {len(self.episode_ends)} episodes:")
         for path, data in metadata.items():
@@ -283,22 +284,99 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 f"  {path}: {data['n_episodes_used']} episodes, {data['n_frames_used']}"
             )
 
+        # Get the data and convert to torch tensors
+        robot_state = torch.from_numpy(combined_data["robot_state"])
+        action = torch.from_numpy(combined_data[f"action/{control_mode}"])
+        parts_poses = torch.from_numpy(combined_data["parts_poses"])
+
+        # Take the sign function of the 10th action dimension
+        # TODO: Find out why this is necessary
+        print("[NB] Taking the sign of the 10th action dimension")
+        action[:, 9] = torch.sign(action[:, 9])
+
         self.train_data = {
-            "parts_poses": combined_data["parts_poses"],
-            "robot_state": combined_data["robot_state"],
-            "action": combined_data[f"action/{control_mode}"],
+            "parts_poses": parts_poses,
+            "robot_state": robot_state,
+            "action": action,
         }
 
-        normalizer.fit({"parts_poses": self.train_data["parts_poses"]})
+        if normalizer is not None:
+            normalizer.cpu()
+            for key in self.train_data:
+                if key in normalizer.keys():
+                    continue
+                normalizer.fit({key: self.train_data[key].numpy()})
 
-        print("normalizer.stats.keys()", normalizer.stats.keys())
+            normalizer.cuda()
 
-        # Normalize data to [-1,1]
-        for key in normalizer.keys():
-            if key not in self.train_data:
-                continue
+        if task == "place-tabletop":
+            self._make_tabletop_goal()
 
-            self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
+        if normalizer is not None:
+            normalizer.cpu()
+            for key in self.train_data:
+                self.train_data[key] = normalizer(
+                    self.train_data[key], key, forward=True
+                )
+
+            normalizer.cuda()
+
+        # Concatenate the robot_state and parts_poses into a single observation
+        self.train_data["obs"] = torch.cat(
+            [self.train_data["robot_state"], self.train_data["parts_poses"]], dim=-1
+        )
+
+        # Add parts poses relative to the end-effector as a new key in the train_data
+        if add_relative_pose:
+            parts_poses, robot_state = (
+                self.train_data["parts_poses"],
+                self.train_data["robot_state"],
+            )
+            # Parts is (N, P * 7)
+            N = parts_poses.shape[0]
+            n_parts = parts_poses.shape[1] // 7
+
+            # Get the robot state
+            ee_pos = robot_state[:, None, :3]
+            ee_quat_xyzw = G.rot_6d_to_isaac_quat(robot_state[:, 3:9]).view(N, 1, 4)
+            ee_pose = torch.cat([ee_pos, ee_quat_xyzw], dim=-1)
+
+            # Reshape the parts poses into (N, P, 7)
+            parts_pose = parts_poses.view(N, n_parts, 7)
+
+            # Concatenate the relative pose into a single tensor
+            rel_pose = G.pose_error(ee_pose, parts_pose)
+
+            # Flatten the relative pose tensor and add it to the train_data
+            self.train_data["rel_poses"] = rel_pose.view(N, -1)
+
+            self.train_data["obs"] = torch.cat(
+                [self.train_data["obs"], self.train_data["rel_poses"]], dim=-1
+            )
+
+        # Recalculate the rewards and returns
+        rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
+        rewards[self.episode_ends - 1] = 1.0
+
+        gamma = 0.99
+        returns = []
+        ee = [0] + self.episode_ends.tolist()
+        for start, end in zip(ee[:-1], ee[1:]):
+            ep_rewards = rewards[start:end]
+            timesteps = torch.arange(len(ep_rewards), device=ep_rewards.device)
+            discounts = gamma**timesteps
+            ep_returns = (
+                torch.flip(
+                    torch.cumsum(torch.flip(ep_rewards * discounts, dims=[0]), dim=0),
+                    dims=[0],
+                )
+                / discounts
+            )
+            returns.append(ep_returns)
+
+        # Concatenate the returns for all episodes into a single tensor
+        returns = torch.cat(returns)
+        self.train_data["returns"] = returns
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -320,6 +398,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
         self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
+        self.obs_dim = (self.robot_state_dim + self.parts_poses_dim) * self.obs_horizon
 
         # Take into account possibility of predicting an action that doesn't align with the first observation
         # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
@@ -328,6 +407,41 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             self.first_action_idx = self.obs_horizon + first_action_idx
 
         self.final_action_idx = self.first_action_idx + self.pred_horizon
+
+        del self.train_data["robot_state"]
+        del self.train_data["parts_poses"]
+        if add_relative_pose:
+            del self.train_data["rel_poses"]
+
+    def _make_tabletop_goal(self):
+        ee = np.array([0] + self.episode_ends.tolist())
+        tabletop_goal = torch.tensor([0.0819, 0.2866, -0.0157])
+        new_episode_starts = []
+        new_episode_ends = []
+        curr_cumulate_timesteps = 0
+        self.episode_ends = []
+        for prev_ee, curr_ee in zip(ee[:-1], ee[1:]):
+            # Find the first index at which the tabletop goal is reached (if at all)
+            for i in range(prev_ee, curr_ee):
+                if torch.allclose(
+                    self.train_data["parts_poses"][i, :3], tabletop_goal, atol=1e-2
+                ):
+                    new_episode_starts.append(prev_ee)
+                    end = i + 10
+                    new_episode_ends.append(end)
+                    curr_cumulate_timesteps += end - prev_ee
+                    self.episode_ends.append(curr_cumulate_timesteps)
+                    break
+
+        # Slice the train_data using the new episode starts and ends
+        for key in self.train_data:
+            data_slices = [
+                self.train_data[key][start:end]
+                for start, end in zip(new_episode_starts, new_episode_ends)
+            ]
+            self.train_data[key] = torch.cat(data_slices)
+
+        self.episode_ends = torch.tensor(self.episode_ends)
 
     def __len__(self):
         return len(self.indices)
@@ -352,24 +466,20 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             sample_end_idx=sample_end_idx,
         )
 
-        # Discard unused observations
-        nsample["robot_state"] = torch.from_numpy(
-            nsample["robot_state"][: self.obs_horizon, :]
-        )
-
         # Discard unused actions
-        nsample["action"] = torch.from_numpy(
-            nsample["action"][self.first_action_idx : self.final_action_idx, :]
-        )
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
 
-        # Discard unused parts poses
-        nsample["parts_poses"] = torch.from_numpy(
-            nsample["parts_poses"][: self.obs_horizon, :]
-        )
+        # Discard unused observations
+        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
 
-        # Add the task index and success flag to the sample
-        nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
-        nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
+        # Discard unused returns
+        nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
+
+        # # Add the task index and success flag to the sample
+        # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
+        # nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
 
         return nsample
 
