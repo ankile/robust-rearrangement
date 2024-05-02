@@ -974,6 +974,7 @@ def main():
     args = parser.parse_args()
 
     data_path = trajectory_save_dir(
+        controller=args.ctrl_mode,
         environment="sim" if args.is_sim else "real",
         task=args.furniture,
         demo_source="augmentation",

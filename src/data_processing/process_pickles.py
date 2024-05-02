@@ -312,6 +312,13 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--controller",
+        "-c",
+        type=str,
+        required=True,
+        choices=["osc", "diffik"],
+    )
+    parser.add_argument(
         "--domain", "-d", type=str, nargs="+", default=None, choices=["sim", "real"]
     )
     parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
@@ -352,7 +359,8 @@ if __name__ == "__main__":
 
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
-            environment=args.domain,
+            controller=args.controller,
+            domain=args.domain,
             task=args.furniture,
             demo_source=args.source,
             randomness=args.randomness,
@@ -372,7 +380,8 @@ if __name__ == "__main__":
     print(f"Found {len(pickle_paths)} pickle files")
 
     output_path = get_processed_path(
-        environment=args.domain,
+        controller=args.controller,
+        domain=args.domain,
         task=args.furniture,
         demo_source=args.source,
         randomness=args.randomness,

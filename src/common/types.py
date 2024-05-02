@@ -52,7 +52,9 @@ TaskName = Literal[
 ]
 
 
-Environments = Literal["sim", "real"]
+Controllers = Literal["sim", "real"]
+
+Domains = Literal["sim", "real"]
 
 DemoSources = Literal["scripted", "rollout", "teleop", "augmentation"]
 

@@ -76,7 +76,7 @@ class FurnitureSimEnv(gym.Env):
         max_env_steps: int = 3000,
         act_rot_repr: str = "quat",
         action_type: str = "delta",  # "delta" or "pos"
-        ctrl_mode: str = "osc",
+        ctrl_mode: str = "diffik",
         ee_laser: bool = False,
         **kwargs,
     ):
@@ -101,7 +101,7 @@ class FurnitureSimEnv(gym.Env):
             record (bool): If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps (int): Maximum number of steps per episode (default: 3000).
             act_rot_repr (str): Representation of rotation for action space. Options are 'quat', 'axis', or 'rot_6d'.
-            ctrl_mode (str): 'osc' (joint torque, with operation space control) or 'diffik' (joint impedance, with differential inverse kinematics control)
+            ctrl_mode (str): 'diffik' (joint impedance, with differential inverse kinematics control)
         """
         super(FurnitureSimEnv, self).__init__()
         self.device = torch.device("cuda", compute_device_id)

@@ -192,12 +192,12 @@ def get_demo_data_loader(
 ) -> DataLoader:
 
     paths = get_processed_paths(
-        environment="sim",
+        controller="diffik",
+        domain="sim",
         task="one_leg",
         demo_source="teleop",
         randomness=["low", "med"],
         demo_outcome="success",
-        suffix="diffik",
     )
 
     demo_data = FurnitureStateDataset(

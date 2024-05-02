@@ -328,6 +328,7 @@ def do_rollout_evaluation(
 
     if save_rollouts:
         rollout_save_dir = trajectory_save_dir(
+            controller=env.ctrl_mode,
             environment="sim",
             task=env.furniture_name,
             demo_source="rollout",
