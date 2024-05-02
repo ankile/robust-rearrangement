@@ -16,27 +16,37 @@ from IPython.display import HTML, display
 from tqdm import tqdm
 
 
+def format_speedup(fps):
+    speedup = fps / 10
+    if speedup.is_integer():
+        return f"{int(speedup)}x"
+    else:
+        return f"{speedup:.1f}x"
+
+
 def annotate_frames_with_speed(frames: np.ndarray, fps: int) -> np.ndarray:
     assert (
         len(frames.shape) == 4
     ), "Frames must be a 4D array (batch, height, width, channels)"
 
-    frames = [
-        cv2.putText(
-            frame,
-            f"{fps//10}x",
-            (
-                frame.shape[1] - 55,
-                frame.shape[0] - 15,
-            ),  # Adjusted position of the text
-            cv2.FONT_HERSHEY_SIMPLEX,  # Font type
-            1,  # Font scale (doubled)
-            (255, 255, 255),  # Text color (white)
-            2,  # Text thickness (doubled)
-            cv2.LINE_AA,  # Line type for better rendering
-        )
-        for frame in frames
-    ]
+    frames = np.array(
+        [
+            cv2.putText(
+                frame,
+                format_speedup(fps),
+                (
+                    frame.shape[1] - 55,
+                    frame.shape[0] - 15,
+                ),  # Adjusted position of the text
+                cv2.FONT_HERSHEY_SIMPLEX,  # Font type
+                1,  # Font scale (doubled)
+                (255, 255, 255),  # Text color (white)
+                2,  # Text thickness (doubled)
+                cv2.LINE_AA,  # Line type for better rendering
+            )
+            for frame in frames
+        ]
+    )
 
     return frames
 
