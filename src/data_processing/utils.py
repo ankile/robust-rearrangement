@@ -31,10 +31,13 @@ def zipped_img_generator(filename, max_samples=1000):
 def resize(img: Union[np.ndarray, torch.Tensor]):
     """Resizes `img` into 320x240."""
     th, tw = 240, 320
+    was_numpy = False
 
     if isinstance(img, np.ndarray):
-        img = Image.fromarray(img)
-    elif isinstance(img, torch.Tensor):
+        img = torch.from_numpy(img)
+        was_numpy = True
+
+    if isinstance(img, torch.Tensor):
         # Move channels in front (B, H, W, C) -> (B, C, H, W)
         img = img.permute(0, 3, 1, 2)
 
@@ -42,11 +45,13 @@ def resize(img: Union[np.ndarray, torch.Tensor]):
         img, (th, tw), interpolation=InterpolationMode.BILINEAR, antialias=True
     )
 
-    if isinstance(img, Image.Image):
-        img = np.array(img)
-    elif isinstance(img, torch.Tensor):
+    if isinstance(img, torch.Tensor):
         # Move channels back (B, C, H, W) -> (B, H, W, C)
         img = img.permute(0, 2, 3, 1)
+
+    if was_numpy:
+        img = img.numpy()
+
     return img
 
 
@@ -58,11 +63,13 @@ def resize_crop(img: Union[np.ndarray, torch.Tensor]):
     """
     # Must account for maybe having batch dimension
     th, tw = 240, 320
+    was_numpy = False
 
     if isinstance(img, np.ndarray):
-        ch, cw = img.shape[:2]
-        img = Image.fromarray(img)
-    elif isinstance(img, torch.Tensor):
+        img = torch.from_numpy(img)
+        was_numpy = True
+
+    if isinstance(img, torch.Tensor):
         # Move channels in front (B, H, W, C) -> (B, C, H, W)
         img = img.permute(0, 3, 1, 2)
         ch, cw = img.shape[-2:]
@@ -79,15 +86,14 @@ def resize_crop(img: Union[np.ndarray, torch.Tensor]):
     # Calculate the crop size.
     crop_size = (new_width - tw) // 2
 
-    # Crop the resized image.
-    if isinstance(img, Image.Image):
-        img = np.array(img)
-        img = img[:, crop_size : new_width - crop_size]
-    elif isinstance(img, torch.Tensor):
-        img = img[:, :, :, crop_size : new_width - crop_size]
+    if isinstance(img, torch.Tensor):
+        img = img[..., crop_size : new_width - crop_size]
 
         # Move channels back (B, C, H, W) -> (B, H, W, C)
         img = img.permute(0, 2, 3, 1)
+
+    if was_numpy:
+        img = img.numpy()
 
     return img
 

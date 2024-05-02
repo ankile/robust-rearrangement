@@ -186,6 +186,7 @@ class DiffusionPolicy(Actor):
         # Action already normalized in the dataset
         # naction = normalize_data(batch["action"], stats=self.stats["action"])
         naction = batch["action"]
+
         # sample noise to add to actions
         noise = torch.randn(naction.shape, device=self.device)
 

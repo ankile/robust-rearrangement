@@ -1,12 +1,5 @@
 # @package _global_
-defaults:
-  - override /vision_encoder: resnet
-
-observation_type: image
-
-vision_encoder:
-  pretrained: true
-  freeze: false
+observation_type: state
 
 action_horizon: 8
 pred_horizon: 32

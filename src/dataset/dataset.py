@@ -289,11 +289,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         action = torch.from_numpy(combined_data[f"action/{control_mode}"])
         parts_poses = torch.from_numpy(combined_data["parts_poses"])
 
-        # Take the sign function of the 10th action dimension
-        # TODO: Find out why this is necessary
-        print("[NB] Taking the sign of the 10th action dimension")
-        action[:, 9] = torch.sign(action[:, 9])
-
         self.train_data = {
             "parts_poses": parts_poses,
             "robot_state": robot_state,
@@ -355,7 +350,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             )
 
         # Recalculate the rewards and returns
-        rewards = torch.zeros_like(self.train_data["parts_poses"][:, 0])
+        rewards = torch.zeros_like(self.train_data["robot_state"][:, 0])
         rewards[self.episode_ends - 1] = 1.0
 
         gamma = 0.99

@@ -19,9 +19,9 @@ from src.visualization.render_mp4 import unpickle_data
 from src.common.geometry import (
     np_proprioceptive_quat_to_6d_rotation,
     np_action_quat_to_6d_rotation,
-    np_extract_ee_pose_6d,
     np_apply_quat,
 )
+from src.data_processing.utils import resize, resize_crop
 from src.data_processing.utils import clip_quat_xyzw_magnitude
 
 from ipdb import set_trace as bp  # noqa
@@ -96,6 +96,23 @@ def process_pickle_file(
     # Extract the observations from the pickle file and convert to 6D rotation
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
     color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
+
+    assert (
+        color_image1.shape == color_image2.shape
+    ), "Color images have different shapes"
+
+    if color_image1.shape[1:] != (240, 320, 3):
+        # We only resize the wrist image to keep the gripper fingers in view
+        color_image1 = resize(color_image1)
+
+        # The front camera is also cropped as we don't need the edges
+        color_image2 = resize_crop(color_image2)
+
+    assert color_image1.shape[1:] == (
+        240,
+        320,
+        3,
+    ), f"Color image 1 has shape {color_image1.shape[1:]}"
 
     if isinstance(obs[0]["robot_state"], dict):
         # Convert the robot state to a numpy array

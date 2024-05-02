@@ -1,7 +1,6 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
 
 import time
-import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
