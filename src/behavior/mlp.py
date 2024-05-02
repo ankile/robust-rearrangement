@@ -394,7 +394,7 @@ class ResidualMLPAgent(nn.Module):
             input_dim=np.array(obs_shape).prod(),
             output_dim=self.backbone_emb_dim,
             hidden_dims=[1024] * 5,
-            dropout=0.2,
+            dropout=0.0,
             residual=True,
         )
 
@@ -472,7 +472,7 @@ class ResidualMLPAgentSeparate(SmallMLPAgent):
                 input_dim=np.array(obs_shape).prod(),
                 output_dim=np.prod(action_shape),
                 hidden_dims=[1024] * 5,
-                dropout=0.1,
+                dropout=0.0,
                 residual=True,
             ),
             nn.Unflatten(1, action_shape),

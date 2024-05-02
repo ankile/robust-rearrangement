@@ -297,6 +297,8 @@ if __name__ == "__main__":
                         rot_scalar=1,
                         stiffness=1000,
                         damping=200,
+                        max_force_magnitude=0.3,
+                        max_torque_magnitude=0.0075,
                     )
                     if args.use_new_env:
                         env: FurnitureRLSimEnv = get_rl_env(**kwargs)

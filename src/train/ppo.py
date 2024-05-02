@@ -458,7 +458,7 @@ if __name__ == "__main__":
     # Print the number of batches in the dataloader
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    if args.load_checkpoint is not None:
+    if args.load_checkpoint:
         wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
 
         # Filter out keys not starting with "model"
