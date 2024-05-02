@@ -45,55 +45,9 @@ from wandb.sdk.wandb_run import Run
 api = Api()
 
 
-# def validate_args(args: argparse.Namespace):
-#     assert (
-#         sum(
-#             [
-#                 args.run_id is not None,
-#                 args.sweep_id is not None,
-#                 args.project_id is not None,
-#             ]
-#         )
-#         == 1
-#     ), "Exactly one of run-id, sweep-id, project-id must be provided"
-#     assert args.run_state is None or all(
-#         [
-#             state in ["running", "finished", "failed", "crashed"]
-#             for state in args.run_state
-#         ]
-#     ), (
-#         "Invalid run-state: "
-#         f"{args.run_state}. Valid options are: None, running, finished, failed, crashed"
-#     )
-
-#     assert not args.leaderboard, "Leaderboard mode is not supported as of now"
-
-#     assert not args.store_video_wandb or args.wandb, "store-video-wandb requires wandb"
-
-
 def get_runs(args: argparse.Namespace) -> List[Run]:
-    # Clear the cache to make sure we get the latest runs
     api.flush()
-    # if args.sweep_id:
-    #     runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
-    # elif args.run_id:
     runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
-    # elif args.project_id:
-    #     runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
-    # else:
-    #     raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
-
-    # Filter out the runs based on the run state
-    # if args.run_state:
-    #     runs = [run for run in runs if run.state in args.run_state]
-
-    # # Filter out runs based on action type
-    # runs = [
-    #     run
-    #     for run in runs
-    #     if run.config.get("control", {}).get("control_mode", "delta")
-    #     == args.action_type
-    # ]
     return runs
 
 
@@ -155,6 +109,8 @@ parser.add_argument(
 )
 parser.add_argument("--verbose", "-v", action="store_true")
 parser.add_argument("--multitask", action="store_true")
+parser.add_argument("-ex", "--execute", action="store_true")
+parser.add_argument("-s", "--state_only", action="store_true")
 
 args = parser.parse_args()
 
@@ -196,7 +152,8 @@ class SimpleDiffIKFrankaEnv:
         gripper: GripperInterface,
         use_lcm: bool = False,
         device: str = "cuda",
-        execute: bool = True,
+        execute: bool = False,
+        state_only: bool = False,
     ):
 
         self.device = device
@@ -217,6 +174,9 @@ class SimpleDiffIKFrankaEnv:
         self.last_grip_step = 0
 
         self.grasp_margin = 0.02 - 0.001  # To prevent repeating open and close actions
+
+        # flags
+        self.state_only = state_only
 
     def set_timing(
         self, iter_idx: int = 0, dt: float = 0.1, command_latency: float = 0.01
@@ -281,7 +241,7 @@ class SimpleDiffIKFrankaEnv:
         for device, pipe in self.image_pipelines:
             try:
                 # Get frameset of color and depth
-                frames = pipe.wait_for_frames(2000)  # 100
+                frames = pipe.wait_for_frames(100)
             except RuntimeError as e:
                 print(f"Couldn't get frame for device: {device}")
                 # continue
@@ -301,18 +261,18 @@ class SimpleDiffIKFrankaEnv:
             depth_image = np.asanyarray(aligned_depth_frame.get_data())
             color_image = np.asanyarray(color_frame.get_data())
 
-            img_dict = dict(rgb=color_image, depth=depth_image)
+            img_dict = dict(rgb=color_image.copy(), depth=depth_image.copy())
             rgbd_list.append(img_dict)
 
         return rgbd_list
 
     def action2pose_mat(self, raw_action: torch.Tensor):
         # input action is pos and 6d rot
-        rot_6d = raw_action[0, 3:9]
+        rot_6d = raw_action[3:9]
         rot_mat = pt.rotation_6d_to_matrix(rot_6d)
         action_pose_mat = torch.eye(4)
         action_pose_mat[:-1, :-1] = rot_mat
-        action_pose_mat[:-1, -1] = raw_action[0, :3]
+        action_pose_mat[:-1, -1] = raw_action[:3]
 
         return action_pose_mat
 
@@ -320,6 +280,7 @@ class SimpleDiffIKFrankaEnv:
         # get observations
         # NOTE: In the simulator we get a 14-dimensional vector with proprioception:
         # [pos, quat, vel, ang vel, gripper], while here we only get 7(?)
+
         rgbd_list = self.get_rgbd()
         if rgbd_list is None:
             raise ValueError("Could not get list of RGB-D images!")
@@ -337,22 +298,28 @@ class SimpleDiffIKFrankaEnv:
         # ee_vel = jacobian @ robot.get_joint_velocities()
 
         # TODO: We also need the gripper state here
-        # gripper_width = torch.Tensor([gripper.get_state().width])
+        gripper_width = torch.Tensor([self.gripper.get_state().width])
 
         # rot_6d = quat_xyzw_to_rot_6d(quat_xyzw)
         # robot_state = torch.cat([pos, rot_6d], dim=-1)
-        robot_state = torch.cat([pos, quat_xyzw], dim=-1)
+        robot_state = torch.cat([pos, quat_xyzw, gripper_width], dim=-1)
 
         # convert to tensors
-        robot_state = robot_state.reshape(1, 7).to(self.device)
+        robot_state = robot_state.reshape(1, -1).to(self.device)
         img1_tensor = torch.from_numpy(rgbd_list[0]["rgb"]).unsqueeze(0).to(self.device)
         img2_tensor = torch.from_numpy(rgbd_list[1]["rgb"]).unsqueeze(0).to(self.device)
 
-        obs = dict(
-            color_image1=img1_tensor,
-            color_image2=img2_tensor,
-            robot_state=robot_state,
-        )
+        if self.state_only:
+            obs = dict(
+                parts_poses=torch.Tensor([[]]).to(self.device),
+                robot_state=robot_state,
+            )
+        else:
+            obs = dict(
+                color_image1=img1_tensor,
+                color_image2=img2_tensor,
+                robot_state=robot_state,
+            )
         return obs
 
     def step(self, action):
@@ -403,6 +370,7 @@ class SimpleDiffIKFrankaEnv:
         # calculate timing
         # precise_wait(t_cycle_end)
         self.iter_idx += 1
+        time.sleep(0.05)
 
         # get new obs
         new_obs = self.get_obs()
@@ -418,6 +386,11 @@ def main():
     franka_ip = "173.16.0.1"
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
+
+    # manual home
+    robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    robot.move_to_joint_positions(robot_home)
+
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
     robot.start_joint_impedance(Kq=Kq_new, Kqd=Kqd_new, adaptive=True)
@@ -425,31 +398,9 @@ def main():
     gripper = GripperInterface(ip_address=franka_ip)
     gripper.goto(0.08, 0.05, 0.1, blocking=False)
 
-    # manual home
-    robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
-    robot.move_to_joint_positions(robot_home)
-
     zmq_url = f"tcp://127.0.0.1:{args.port_vis}"
     mc_vis = meshcat.Visualizer(zmq_url=zmq_url)
     mc_vis["scene"].delete()
-
-    translation, quat_xyzw = robot.get_ee_pose()
-    # pose_mat = poly_util.polypose2mat(robot.get_ee_pose())
-    pose_mat = poly_util.polypose2mat((translation, quat_xyzw))
-    rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
-    target_pose = np.array([*translation.numpy(), *rotvec])
-
-    def polypose2target(poly_pose):
-        translation, quat_xyzw = poly_pose[0], poly_pose[1]
-        rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
-        target_pose = np.array([*translation.numpy(), *rotvec])
-        return target_pose
-
-    def to_pose_mat(pose_):
-        pose_mat = np.eye(4)
-        pose_mat[:-1, -1] = pose_[:3]
-        pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_[3:]).as_matrix()
-        return pose_mat
 
     # Setup camera streams (via either LCM or pyrealsense)
     # Setup data saving
@@ -462,27 +413,12 @@ def main():
     episode_dict["image_wrist"] = []
     episode_dict["actions"] = []
 
-    # Validate the arguments
-    # validate_args(args)
-
     # Make the device
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     api.flush()
     # Get the run(s) to test
-    runs = get_runs(args)
-
-    # Also, evaluate the ones with the fewest rollouts first (if they have any)
-    # Summary prefix, shoprtened to spf for brevity downstream
-    spf = f"{f}/" + "" if args.multitask else ""
-    runs = sorted(
-        runs,
-        key=lambda run: run.summary.get(spf + "n_rollouts", 0),
-    )
-
-    api.flush()
-    run = runs[0]
-    run = api.run("/".join([run.project, run.id]))
+    run: Run = api.run(f"{args.run_id}")
 
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(
@@ -496,7 +432,11 @@ def main():
         {
             **run.config,
             "project_name": run.project,
-            "actor": {**run.config["actor"], "inference_steps": 4},
+            "actor": {
+                **run.config["actor"],
+                "inference_steps": 16,
+                "action_horizon": 16,
+            },
         },
         # flags={"readonly": True},
     )
@@ -520,13 +460,18 @@ def main():
     actor.eval()
     actor.cuda()
 
+    # mc
+    actor.set_mc(mc_vis)
+
     # simple env wrapper
     env = SimpleDiffIKFrankaEnv(
-        mc_vis=mc_vis, robot=robot, gripper=gripper, use_lcm=args.use_lcm
+        mc_vis=mc_vis,
+        robot=robot,
+        gripper=gripper,
+        use_lcm=args.use_lcm,
+        execute=args.execute,
+        state_only=args.state_only,
     )
-
-    # Setup other interfaces
-    # keyboard = KeyboardInterface()
 
     obs = env.get_obs()
 
@@ -536,7 +481,7 @@ def main():
     resize_image(obs, "color_image1")
     resize_crop_image(obs, "color_image2")
 
-    # keep a queue of last 2 steps of observations
+    # keep a queue of observations
     obs_deque = collections.deque(
         [obs] * obs_horizon,
         maxlen=obs_horizon,
@@ -551,9 +496,6 @@ def main():
 
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
-        # _, collect_enum = keyboard.get_action()
-        # if collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
-        # break
 
         obs, reward, done, _ = env.step(action_pred[0])
 
@@ -566,12 +508,6 @@ def main():
 
         # Save observations for the policy
         obs_deque.append(obs)
-
-    if collect_enum == CollectEnum.SUCCESS:
-        # save the data
-        obs_action_pkl_fname = eval_save_dir / "episode_data.pkl"
-        with open(obs_action_pkl_fname, "wb") as f:
-            pickle.dump(episode_dict, f)
 
 
 if __name__ == "__main__":
