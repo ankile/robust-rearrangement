@@ -99,7 +99,7 @@ parser.add_argument("--max_rot_speed", type=float, default=0.7)
 parser.add_argument("--save_dir", required=True)
 parser.add_argument("--use_lcm", action="store_true")
 
-parser.add_argument("--run-id", type=str, required=False, nargs="*")
+parser.add_argument("--run-id", type=str, required=False)
 parser.add_argument("--gpu", type=int, default=0)
 parser.add_argument("--wandb", action="store_true")
 parser.add_argument("--leaderboard", action="store_true")
@@ -418,7 +418,7 @@ def main():
 
     api.flush()
     # Get the run(s) to test
-    run: Run = api.run(f"{args.run_id}")
+    run: Run = api.run(args.run_id)
 
     model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
     model_path = model_file.download(
@@ -434,8 +434,8 @@ def main():
             "project_name": run.project,
             "actor": {
                 **run.config["actor"],
-                "inference_steps": 16,
-                "action_horizon": 16,
+                "inference_steps": 4,
+                "action_horizon": 8,
             },
         },
         # flags={"readonly": True},
