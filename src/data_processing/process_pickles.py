@@ -236,33 +236,43 @@ def parallel_process_pickle_files(
         "pickle_file": [],
     }
 
-    # Process files in parallel
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = [
-            executor.submit(
-                process_pickle_file,
-                path,
-                noop_threshold,
-                calculate_pos_action_from_delta,
+    def aggregate_data(data):
+        for key in data:
+            if key == "episode_length":
+                # Calculate and append to episode_ends
+                last_end = (
+                    aggregated_data["episode_ends"][-1]
+                    if len(aggregated_data["episode_ends"]) > 0
+                    else 0
+                )
+                aggregated_data["episode_ends"].append(last_end + data[key])
+            else:
+                aggregated_data[key].append(data[key])
+
+    if num_threads == 1:
+        # Run synchronous version
+        for path in tqdm(pickle_paths, desc="Processing files"):
+            data = process_pickle_file(
+                path, noop_threshold, calculate_pos_action_from_delta
             )
-            for path in pickle_paths
-        ]
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Processing files"
-        ):
-            data = future.result()
-            # Aggregate data from each file
-            for key in data:
-                if key == "episode_length":
-                    # Calculate and append to episode_ends
-                    last_end = (
-                        aggregated_data["episode_ends"][-1]
-                        if len(aggregated_data["episode_ends"]) > 0
-                        else 0
-                    )
-                    aggregated_data["episode_ends"].append(last_end + data[key])
-                else:
-                    aggregated_data[key].append(data[key])
+            aggregate_data(data)
+    else:
+        # Run threaded version
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [
+                executor.submit(
+                    process_pickle_file,
+                    path,
+                    noop_threshold,
+                    calculate_pos_action_from_delta,
+                )
+                for path in pickle_paths
+            ]
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Processing files"
+            ):
+                data = future.result()
+                aggregate_data(data)
 
     # Convert lists to numpy arrays for numerical data
     for key in tqdm(
