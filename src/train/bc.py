@@ -349,6 +349,17 @@ def main(config: DictConfig):
             )
             wandb.save(save_path)
 
+        if (
+            config.training.checkpoint_model
+            and (epoch_idx + 1) % config.training.checkpoint_interval == 0
+        ):
+            save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
+            torch.save(
+                actor.state_dict(),
+                save_path,
+            )
+            wandb.save(save_path)
+
         # Early stopping
         if early_stopper.update(test_loss_mean):
             print(

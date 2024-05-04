@@ -1,3 +1,5 @@
+from omegaconf import DictConfig
+from src.common.control import RotationMode
 import torch
 import torch.nn as nn
 from typing import Union
@@ -18,24 +20,34 @@ class RNNActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        encoder_name: str,
-        freeze_encoder: bool,
         normalizer: Normalizer,
-        config,
+        config: DictConfig,
     ) -> None:
         super().__init__()
-        self.action_dim = config.action_dim
-        self.pred_horizon = config.pred_horizon
-        self.action_horizon = config.action_horizon
+        actor_cfg = config.actor
+        self.obs_horizon = actor_cfg.obs_horizon
+        self.action_dim = (
+            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
+        )
+        self.pred_horizon = actor_cfg.pred_horizon
+        self.action_horizon = actor_cfg.action_horizon
 
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.obs_horizon = config.obs_horizon
+        self.inference_steps = actor_cfg.inference_steps
         self.observation_type = config.observation_type
-        self.noise_augment = config.noise_augment
-        self.freeze_encoder = freeze_encoder
+
+        # Regularization
+        self.feature_noise = config.regularization.get("feature_noise", None)
+        self.feature_dropout = config.regularization.get("feature_dropout", None)
+        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
+        self.state_noise = config.regularization.get("state_noise", False)
+
         self.device = device
+
+        # A queue of the next actions to be executed in the current horizon
+        self.actions = deque(maxlen=self.action_horizon)
 
         # Convert the stats to tensors on the device
         self.normalizer = normalizer.to(device)

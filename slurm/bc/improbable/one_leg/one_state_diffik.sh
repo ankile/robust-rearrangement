@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-h100,vision-pulkitag-3090,vision-pulkitag-a6000
-#SBATCH -q vision-pulkitag-free-cycles
+#SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
+#SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=oneleg_state_diffik
 #SBATCH --output=output_%j.log
 #SBATCH --error=error_%j.log
@@ -15,5 +15,5 @@
 # Run your command with the provided arguments
 python -m src.train.bc +experiment=state/diffusion furniture=one_leg dryrun=false \
     rollout=rollout rollout.every=5 rollout.max_steps=1000 rollout.num_envs=256 \
-    pred_horizon=16 action_horizon=8 control.controller=diffik \
-    data.normalization=none
+    pred_horizon=8 action_horizon=8 control.controller=diffik \
+    demo_source='[teleop,rollout]'

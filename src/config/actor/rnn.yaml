@@ -1,0 +1,13 @@
+name: rnn
+action_horizon: ${action_horizon}
+pred_horizon: ${pred_horizon}
+obs_horizon: ${obs_horizon}
+first_action_index: 0
+
+hidden_dims: [256, 256, 256]
+dropout: 0.1
+residual: false
+
+loss_fn: MSELoss  # MSELoss | L1Loss
+
+projection_dim: 128

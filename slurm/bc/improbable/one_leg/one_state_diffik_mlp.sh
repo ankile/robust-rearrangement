@@ -13,4 +13,4 @@
 
 # Run your command with the provided arguments
 python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg \
-    action_horizon=4 pred_horizon=4 dryrun=false
+    action_horizon=16 pred_horizon=8 dryrun=false

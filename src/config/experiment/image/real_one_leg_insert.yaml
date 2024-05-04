@@ -25,7 +25,7 @@ regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
-  proprioception_dropout: 0.0
+  proprioception_dropout: false
 
 furniture: ???
 randomness: low
@@ -36,4 +36,4 @@ early_stopper:
   patience: 10
 
 wandb:
-  project: real-place-shade-1
+  project: real-one_leg_insert-1

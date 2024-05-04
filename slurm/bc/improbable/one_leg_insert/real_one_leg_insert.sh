@@ -11,9 +11,7 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=image/real_place_shade furniture=place_shade \
-    data.normalization=none \
-    training.ema.use=false training.ema.switch=false \
-    vision_encoder=r3m vision_encoder.freeze=false \
-    regularization.proprioception_dropout=1.0 \
+python -m src.train.bc +experiment=image/real_one_leg_insert furniture=one_leg_insert \
+    data.normalization=none training.ema.use=false training.ema.switch=false \
+    vision_encoder=r3m vision_encoder.pretrained=true \
     dryrun=false

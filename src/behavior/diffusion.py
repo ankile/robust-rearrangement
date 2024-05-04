@@ -41,6 +41,9 @@ class DiffusionPolicy(Actor):
         self.feature_dropout = config.regularization.get("feature_dropout", None)
         self.feature_layernorm = config.regularization.get("feature_layernorm", None)
         self.state_noise = config.regularization.get("state_noise", False)
+        self.proprioception_dropout = config.regularization.get(
+            "proprioception_dropout", 0.0
+        )
 
         self.device = device
 
@@ -144,6 +147,9 @@ class DiffusionPolicy(Actor):
             naction = self.inference_noise_scheduler.step(
                 model_output=noise_pred, timestep=k, sample=naction
             ).prev_sample
+
+        # Test denoising a couple more times for lower variance?
+        # Also test with "warm-starting" the denoising process with previous actions
 
         return naction
 

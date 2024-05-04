@@ -12,4 +12,5 @@
 
 # Run your command with the provided arguments
 python -m src.train.bc +experiment=image/real_place_shade_r3m furniture=place_shade \
-    data.normalization=none dryrun=false training.ema.use=false training.ema.switch=false
+    data.normalization=none dryrun=false training.ema.use=false training.ema.switch=false \
+    vision_encoder.pretrained=true vision_encoder.freeze=true
