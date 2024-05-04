@@ -107,7 +107,8 @@ def get_processed_paths(
         paths = add_glob_part(paths, "**")
 
     # Add the suffix pattern to all paths
-    paths = add_glob_part(paths, suffix)
+    if suffix is not None:
+        paths = add_glob_part(paths, suffix)
 
     # Add the extension pattern to all paths
     paths = [path.with_suffix(".zarr") for path in paths]

@@ -221,8 +221,8 @@ class DataCollectorSpaceMouse:
         args.command_latency = 0.01
         args.deadzone = 0.05
         if self.env.ctrl_mode == "diffik":
-            args.max_pos_speed = 0.8
-            args.max_rot_speed = 4.0
+            args.max_pos_speed = 0.3  # 0.8
+            args.max_rot_speed = 0.7  # 3.0
         else:
             args.max_pos_speed = 0.8
             # args.max_rot_speed = 2.5
@@ -275,12 +275,15 @@ class DataCollectorSpaceMouse:
         ready_to_grasp = True
         steps_since_grasp = 0
 
+        sm_dpos_scalar = np.array([1.8] * 3)
+        sm_drot_scalar = np.array([4] * 3)
+
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
                 t_start = time.monotonic()
 
                 prev_keyboard_gripper = -1
-
+                global_start_time = time.time()
                 while self.num_success < self.num_demos:
                     if self.scripted:
                         raise ValueError("Not using scripted with spacemouse")
@@ -289,13 +292,23 @@ class DataCollectorSpaceMouse:
                     t_cycle_end = t_start + (self.iter_idx + 1) * dt
                     t_sample = t_cycle_end - command_latency
                     # t_command_target = t_cycle_end + dt
-                    precise_wait(t_sample)
+                    # precise_wait(t_sample)
 
                     # get teleop command
                     sm_state = sm.get_motion_state_transformed()
-                    dpos = sm_state[:3] * (args.max_pos_speed / frequency)
+                    # dpos = sm_state[:3] * (args.max_pos_speed / frequency)
+                    # drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
+                    # drot = st.Rotation.from_euler("xyz", drot_xyz)
+                    # scale pos command
+                    dpos = (
+                        sm_state[:3] * (args.max_pos_speed / frequency) * sm_dpos_scalar
+                    )
+
+                    # convert and scale rot command
                     drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
-                    drot = st.Rotation.from_euler("xyz", drot_xyz)
+                    drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
+                    drot_rotvec *= sm_drot_scalar
+                    drot = st.Rotation.from_rotvec(drot_rotvec)
 
                     (
                         keyboard_action,
@@ -385,7 +398,7 @@ class DataCollectorSpaceMouse:
                     pos_bounds_m = (
                         0.025  # 0.02 if self.env.ctrl_mode == "diffik" else 0.025
                     )
-                    ori_bounds_deg = 20  # 15 if self.env.ctrl_mode == "diffik" else 20
+                    ori_bounds_deg = 25  # 15 if self.env.ctrl_mode == "diffik" else 20
 
                     if not (np.allclose(keyboard_action[:6], 0.0)):
                         action[0, :7] = (
@@ -396,12 +409,12 @@ class DataCollectorSpaceMouse:
                         action_taken = True
                         target_pose_last_action_rv = None
 
-                    action = scale_scripted_action(
-                        action.detach().cpu().clone(),
-                        pos_bounds_m=pos_bounds_m,
-                        ori_bounds_deg=ori_bounds_deg,
-                        device=self.env.device,
-                    )
+                    # action = scale_scripted_action(
+                    #     action.detach().cpu().clone(),
+                    #     pos_bounds_m=pos_bounds_m,
+                    #     ori_bounds_deg=ori_bounds_deg,
+                    #     device=self.env.device,
+                    # )
 
                     skill_complete = int(collect_enum == CollectEnum.SKILL)
                     if skill_complete == 1:
@@ -413,6 +426,8 @@ class DataCollectorSpaceMouse:
 
                     # An episode is done.
                     if done or collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
+                        global_total_time = time.time() - global_start_time
+                        print(f"Time elapsed: {global_total_time} seconds.")
                         self.store_transition(next_obs)
 
                         if (
@@ -499,7 +514,7 @@ class DataCollectorSpaceMouse:
                     target_pose_rv = np.array([*translation, *rotvec])
 
                     # SM wait
-                    precise_wait(t_cycle_end)
+                    # precise_wait(t_cycle_end)
                     self.iter_idx += 1
 
                     if (not self.robot_settled) and (

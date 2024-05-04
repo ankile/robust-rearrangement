@@ -62,7 +62,7 @@ def main():
 
     data_path = trajectory_save_dir(
         controller=args.ctrl_mode,
-        environment="sim",
+        domain="sim",
         task=args.furniture,
         demo_source="teleop",
         randomness=args.randomness,
