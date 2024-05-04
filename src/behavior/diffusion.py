@@ -13,6 +13,10 @@ from src.models import get_diffusion_backbone, get_encoder
 from ipdb import set_trace as bp  # noqa
 from typing import Union
 
+# our real/debug imports
+import pytorch3d.transforms as pt
+from rdt.common import mc_util
+
 
 class DiffusionPolicy(Actor):
     def __init__(
@@ -84,6 +88,11 @@ class DiffusionPolicy(Actor):
 
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
         self.loss_fn = getattr(nn, loss_fn_name)()
+
+        self.mc_vis = None
+
+    def set_mc(self, mc_vis):
+        self.mc_vis = mc_vis
 
     def _initiate_image_encoder(self, config):
         # === Encoder ===
@@ -163,6 +172,17 @@ class DiffusionPolicy(Actor):
         actions = deque()
         for i in range(start, end):
             actions.append(action_pred[:, i, :])
+
+            if self.mc_vis is not None:
+                rot_6d = action_pred[0, i, 3:9]
+                rot_mat = pt.rotation_6d_to_matrix(rot_6d)
+                action_pose_mat = torch.eye(4)
+                action_pose_mat[:-1, :-1] = rot_mat
+                action_pose_mat[:-1, -1] = action_pred[0, i, :3]
+                # Draw the current target pose (in meshcat)
+                mc_util.meshcat_frame_show(
+                    self.mc_vis, f"scene/actions/{i}", action_pose_mat.cpu().numpy()
+                )
 
         return actions
 

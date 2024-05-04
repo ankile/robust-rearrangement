@@ -35,6 +35,7 @@ from src.behavior.base import Actor  # noqa
 from src.behavior import get_actor
 from src.dataset import get_normalizer
 from src.data_processing.utils import resize, resize_crop
+from ipdb import set_trace as bp
 
 # from src.common.geometry import quat_xyzw_to_rot_6d
 
@@ -154,6 +155,7 @@ class SimpleDiffIKFrankaEnv:
         device: str = "cuda",
         execute: bool = False,
         state_only: bool = False,
+        proprioceptive_state_dim: int = 10,
     ):
 
         self.device = device
@@ -177,6 +179,7 @@ class SimpleDiffIKFrankaEnv:
 
         # flags
         self.state_only = state_only
+        self.proprioceptive_state_dim = proprioceptive_state_dim
 
     def set_timing(
         self, iter_idx: int = 0, dt: float = 0.1, command_latency: float = 0.01
@@ -286,23 +289,21 @@ class SimpleDiffIKFrankaEnv:
             raise ValueError("Could not get list of RGB-D images!")
         # Quaternions follow the convention of <x, y, z, w>
         pos, quat_xyzw = self.robot.get_ee_pose()
-        # current_joint_positions = self.robot.get_joint_positions()
-        # robot_state_dict = dict(
-        #     ee_pose=current_ee_pose.numpy(),
-        #     joint_positions=current_joint_positions.numpy(),
-        # )
-
-        # TODO (maybe): end effector velocity
-        # current_joint_pos = robot.get_joint_positions()
-        # jacobian = robot.robot_model.compute_jacobian(current_joint_pos)
-        # ee_vel = jacobian @ robot.get_joint_velocities()
-
-        # TODO: We also need the gripper state here
-        gripper_width = torch.Tensor([self.gripper.get_state().width])
 
         # rot_6d = quat_xyzw_to_rot_6d(quat_xyzw)
         # robot_state = torch.cat([pos, rot_6d], dim=-1)
-        robot_state = torch.cat([pos, quat_xyzw, gripper_width], dim=-1)
+        robot_state = torch.cat([pos, quat_xyzw], dim=-1)
+
+        # If current policy also expects EE velocities
+        if self.proprioceptive_state_dim == 16:
+            current_joint_pos = self.robot.get_joint_positions()
+            jacobian = self.robot.robot_model.compute_jacobian(current_joint_pos)
+            ee_vel = jacobian @ self.robot.get_joint_velocities()
+
+            robot_state = torch.cat([robot_state, ee_vel], dim=-1)
+
+        gripper_width = torch.Tensor([self.gripper.get_state().width])
+        robot_state = torch.cat([robot_state, gripper_width], dim=-1)
 
         # convert to tensors
         robot_state = robot_state.reshape(1, -1).to(self.device)
@@ -420,7 +421,11 @@ def main():
     # Get the run(s) to test
     run: Run = api.run(args.run_id)
 
-    model_file = [f for f in run.files() if f.name.endswith(".pt")][0]
+    wts_name = "_99"
+
+    model_file = [
+        f for f in run.files() if f.name.endswith(".pt") and wts_name in f.name
+    ][0]
     model_path = model_file.download(
         root=f"./models/{run.name}", exist_ok=True, replace=True
     ).name
@@ -434,7 +439,7 @@ def main():
             "project_name": run.project,
             "actor": {
                 **run.config["actor"],
-                "inference_steps": 4,
+                "inference_steps": 8,
                 "action_horizon": 8,
             },
         },
@@ -471,6 +476,7 @@ def main():
         use_lcm=args.use_lcm,
         execute=args.execute,
         state_only=args.state_only,
+        proprioceptive_state_dim=config.robot_state_dim,
     )
 
     obs = env.get_obs()

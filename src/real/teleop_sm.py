@@ -267,8 +267,14 @@ def main():
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
 
-    sm_dpos_scalar = np.array([1.5] * 3)
-    sm_drot_scalar = np.array([2.25] * 3)
+    # manual home
+    robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    robot.move_to_joint_positions(robot_home)
+
+    # sm_dpos_scalar = np.array([1.5] * 3)
+    # sm_drot_scalar = np.array([2.25] * 3)
+    sm_dpos_scalar = np.array([1.8] * 3)
+    sm_drot_scalar = np.array([4.0] * 3)
 
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
@@ -314,6 +320,16 @@ def main():
     episode_data["furniture"] = args.furniture
     # assume all real world demos that we actually save are success
     episode_data["success"] = True
+    episode_data["args"] = args.__dict__
+
+    # initial metadata dict
+    metadata = dict(
+        sm_dpos_scalar=sm_dpos_scalar,
+        sm_drot_scalar=sm_drot_scalar,
+        Kq=Kq_new.cpu().numpy(),
+        Kqd=Kqd_new.cpu().numpy(),
+    )
+    episode_data["metadata"] = metadata
 
     # Setup other interfaces
     keyboard = KeyboardInterface()
@@ -359,6 +375,7 @@ def main():
                 sm_drot_scalar=sm_drot_scalar,
                 frequency=args.frequency,
             )
+            global_start_time = time.time()
             print(f"Start collecting!")
             while not stop:
                 # calculate timing
@@ -410,6 +427,8 @@ def main():
                 precise_wait(t_cycle_end)
                 iter_idx += 1
 
+    global_total_time = time.time() - global_start_time
+    print(f"Time elapsed: {global_total_time}")
     if collect_enum == CollectEnum.SUCCESS:
         # save the data
         with open(pkl_path, "wb") as f:
