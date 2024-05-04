@@ -88,6 +88,9 @@ class DiffusionPolicy(Actor):
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
         self.loss_fn = getattr(nn, loss_fn_name)()
 
+        self.warmstart_timestep = 50
+        self.prev_naction = None
+
     def _initiate_image_encoder(self, config):
         # === Encoder ===
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
@@ -130,14 +133,23 @@ class DiffusionPolicy(Actor):
     def _normalized_action(self, nobs):
         B = nobs.shape[0]
         # Important! `nobs` needs to be normalized and flattened before passing to this function
-        # Initialize action from Guassian noise
-        naction = torch.randn(
+        # Sample Gaussian noise to use to corrupt the actions
+        noise = torch.randn(
             (B, self.pred_horizon, self.action_dim),
             device=self.device,
         )
 
         # init scheduler
         self.inference_noise_scheduler.set_timesteps(self.inference_steps)
+
+        # Instead of sampling noise, we'll start with the previous action and add noise
+        naction = self.prev_naction
+
+        naction = self.inference_noise_scheduler.add_noise(
+            naction,
+            noise,
+            torch.full((B,), self.warmstart_timestep, device=self.device).long(),
+        )
 
         for k in self.inference_noise_scheduler.timesteps:
             # predict noise
@@ -147,9 +159,6 @@ class DiffusionPolicy(Actor):
             naction = self.inference_noise_scheduler.step(
                 model_output=noise_pred, timestep=k, sample=naction
             ).prev_sample
-
-        # Test denoising a couple more times for lower variance?
-        # Also test with "warm-starting" the denoising process with previous actions
 
         return naction
 
@@ -170,12 +179,23 @@ class DiffusionPolicy(Actor):
         for i in range(start, end):
             actions.append(action_pred[:, i, :])
 
+        # Store the remaining actions in the previous action to warm start the next horizon
+        self.prev_naction[:, : self.pred_horizon - self.action_horizon, :] = naction[
+            :, self.action_horizon :, :
+        ]
+
         return actions
 
     @torch.no_grad()
     def action(self, obs: deque):
         # Normalize observations
         nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
+
+        # Now we know what batch size we have, so set the previous action to zeros of the correct size
+        if self.prev_naction is None or self.prev_naction.shape[0] != nobs.shape[0]:
+            self.prev_naction = torch.zeros(
+                (nobs.shape[0], self.pred_horizon, self.action_dim), device=self.device
+            )
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
