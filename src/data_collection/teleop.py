@@ -61,11 +61,11 @@ def main():
     keyboard_device_interface.print_usage()
 
     data_path = trajectory_save_dir(
-        environment="sim",
+        controller=args.ctrl_mode,
+        domain="sim",
         task=args.furniture,
         demo_source="teleop",
         randomness=args.randomness,
-        suffix=args.ctrl_mode,
     )
 
     from pathlib import Path

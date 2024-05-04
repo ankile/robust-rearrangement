@@ -1,14 +1,14 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
-from pathlib import Path
 from typing import Dict, Literal
 import furniture_bench  # noqa
 
-import os
 import random
 import time
 from dataclasses import dataclass
 import math
 
+from src.common.files import get_processed_paths
+from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
     FurnitureRLSimEnvPlaceTabletop,
@@ -17,9 +17,7 @@ from src.gym.furniture_sim_env import (
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
-from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.pytorch_util import dict_to_device
-from src.dataset.dataloader import EndlessDataloader
 from src.dataset.dataset import FurnitureStateDataset
 from src.gym.utils import NormalizeReward
 import torch
@@ -35,13 +33,10 @@ from src.dataset.normalizer import LinearNormalizer
 import src.common.geometry as G
 
 from src.behavior.mlp import (
+    SmallMLPAgent,
+    BigMLPAgent,
     ResidualMLPAgent,
-    SmallAgentSimple,
-    BiggerAgentSimple,
-    BigAgentSimple,
-    ComplexAgentPPO,
     ResidualMLPAgentSeparate,
-    ResidualMLPAgentBig,
 )
 
 from ipdb import set_trace as bp
@@ -56,52 +51,8 @@ import wandb
 from src.gym import turn_off_april_tags
 
 
-def evaluate_agent(agent, writer, global_step):
-    eval_env = FurnitureEnvWrapper(
-        env=FurnitureRLSimEnv(
-            act_rot_repr=act_rot_repr,
-            action_type=action_type,
-            april_tags=False,
-            concat_robot_state=True,
-            ctrl_mode="diffik",
-            obs_keys=DEFAULT_STATE_OBS,
-            furniture="one_leg",
-            gpu_id=0,
-            headless=False,
-            num_envs=1,
-            observation_space="state",
-            randomness="low",
-            max_env_steps=100_000_000,
-            pos_scalar=1,
-            rot_scalar=1,
-            stiffness=1_000,
-            damping=200,
-        ),
-        max_env_steps=args.num_env_steps,
-        ee_dof=args.ee_dof,
-    )
-
-    agent.eval()
-
-    eval_obs = eval_env.reset()
-    eval_reward = 0
-    eval_done = False
-
-    while not eval_done:
-        with torch.no_grad():
-            eval_action, _, _, _ = agent.get_action_and_value(eval_obs)
-
-        eval_obs, eval_reward, eval_done, _, _ = eval_env.step(eval_action)
-        eval_reward += eval_reward.item()
-
-    writer.add_scalar("eval/reward", eval_reward, global_step)
-    writer.add_scalar("eval/success", float(eval_reward > 0), global_step)
-
-    agent.train()
-
-
 def get_model_weights(run_id: str):
-    api = wandb.Api()
+    api = wandb.Api(overrides=dict(entity="ankile"))
     run = api.run(run_id)
     model_path = (
         [f for f in run.files() if f.name.endswith(".pt")][0]
@@ -144,11 +95,8 @@ class Args:
     """if toggled, the environment will be set to headless mode"""
     agent: Literal[
         "small",
-        "bigger",
         "big",
-        "complex",
         "residual",
-        "residual-big",
         "residual-separate",
     ] = "small"
     """the agent to use"""
@@ -158,8 +106,6 @@ class Args:
     """if toggled, the observations will be normalized"""
     recalculate_advantages: bool = False
     """if toggled, the advantages will be recalculated every update epoch"""
-    minimum_success_rate: float = 0.0
-    """the minimum success rate before we increase randomness"""
     init_logstd: float = 0.0
     """the initial value of the log standard deviation"""
     ee_dof: int = 3
@@ -168,22 +114,18 @@ class Args:
     """the type of the behavior cloning loss"""
     supervise_value_function: bool = False
     """if toggled, the value function will be supervised"""
-    adaptive_bc_coef: bool = False
-    """if toggled, the behavior cloning coefficient will be adaptive"""
-    min_bc_coef: float = 0.1
-    """the minimum value of the behavior cloning coefficient"""
-    n_decrease_lr: int = 0
-    """the number of times to decrease the learning rate"""
     action_type: Literal["delta", "pos"] = "delta"
     """the type of the action space"""
-    randomness_curriculum: bool = False
-    """if toggled, the randomness will be increased over time"""
     chunk_size: int = 1
     """the chunk size for the action space"""
     data_collection_steps: int = None
     """the number of steps to collect data"""
     add_relative_pose: bool = False
     """if toggled, the relative pose will be added to the observation"""
+    n_iterations_train_only_value: int = 0
+    """the number of iterations to train only the value function"""
+    load_checkpoint: bool = True
+    """the checkpoint to load the model from"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -236,8 +178,6 @@ class Args:
     """the number of steps (computed in runtime)"""
     continue_run_id: str = None
     """the run id to continue training from"""
-    load_checkpoint: str = None
-    """the checkpoint to load the model from"""
 
 
 def get_demo_data_loader(
@@ -251,14 +191,17 @@ def get_demo_data_loader(
     add_relative_pose=False,
 ) -> DataLoader:
 
+    paths = get_processed_paths(
+        controller="diffik",
+        domain="sim",
+        task="one_leg",
+        demo_source="teleop",
+        randomness=["low", "med"],
+        demo_outcome="success",
+    )
+
     demo_data = FurnitureStateDataset(
-        dataset_paths=[
-        Path(
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/low/diffik/success.zarr"
-        ),
-        Path(
-            "/data/scratch/ankile/furniture-data/processed/sim/one_leg/teleop/med/diffik/success.zarr"
-        )],
+        dataset_paths=paths,
         obs_horizon=1,
         pred_horizon=action_horizon,
         action_horizon=action_horizon,
@@ -288,151 +231,11 @@ def get_demo_data_loader(
     return demo_data_loader
 
 
-class FurnitureEnvWrapper:
-    normalizer = None
-
-    def __init__(
-        self,
-        env: FurnitureRLSimEnv,
-        max_env_steps=300,
-        ee_dof=10,
-        chunk_size=1,
-        task="oneleg",
-        add_relative_pose=False,
-    ):
-        # super(FurnitureEnvWrapper, self).__init__(env)
-        self.env = env
-        self.chunk_size: int = chunk_size
-        self.task = task
-        self.add_relative_pose = add_relative_pose
-
-        # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
-
-        # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
-        # and 16 + 35 for 6D proprioception
-        self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
-        )
-
-        # Define the maximum number of steps in the environment
-        self.max_env_steps = max_env_steps
-        self.num_envs = self.env.num_envs
-        # self.global_timestep = torch.zeros(
-        #     env.num_envs, device=device, dtype=torch.int32
-        # )
-
-        self.no_rotation_or_gripper = torch.tensor(
-            [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
-        ).repeat(self.num_envs, 1)
-
-    def process_obs(self, obs: Dict[str, torch.Tensor]):
-        # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
-        robot_state = obs["robot_state"]
-        N = robot_state.shape[0]
-
-        # Parts poses is [pos, ori_quat] for each part
-        parts_poses = obs["parts_poses"]
-
-        # Make the robot state have 6D proprioception
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-
-        if self.normalizer is not None:
-            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            if self.task != "reacher":
-                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
-
-        obs = torch.cat([robot_state, parts_poses], dim=-1)
-
-        if self.add_relative_pose:
-            ee_pose = robot_state[..., :7].unsqueeze(1)
-            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
-                N, -1
-            )
-
-            obs = torch.cat([obs, relative_poses], dim=-1)
-
-        # Clamp the observation to be bounded to [-5, 5]
-        obs = torch.clamp(obs, -5, 5)
-
-        return obs
-
-    def process_action(self, action: torch.Tensor):
-        """
-        Done any desired processing to the action before
-        it is passed to the environment.
-        """
-        return action
-
-    def reset(self, **kwargs):
-        obs = self.env.reset()
-        return self.process_obs(obs)
-
-    def jerkinesss_penalty(self, action: torch.Tensor):
-        # Get the current end-effector velocity
-        ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
-
-        # Calculate the dot product between the action and the end-effector velocity
-        dot_product = torch.sum(action[..., :3] * ee_velocity, dim=1, keepdim=True)
-
-        # Calculate the velocity-based penalty
-        velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
-
-        # Add the velocity-based penalty to the rewards
-        return velocity_penalty
-
-    def _inner_step(self, action_chunk: torch.Tensor):
-        total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
-        dones = torch.zeros(
-            action_chunk.shape[0], dtype=torch.bool, device=action_chunk.device
-        )
-        for i in range(self.chunk_size):
-            # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
-            obs, reward, done, info = self.env.step(action_chunk[:, i, :])
-            total_reward += reward.squeeze()
-            dones = dones | done.squeeze()
-
-        return obs, total_reward, done, info
-
-    def step(self, action: torch.Tensor):
-        assert action.shape[-2:] == self.action_space.shape
-
-        action = self.process_action(action)
-
-        # Move the robot
-        obs, reward, done, info = self._inner_step(action)
-
-        # Episodes that received reward are terminated
-        terminated = reward > 0
-
-        # Check if any envs have reached the max number of steps
-        truncated = self.env.env_steps >= self.max_env_steps
-
-        # Reset the envs that have reached the max number of steps or got reward
-        if torch.any(done := terminated | truncated):
-            obs = self.env.reset(torch.nonzero(done).view(-1))
-
-        obs = self.process_obs(obs)
-
-        return obs, reward, terminated, truncated, info
-
-    def increment_randomness(self):
-        self.env.increment_randomness()
-
-    @property
-    def force_magnitude(self):
-        return self.env.max_force_magnitude
-
-    @property
-    def torque_magnitude(self):
-        return self.env.max_torque_magnitude
-
-
 @torch.no_grad()
 def calculate_advantage(
     args: Args,
     device: torch.device,
-    agent: SmallAgentSimple,
+    agent: SmallMLPAgent,
     obs: torch.Tensor,
     next_obs: torch.Tensor,
     rewards: torch.Tensor,
@@ -498,7 +301,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = f"runs/debug-{args.exp_name}-6"
+    run_directory = f"runs/debug-{args.exp_name}-8"
     run_directory += "-delete" if args.debug else ""
     print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -553,7 +356,7 @@ if __name__ == "__main__":
     env.max_force_magnitude = 0.1
     env.max_torque_magnitude = 0.005
 
-    env: FurnitureEnvWrapper = FurnitureEnvWrapper(
+    env = FurnitureEnvRLWrapper(
         env,
         max_env_steps=args.num_env_steps,
         ee_dof=args.ee_dof,
@@ -571,25 +374,13 @@ if __name__ == "__main__":
         print("Not wrapping the environment with reward normalization")
 
     if args.agent == "small":
-        agent = SmallAgentSimple(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "bigger":
-        agent = BiggerAgentSimple(
+        agent = SmallMLPAgent(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
         )
     elif args.agent == "big":
-        agent = BigAgentSimple(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "complex":
-        agent = ComplexAgentPPO(
+        agent = BigMLPAgent(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
@@ -601,12 +392,6 @@ if __name__ == "__main__":
             init_logstd=args.init_logstd,
             dropout=0.1,
         )
-    elif args.agent == "residual-big":
-        agent = ResidualMLPAgentBig(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
     elif args.agent == "residual-separate":
         agent = ResidualMLPAgentSeparate(
             obs_shape=env.observation_space.shape,
@@ -616,26 +401,12 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
-    # wts = get_model_weights("ankile/one_leg-mlp-state-1/runs/it0kgb0g")
-
-    # # Filter out keys not starting with "model"
-    # model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-    # # Change the "model" prefix to "actor_mean"
-    # model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
-
-    # print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
-
-    agent = agent.to(device)
-
     # normalizer = None
     normalizer = LinearNormalizer(control_mode=action_type).to(device)
     assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
         f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
         f"does not match env action shape {env.action_space.shape[-1]}"
     )
-
-    if args.load_checkpoint is not None:
-        agent.load_state_dict(torch.load(args.load_checkpoint))
 
     env.normalizer = normalizer
 
@@ -687,31 +458,28 @@ if __name__ == "__main__":
     # Print the number of batches in the dataloader
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    # # Load in the weights for the normalizer
-    # normalizer_wts = {
-    #     k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-    # }
-    # print(normalizer.load_state_dict(normalizer_wts))
+    if args.load_checkpoint:
+        wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
 
-    # TRY NOT TO MODIFY: start the game
+        # Filter out keys not starting with "model"
+        model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+        # Change the "model" prefix to "actor_mean"
+        model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+
+        print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
+
+        # Load in the weights for the normalizer
+        normalizer_wts = {
+            k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
+        }
+        print(normalizer.load_state_dict(normalizer_wts))
+
+    agent = agent.to(device)
     global_step = 0
     start_time = time.time()
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
-
-    # import threading
-
-    # # # Create a separate thread for evaluation
-    # eval_thread = threading.Thread(
-    #     target=evaluate_agent, args=(agent, writer, global_step)
-    # )
-
-    # global_step_copy = global_step  # Create a copy of global_step
-    # eval_thread = threading.Thread(
-    #     target=evaluate_agent, args=(agent, writer, global_step_copy)
-    # )
-    # eval_thread.start()
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
@@ -726,33 +494,24 @@ if __name__ == "__main__":
 
         for step in range(0, args.num_steps):
             if iteration == 1 and args.bc_coef == 1 and False:
-                # Skip the first step to avoid the initial randomness
+                # Skip the first step to avoid the initial randomness if we're only doing BC
                 continue
+
             global_step += args.num_envs
             obs[step] = next_obs
             dones[step] = next_done
 
-            # ALGO LOGIC: action logic
-            # bp()
             with torch.no_grad():
-                # bp()
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
-            # Clamp action to be [-5, 5]
+            # Clamp action to be [-5, 5], arbitrary value
             action = torch.clamp(action, -5, 5)
 
-            # Get action from the dataset to test normalization and representations
-            # action = get_dataset_action(demo_data_loader.dataset, step, iteration - 1)
-
-            # TRY NOT TO MODIFY: execute the game and log data.
             naction = (
                 normalizer(action, "action", forward=False) if normalizer else action
             )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
-
-            if (next_obs > 10).any():
-                print("Obs, big value encountered")
 
             actions[step] = action.cpu()
             logprobs[step] = logprob.cpu()
@@ -769,6 +528,8 @@ if __name__ == "__main__":
             print(f"Current return_rms.var: {normrewenv.return_rms.var.item()}")
 
         # Calculate the discounted rewards
+        # TODO: Change this so that it takes into account cyclic resets and multiple episodes
+        # per experience collection iteration
         discounted_rewards = (
             (rewards * args.gamma ** torch.arange(args.num_steps).float().unsqueeze(1))
             .sum(dim=0)
@@ -784,35 +545,6 @@ if __name__ == "__main__":
         print(
             f"Mean return: {discounted_rewards:.4f}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
         )
-
-        # If we've stopped improving from pure BC, then we'll switch to PPO
-        if (
-            args.adaptive_bc_coef
-            and success_rate < running_mean_success_rate
-            and iteration >= 5
-        ):
-            print("Increasing PPO share of the loss function.")
-            # Reduce the learning rate by a factor of 10
-            if decrease_lr_counter < args.n_decrease_lr:
-                args.learning_rate /= 2
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] /= 2
-                decrease_lr_counter += 1
-
-            # Decrease the bc_coef by 10% of its current value
-            args.bc_coef = max(args.min_bc_coef, args.bc_coef * 0.9)
-
-        steps_since_last_randomness_increase += 1
-        if (
-            args.randomness_curriculum
-            and running_mean_success_rate > args.minimum_success_rate
-            and steps_since_last_randomness_increase > 3
-        ):
-            # Increase the randomness of the action space
-            env.increment_randomness()
-            steps_since_last_randomness_increase = 0
-
-        print(f"Learning rate: {args.learning_rate:.2e}, BC coef: {args.bc_coef:.3f}")
 
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_actions = actions.reshape((-1,) + env.action_space.shape)
@@ -836,8 +568,6 @@ if __name__ == "__main__":
         b_advantages = b_advantages.reshape(-1).cpu()
         b_returns = b_returns.reshape(-1).cpu()
 
-        # Print the mean and std of the the part poses
-        # print(f"Mean obs: {b_obs[:, 14:].mean(dim=0)}")
         agent.train()
 
         # Optimizing the policy and value network
@@ -880,6 +610,8 @@ if __name__ == "__main__":
                         mb_advantages.std() + 1e-8
                     )
 
+                policy_loss = 0
+
                 # Policy loss
                 pg_loss1 = -mb_advantages * ratio
                 pg_loss2 = -mb_advantages * torch.clamp(
@@ -906,7 +638,9 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean() * args.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
-                policy_loss = ppo_loss
+
+                if iteration > args.n_iterations_train_only_value:
+                    policy_loss += ppo_loss
 
                 # Behavior cloning loss
                 if args.bc_coef > 0:
@@ -1034,16 +768,6 @@ if __name__ == "__main__":
         writer.add_histogram("histograms/advantages", advantages, global_step)
         writer.add_histogram("histograms/logprobs", logprobs, global_step)
         writer.add_histogram("histograms/rewards", rewards, global_step)
-
-        # Add histograms for the actions
-        # writer.add_histogram("actions/x", actions[..., 0], global_step)
-        # writer.add_histogram("actions/y", actions[..., 1], global_step)
-        # writer.add_histogram("actions/z", actions[..., 2], global_step)
-
-        # Add the mean of the actions
-        # writer.add_scalar("actions/x_mean", actions[..., 0].mean(), global_step)
-        # writer.add_scalar("actions/y_mean", actions[..., 1].mean(), global_step)
-        # writer.add_scalar("actions/z_mean", actions[..., 2].mean(), global_step)
 
         # Log the current randomness of the environment
         writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)

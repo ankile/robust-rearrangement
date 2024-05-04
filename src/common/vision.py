@@ -31,6 +31,7 @@ class FrontCameraTransform(nn.Module):
         self.transform_eval = transforms.CenterCrop(crop_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[1:3] == (240, 320), f"Invalid input shape: {x.shape}"
         if self.mode == "train":
             return self.transform_train(x)
         elif self.mode == "eval":

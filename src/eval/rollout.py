@@ -58,11 +58,11 @@ def rollout(
     resize_video: bool = True,
 ):
     # get first observation
-    with suppress_all_output(True):
+    with suppress_all_output(False):
         obs = env.reset()
 
     if env.furniture_name == "lamp":
-        # Before we start, let the environment settle by doing nothing for 1 second
+        # Before we start, let the environment settle by doing nothing for 5 second
         for _ in range(50):
             obs, reward, done, _ = env.step_noop()
 
@@ -159,6 +159,7 @@ def calculate_success_rate(
     n_parts_assemble: Union[int, None] = None,
     compress_pickles: bool = False,
     resize_video: bool = True,
+    n_steps_padding: int = 30,
 ) -> RolloutStats:
     def pbar_desc(self: tqdm, i: int, n_success: int):
         rnd = i + 1
@@ -247,9 +248,12 @@ def calculate_success_rate(
                 np.where(rewards == 1)[0][-1] + 1 if success else rollout_max_steps
             )
 
+            n_steps += n_steps_padding
+            trim_start_steps = 0
+
             # Stack the two videos side by side into a single video
             # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
-            video = np.concatenate([video1, video2], axis=2)[:n_steps]
+            video = np.concatenate([video1, video2], axis=2)[trim_start_steps:n_steps]
             video = create_in_memory_mp4(video, fps=20)
 
             # Calculate the reward and return for this rollout
@@ -270,12 +274,12 @@ def calculate_success_rate(
             if rollout_save_dir is not None and (save_failures or success):
                 # Save the raw rollout data
                 save_raw_rollout(
-                    robot_states=robot_states[: n_steps + 1],
-                    imgs1=video1[: n_steps + 1],
-                    imgs2=video2[: n_steps + 1],
-                    parts_poses=parts_poses[: n_steps + 1],
-                    actions=actions[:n_steps],
-                    rewards=rewards[:n_steps],
+                    robot_states=robot_states[trim_start_steps : n_steps + 1],
+                    imgs1=video1[trim_start_steps : n_steps + 1],
+                    imgs2=video2[trim_start_steps : n_steps + 1],
+                    parts_poses=parts_poses[trim_start_steps : n_steps + 1],
+                    actions=actions[trim_start_steps:n_steps],
+                    rewards=rewards[trim_start_steps:n_steps],
                     success=success,
                     furniture=furniture,
                     action_type=env.action_type,
@@ -324,6 +328,7 @@ def do_rollout_evaluation(
 
     if save_rollouts:
         rollout_save_dir = trajectory_save_dir(
+            controller=env.ctrl_mode,
             environment="sim",
             task=env.furniture_name,
             demo_source="rollout",

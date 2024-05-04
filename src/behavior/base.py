@@ -34,6 +34,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     feature_dropout: bool = False
     feature_layernorm: bool = False
     state_noise: bool = False
+    proprioception_dropout: float = 0.0
 
     encoding_dim: int
     augment_image: bool = False
@@ -122,7 +123,9 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             )
 
             # Apply the regularization to the features
-            feature1, feature2 = self.regularize_features(feature1, feature2)
+            if self.feature_layernorm:
+                feature1 = self.layernorm1(feature1)
+                feature2 = self.layernorm2(feature2)
 
             # Reshape concatenate the features
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
@@ -147,10 +150,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     def regularize_features(
         self, feature1: torch.Tensor, feature2: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.feature_layernorm:
-            feature1 = self.layernorm1(feature1)
-            feature2 = self.layernorm2(feature2)
-
         if self.training and self.feature_dropout:
             print("[WARNING] Make sure this is disabled during evaluation")
             feature1 = self.dropout(feature1)
@@ -167,7 +166,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     def _training_obs(self, batch, flatten: bool = True):
 
         # Check if we're in training mode and we want to add noise to the robot state
-
         if self.training and self.state_noise:
             # The robot state is already normalized in the dataset
             nrobot_state = batch["robot_state"]
@@ -193,6 +191,22 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             nrobot_state[mask, :, :3] = pos[mask]
             nrobot_state[mask, :, 3:9] = rot[mask]
 
+            batch["robot_state"] = nrobot_state
+
+        if self.training and self.proprioception_dropout > 0:
+            # The robot state is already normalized in the dataset
+            nrobot_state = batch["robot_state"]
+            B = nrobot_state.shape[0]
+
+            # Apply dropout to the full robot state with probability of self.proprioception_dropout
+            mask = (
+                torch.rand(B, self.obs_horizon, 1, device=self.device)
+                > self.proprioception_dropout
+            )
+            nrobot_state = nrobot_state * mask
+
+            batch["robot_state"] = nrobot_state
+
         if self.observation_type == "image":
             # The robot state is already normalized in the dataset
             nrobot_state = batch["robot_state"]
@@ -213,6 +227,13 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 B, self.obs_horizon, -1
             )
 
+            # Apply the regularization to the features
+            feature1, feature2 = self.regularize_features(feature1, feature2)
+
+            if self.feature_layernorm:
+                feature1 = self.layernorm1(feature1)
+                feature2 = self.layernorm2(feature2)
+
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
 
@@ -226,6 +247,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Apply the regularization to the features
             feature1, feature2 = self.regularize_features(feature1, feature2)
+
+            if self.feature_layernorm:
+                feature1 = self.layernorm1(feature1)
+                feature2 = self.layernorm2(feature2)
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)

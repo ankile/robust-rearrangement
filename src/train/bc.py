@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 from src.common.context import suppress_stdout
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
     import furniture_bench
@@ -16,7 +17,7 @@ from src.dataset.dataset import (
 )
 from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env
+from src.gym import get_env, get_rl_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
@@ -81,7 +82,8 @@ def main(config: DictConfig):
     )
 
     data_path = get_processed_paths(
-        environment=to_native(config.data.environment),
+        controller=to_native(config.control.controller),
+        domain=to_native(config.data.environment),
         task=to_native(config.data.furniture),
         demo_source=to_native(config.data.demo_source),
         randomness=to_native(config.data.randomness),
@@ -179,15 +181,6 @@ def main(config: DictConfig):
         drop_last=False,
         persistent_workers=False,
     )
-    # trainloader = DataLoader(
-    #     dataset=train_dataset,
-    #     batch_size=config.training.batch_size,
-    #     num_workers=config.data.dataloader_workers,
-    #     shuffle=True,
-    #     pin_memory=True,
-    #     drop_last=False,
-    #     persistent_workers=False,
-    # )
 
     testloader = DataLoader(
         dataset=test_dataset,
@@ -356,6 +349,17 @@ def main(config: DictConfig):
             )
             wandb.save(save_path)
 
+        if (
+            config.training.checkpoint_model
+            and (epoch_idx + 1) % config.training.checkpoint_interval == 0
+        ):
+            save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
+            torch.save(
+                actor.state_dict(),
+                save_path,
+            )
+            wandb.save(save_path)
+
         # Early stopping
         if early_stopper.update(test_loss_mean):
             print(
@@ -399,7 +403,8 @@ def main(config: DictConfig):
             if env is None:
                 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-                env: FurnitureSimEnv = get_env(
+                # env: FurnitureSimEnv = get_env(
+                env: FurnitureRLSimEnv = get_rl_env(
                     config.training.gpu_id,
                     furniture=config.rollout.furniture,
                     num_envs=config.rollout.num_envs,

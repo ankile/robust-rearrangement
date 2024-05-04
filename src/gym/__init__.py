@@ -41,6 +41,14 @@ def get_env(
 
     if observation_space == "image":
         obs_keys = DEFAULT_VISUAL_OBS + ["parts_poses"]
+        # obs_keys = [
+        #     "robot_state/ee_pos",
+        #     "robot_state/ee_quat",
+        #     # "robot_state/gripper_width",
+        #     "color_image1",
+        #     "color_image2",
+        #     "parts_poses",
+        # ]
     elif observation_space == "state":
         obs_keys = DEFAULT_STATE_OBS
     else:
@@ -86,9 +94,9 @@ def get_rl_env(
     resize_img=True,
     observation_space="image",  # Observation space for the robot. Options are 'image' and 'state'.
     act_rot_repr="quat",
-    ctrl_mode: str = "osc",
-    action_type="delta",  # Action type for the robot. Options are 'delta' and 'pos'.
-    april_tags=True,
+    ctrl_mode: str = "diffik",
+    action_type="pos",  # Action type for the robot. Options are 'delta' and 'pos'.
+    april_tags=False,
     verbose=False,
     headless=True,
     **kwargs,

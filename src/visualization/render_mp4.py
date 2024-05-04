@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Union
 
+import cv2
 import imageio
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
@@ -13,6 +14,41 @@ import numpy as np
 import torch
 from IPython.display import HTML, display
 from tqdm import tqdm
+
+
+def format_speedup(fps):
+    speedup = fps / 10
+    if speedup.is_integer():
+        return f"{int(speedup)}x"
+    else:
+        return f"{speedup:.1f}x"
+
+
+def annotate_frames_with_speed(frames: np.ndarray, fps: int) -> np.ndarray:
+    assert (
+        len(frames.shape) == 4
+    ), "Frames must be a 4D array (batch, height, width, channels)"
+
+    frames = np.array(
+        [
+            cv2.putText(
+                frame,
+                format_speedup(fps),
+                (
+                    frame.shape[1] - 55,
+                    frame.shape[0] - 15,
+                ),  # Adjusted position of the text
+                cv2.FONT_HERSHEY_SIMPLEX,  # Font type
+                1,  # Font scale (doubled)
+                (255, 255, 255),  # Text color (white)
+                2,  # Text thickness (doubled)
+                cv2.LINE_AA,  # Line type for better rendering
+            )
+            for frame in frames
+        ]
+    )
+
+    return frames
 
 
 def create_mp4_jupyter(np_images, filename, fps=10):
@@ -26,8 +62,17 @@ def create_mp4_jupyter(np_images, filename, fps=10):
     return display(HTML(video_tag))
 
 
-def mp4_from_pickle_jupyter(pickle_path: Union[str, Path], filename=None, fps=10):
+def mp4_from_pickle_jupyter(
+    pickle_path: Union[str, Path],
+    filename=None,
+    fps=10,
+    speed_annotation=False,
+):
     ims = extract_numpy_frames(pickle_path)
+
+    if speed_annotation:
+        ims = annotate_frames_with_speed(ims, fps)
+
     return create_mp4_jupyter(ims, filename, fps)
 
 

@@ -19,9 +19,9 @@ from src.visualization.render_mp4 import unpickle_data
 from src.common.geometry import (
     np_proprioceptive_quat_to_6d_rotation,
     np_action_quat_to_6d_rotation,
-    np_extract_ee_pose_6d,
     np_apply_quat,
 )
+from src.data_processing.utils import resize, resize_crop
 from src.data_processing.utils import clip_quat_xyzw_magnitude
 
 from ipdb import set_trace as bp  # noqa
@@ -96,6 +96,23 @@ def process_pickle_file(
     # Extract the observations from the pickle file and convert to 6D rotation
     color_image1 = np.array([o["color_image1"] for o in obs], dtype=np.uint8)
     color_image2 = np.array([o["color_image2"] for o in obs], dtype=np.uint8)
+
+    assert (
+        color_image1.shape == color_image2.shape
+    ), "Color images have different shapes"
+
+    if color_image1.shape[1:] != (240, 320, 3):
+        # We only resize the wrist image to keep the gripper fingers in view
+        color_image1 = resize(color_image1)
+
+        # The front camera is also cropped as we don't need the edges
+        color_image2 = resize_crop(color_image2)
+
+    assert color_image1.shape[1:] == (
+        240,
+        320,
+        3,
+    ), f"Color image 1 has shape {color_image1.shape[1:]}"
 
     if isinstance(obs[0]["robot_state"], dict):
         # Convert the robot state to a numpy array
@@ -219,33 +236,43 @@ def parallel_process_pickle_files(
         "pickle_file": [],
     }
 
-    # Process files in parallel
-    with ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = [
-            executor.submit(
-                process_pickle_file,
-                path,
-                noop_threshold,
-                calculate_pos_action_from_delta,
+    def aggregate_data(data):
+        for key in data:
+            if key == "episode_length":
+                # Calculate and append to episode_ends
+                last_end = (
+                    aggregated_data["episode_ends"][-1]
+                    if len(aggregated_data["episode_ends"]) > 0
+                    else 0
+                )
+                aggregated_data["episode_ends"].append(last_end + data[key])
+            else:
+                aggregated_data[key].append(data[key])
+
+    if num_threads == 1:
+        # Run synchronous version
+        for path in tqdm(pickle_paths, desc="Processing files"):
+            data = process_pickle_file(
+                path, noop_threshold, calculate_pos_action_from_delta
             )
-            for path in pickle_paths
-        ]
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Processing files"
-        ):
-            data = future.result()
-            # Aggregate data from each file
-            for key in data:
-                if key == "episode_length":
-                    # Calculate and append to episode_ends
-                    last_end = (
-                        aggregated_data["episode_ends"][-1]
-                        if len(aggregated_data["episode_ends"]) > 0
-                        else 0
-                    )
-                    aggregated_data["episode_ends"].append(last_end + data[key])
-                else:
-                    aggregated_data[key].append(data[key])
+            aggregate_data(data)
+    else:
+        # Run threaded version
+        with ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [
+                executor.submit(
+                    process_pickle_file,
+                    path,
+                    noop_threshold,
+                    calculate_pos_action_from_delta,
+                )
+                for path in pickle_paths
+            ]
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Processing files"
+            ):
+                data = future.result()
+                aggregate_data(data)
 
     # Convert lists to numpy arrays for numerical data
     for key in tqdm(
@@ -295,6 +322,13 @@ def parallel_write_to_zarr(z, aggregated_data, num_threads):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "--controller",
+        "-c",
+        type=str,
+        required=True,
+        choices=["osc", "diffik"],
+    )
+    parser.add_argument(
         "--domain", "-d", type=str, nargs="+", default=None, choices=["sim", "real"]
     )
     parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
@@ -335,7 +369,8 @@ if __name__ == "__main__":
 
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
-            environment=args.domain,
+            controller=args.controller,
+            domain=args.domain,
             task=args.furniture,
             demo_source=args.source,
             randomness=args.randomness,
@@ -355,7 +390,8 @@ if __name__ == "__main__":
     print(f"Found {len(pickle_paths)} pickle files")
 
     output_path = get_processed_path(
-        environment=args.domain,
+        controller=args.controller,
+        domain=args.domain,
         task=args.furniture,
         demo_source=args.source,
         randomness=args.randomness,

@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /vision_encoder: resnet
+  - override /vision_encoder: r3m
 
 observation_type: image
 
@@ -19,21 +19,16 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 20
 
 regularization:
   feature_layernorm: false
   feature_noise: false
   feature_dropout: false
-  proprioception_dropout: 0.0
 
 furniture: ???
 randomness: low
 demo_source: teleop
 environment: real
-
-early_stopper:
-  patience: 10
 
 wandb:
   project: real-place-shade-1

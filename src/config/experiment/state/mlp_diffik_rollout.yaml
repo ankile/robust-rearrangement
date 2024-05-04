@@ -9,7 +9,7 @@ actor:
 
 rollout:
   every: 5
-  max_steps: 650
+  max_steps: 1000
   num_envs: 256
 
 observation_type: state
@@ -20,18 +20,17 @@ control:
 action_horizon: 8
 pred_horizon: 16
 obs_horizon: 1
-  
+
 data:
   data_subset: null
   dataloader_workers: 20
-  suffix: diffik
 
 training:
   batch_size: 1024
 
 furniture: ???
 randomness: low
-demo_source: rollout
+demo_source: [teleop, rollout]
 
 wandb:
   project: ${furniture}-mlp-state-1

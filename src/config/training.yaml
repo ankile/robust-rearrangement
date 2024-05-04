@@ -7,7 +7,7 @@ training:
   clip_sample: true
   mixed_precision: false
   
-  num_epochs: 400
+  num_epochs: 200
   batch_size: 64
   start_epoch: 0
   steps_per_epoch: 400
@@ -15,6 +15,7 @@ training:
   load_checkpoint_run_id: null
   checkpoint_model: true
   model_save_dir: models
+  checkpoint_interval: -1
 
   ema:
     use: false

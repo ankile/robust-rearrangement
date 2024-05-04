@@ -2,15 +2,14 @@
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
 #SBATCH -q vision-pulkitag-main
-#SBATCH --job-name=oneleg_state_diffik_mlp
-#SBATCH --output=output_%j.log
+#SBATCH --job-name=real_shade_diffusion
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64GB
-#SBATCH --time=24:00:00
+#SBATCH --time=0-12:00
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg \
-    action_horizon=16 pred_horizon=8 dryrun=false
+python -m src.train.bc +experiment=image/real_place_shade_mlp furniture=place_shade \
+    data.normalization=none dryrun=false training.ema.use=true training.ema.switch=true
