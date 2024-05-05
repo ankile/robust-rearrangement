@@ -16,6 +16,8 @@ hydra:
 action_horizon: 8
 pred_horizon: 16
 obs_horizon: 2
+predict_past_actions: false
+
 observation_type: image
 furniture: ???
 environment: sim

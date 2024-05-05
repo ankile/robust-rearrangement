@@ -5,6 +5,7 @@ data:
   pred_horizon: ${pred_horizon}
   obs_horizon: ${obs_horizon}
   action_horizon: ${action_horizon}
+  predict_past_actions: ${predict_past_actions}
   augment_image: false
   environment: ${environment}
   furniture: ${furniture}

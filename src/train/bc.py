@@ -92,6 +92,9 @@ def main(config: DictConfig):
     print(f"Using data from {data_path}")
 
     if config.observation_type == "image":
+        raise ValueError(
+            "Implement the `predict_past_actions` code for image observations"
+        )
         dataset = FurnitureImageDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
@@ -112,7 +115,7 @@ def main(config: DictConfig):
             action_horizon=config.data.action_horizon,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
-            first_action_idx=config.actor.first_action_index,
+            predict_past_actions=config.data.predict_past_actions,
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
         )
