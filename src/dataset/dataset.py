@@ -85,7 +85,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         action_horizon: int,
         augment_image: bool = False,
         data_subset: int = None,
-        first_action_idx: int = 0,
+        predict_past_actions: bool = False,
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
@@ -145,9 +145,12 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # compute start and end of each state-action sequence
         # also handles padding
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
         self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
-            sequence_length=pred_horizon,
+            sequence_length=self.sequence_length,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1 if pad_after else 0,
         )
@@ -155,6 +158,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Add image augmentation
         self.augment_image = augment_image
         # NOTE: Should this be only in the actor class?
+        print("[NB] Consider if the camera transforms should be in the dataset")
         self.image1_transform = WristCameraTransform(
             mode="train" if augment_image else "eval"
         )
@@ -173,12 +177,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
 
-        # Take into account possibility of predicting an action that doesn't align with the first observation
-        # TODO: Verify this works with the BC_RNN baseline
-        self.first_action_idx = first_action_idx
-        if first_action_idx < 0:
-            self.first_action_idx = self.obs_horizon + first_action_idx
-
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
 
         if self.augment_image:
@@ -202,7 +203,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # get normalized data using these indices
         nsample = sample_sequence(
             train_data=self.train_data,
-            sequence_length=self.pred_horizon,
+            sequence_length=self.sequence_length,
             buffer_start_idx=buffer_start_idx,
             buffer_end_idx=buffer_end_idx,
             sample_start_idx=sample_start_idx,
@@ -210,6 +211,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # Discard unused observations
+        # TODO: This is where a performance improvement can be made, i.e., don't load
+        # the full image sequence if we're only going to use a subset of it
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
@@ -220,6 +223,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         ]
 
         # Apply the image augmentation
+        # TODO: Remove this changing back and forth of channels first and last
         nsample["color_image1"] = torch.stack(
             [
                 self.image1_transform(img)
@@ -380,12 +384,12 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         # compute start and end of each state-action sequence
         # also handles padding
         # If we only predict the future, we need to make sure we have enough actions to predict
-        sequence_length = (
+        self.sequence_length = (
             pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
         )
         self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
-            sequence_length=sequence_length,
+            sequence_length=self.sequence_length,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1 if pad_after else 0,
         )
@@ -427,14 +431,9 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         ) = self.indices[idx]
 
         # get normalized data using these indices
-        sequence_length = (
-            self.pred_horizon
-            if self.predict_past_actions
-            else self.obs_horizon + self.pred_horizon - 1
-        )
         nsample = sample_sequence(
             train_data=self.train_data,
-            sequence_length=sequence_length,
+            sequence_length=self.sequence_length,
             buffer_start_idx=buffer_start_idx,
             buffer_end_idx=buffer_end_idx,
             sample_start_idx=sample_start_idx,
