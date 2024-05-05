@@ -33,7 +33,6 @@ from typing import List
 from omegaconf import OmegaConf, DictConfig
 from src.behavior.base import Actor  # noqa
 from src.behavior import get_actor
-from src.dataset import get_normalizer
 from src.data_processing.utils import resize, resize_crop
 from ipdb import set_trace as bp
 
@@ -88,6 +87,105 @@ def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     return rot_6d
 
 
+class CollectInferHelper:
+    def __init__(self, args, demo_save_dir=None):
+        self.args = args
+        self.demo_save_dir = demo_save_dir
+        self.episode_data = None
+
+        self.init_episode()
+
+    def init_episode(self):
+        print(f"New episode")
+        episode_data = {}
+        episode_data["observations"] = []
+        episode_data["actions"] = []
+        episode_data["furniture"] = self.args.furniture
+        # assume all real world demos that we actually save are success
+        episode_data["success"] = True
+        episode_data["args"] = self.args.__dict__
+
+        self.episode_data = episode_data
+        self.is_recording = False
+        return episode_data
+
+    def set_recording(self, record: bool):
+        if self.is_recording:
+            return
+        self.is_recording = record
+        if record:
+            print(f"Starting to record...")
+
+    @staticmethod
+    def to_isaac_dpose_from_abs(obs, abs_action, rm=True):
+        """
+        Convert from absolute current and desired pose to delta pose
+
+        Args:
+            rm (bool): 'rm' stands for 'right multiplication' - If True, assume commands send as right multiply (local rotations)
+        """
+        # get the current pose mat from the observation
+        current_pose_mat = np.eye(4)
+        current_pose_mat[:-1, -1] = obs["robot_state"][0, :3].cpu().numpy()
+        current_pose_mat[:-1, :-1] = st.Rotation.from_quat(
+            obs["robot_state"][0, 3:7].cpu().numpy()
+        ).as_matrix()
+
+        # get the absolute goal pose from the action
+        goal_pose_mat = np.eye(4)
+        goal_pose_mat[:-1, -1] = abs_action[0, :3].cpu().numpy()
+        goal_pose_mat[:-1, :-1] = st.Rotation.from_quat(
+            abs_action[0, 3:7].cpu().numpy()
+        ).as_matrix()
+
+        # get the grasp flag
+        grasp_flag = abs_action[-1].cpu().numpy().reshape(-1)
+
+        # convert to delta
+        if rm:
+            delta_rot_mat = (
+                np.linalg.inv(current_pose_mat[:-1, :-1]) @ goal_pose_mat[:-1, :-1]
+            )
+        else:
+            delta_rot_mat = goal_pose_mat[:-1:-1] @ np.linalg.inv(
+                current_pose_mat[:-1, :-1]
+            )
+
+        target_translation = goal_pose_mat[:-1, -1] - current_pose_mat[:-1, -1]
+        target_quat_xyzw = st.Rotation.from_matrix(delta_rot_mat).as_quat()
+
+        target_dpose = np.concatenate(
+            (target_translation, target_quat_xyzw, grasp_flag), axis=-1
+        ).reshape(1, -1)
+
+        return target_dpose
+
+    def log(self, abs_action, obs):
+        delta_action = self.to_isaac_dpose_from_abs(obs=obs, abs_action=abs_action)
+        self.episode_data["actions"].append(delta_action)
+        self.episode_data["observations"].append(obs)
+
+    def save_pkl(self, init_new=True):
+        if not self.is_recording:
+            print(
+                f'Cannot save pkl unless "is_recording" flag is set with "set_is_recording"!'
+            )
+            return
+
+        # save the data
+        pkl_path = (
+            self.demo_save_dir / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
+        )
+        print(
+            f"Saving trajectory with {len(self.episode_data['actions'])} transitions to folder: {pkl_path}"
+        )
+        with open(pkl_path, "wb") as f:
+            pickle.dump(self.episode_data, f)
+
+        if init_new:
+            self.init_episode()
+
+
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -113,6 +211,9 @@ parser.add_argument("--multitask", action="store_true")
 parser.add_argument("-ex", "--execute", action="store_true")
 parser.add_argument("-s", "--state_only", action="store_true")
 parser.add_argument("-w", "--wts-name", default="best", type=str)
+parser.add_argument("--log-ci", action="store_true")
+parser.add_argument("--ci-save-dir", type=str, default=None)
+parser.add_argument("--furniture", type=str, default=None)
 
 args = parser.parse_args()
 
@@ -445,22 +546,13 @@ def main():
         # flags={"readonly": True},
     )
 
-    # Get the normalizer
-    normalizer_type = config.get("data", {}).get("normalization", "min_max")
-    normalizer = get_normalizer(
-        normalizer_type=normalizer_type,
-        control_mode=config.control.control_mode,
-    )
-
     print(OmegaConf.to_yaml(config))
 
     # Make the actor
-    actor: Actor = get_actor(cfg=config, normalizer=normalizer, device=device)
+    actor: Actor = get_actor(cfg=config, device=device)
 
     # Load the model weights
-    state_dict = torch.load(model_path)
-
-    actor.load_state_dict(state_dict)
+    actor.load_state_dict(torch.load(model_path))
     actor.eval()
     actor.cuda()
 
@@ -497,10 +589,47 @@ def main():
     env.set_start(t_start)
     env.set_timing(iter_idx=0, dt=dt, command_latency=command_latency)
 
+    # Make structs and keyboard interface for easy collect and infer logging if we want it
+    keyboard = KeyboardInterface()
+    demo_save_dir = None
+    if args.log_ci:
+        assert (
+            args.ci_save_dir is not None
+        ), f"Must set args.ci_save_dir to run with args.log_ci True"
+        demo_save_dir = Path(args.ci_save_dir)
+        demo_save_dir.mkdir(exist_ok=True, parents=True)
+
+        assert (
+            args.furniture is not None
+        ), f"Must set args.furniture to run with args.log_ci True"
+    ci_helper = CollectInferHelper(args=args, demo_save_dir=demo_save_dir)
+
+    print(f"Starting evaluation...\n\n\n")
+    time.sleep(1.0)
+
     while True:
 
         # Get the next actions from the actor
         action_pred = actor.action(obs_deque)
+
+        # Catch keyboard press, and potentially start recording new episode
+        _, collect_enum = keyboard.get_action()
+        ci_helper.set_recording(collect_enum == CollectEnum.RECORD)
+
+        if args.log_ci and ci_helper.is_recording:
+            # log the data
+            ci_helper.log(action_pred, obs)
+
+            if collect_enum == CollectEnum.SUCCESS:
+                # save recent segment of trajectory
+                ci_helper.save_pkl()
+                time.sleep(2.0)
+            elif collect_enum == CollectEnum.FAIL:
+                # new episode, but don't save
+                ci_helper.init_episode()
+                time.sleep(2.0)
+            else:
+                pass
 
         obs, reward, done, _ = env.step(action_pred[0])
 

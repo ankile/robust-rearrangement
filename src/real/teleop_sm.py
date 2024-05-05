@@ -440,6 +440,7 @@ def main():
                         current_pose_mat=action_current_pose_mat,
                         goal_pose_mat=action_next_pose_mat,
                         grasp_flag=grasp_flag,
+                        rm=True,
                     )
                     episode_data["actions"].append(action)
                     episode_data["observations"].append(observation)
