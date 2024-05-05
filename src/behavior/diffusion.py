@@ -3,22 +3,25 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
 
-from src.dataset.normalizer import Normalizer
+from src.dataset.normalizer import LinearNormalizer
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
 from src.common.control import RotationMode
 from src.models import get_diffusion_backbone, get_encoder
+from src.models.vib import VIB
 
 from ipdb import set_trace as bp  # noqa
 from typing import Union
 
+import wandb
+
 
 class DiffusionPolicy(Actor):
+
     def __init__(
         self,
         device: Union[str, torch.device],
-        normalizer: Normalizer,
         config: DictConfig,
     ) -> None:
         super().__init__()
@@ -44,6 +47,13 @@ class DiffusionPolicy(Actor):
         self.proprioception_dropout = config.regularization.get(
             "proprioception_dropout", 0.0
         )
+        self.front_camera_dropout = config.regularization.get(
+            "front_camera_dropout", 0.0
+        )
+
+        self.vib_front_feature_beta = config.regularization.get(
+            "vib_front_feature_beta", 0.0
+        )
 
         self.device = device
 
@@ -62,8 +72,6 @@ class DiffusionPolicy(Actor):
         )
 
         # Convert the stats to tensors on the device
-        self.normalizer = normalizer.to(device)
-
         if self.observation_type == "image":
             self._initiate_image_encoder(config)
 
@@ -232,6 +240,18 @@ class DiffusionPolicy(Actor):
         noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
         loss = self.loss_fn(noise_pred, noise)
 
+        # Add the VIB loss
+        if self.camera_2_vib is not None:
+            mu, log_var = batch["mu"], batch["log_var"]
+            vib_loss = self.camera_2_vib.kl_divergence(mu, log_var)
+
+            # Clip the VIB loss to prevent it from dominating the total loss
+            wandb.log({"vib_loss": vib_loss.item(), "bc_loss": loss.item()})
+            vib_loss = torch.clamp(vib_loss, max=1)
+
+            # Scale the VIB loss by the beta and add it to the total loss
+            loss += self.vib_front_feature_beta * vib_loss
+
         return loss
 
 
@@ -243,9 +263,12 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: Normalizer,
+        normalizer: LinearNormalizer,
         config,
     ) -> None:
+        raise NotImplementedError(
+            "Multitask diffusion actor is not supported at the moment."
+        )
         super().__init__(
             device=device,
             encoder_name=encoder_name,
@@ -323,7 +346,7 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
         device: Union[str, torch.device],
         encoder_name: str,
         freeze_encoder: bool,
-        normalizer: Normalizer,
+        normalizer: LinearNormalizer,
         config,
     ) -> None:
         super().__init__(
