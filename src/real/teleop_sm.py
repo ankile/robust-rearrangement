@@ -56,6 +56,7 @@ def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monoton
 class ActionContainer:
     def __init__(
         self,
+        current_pose_mat: np.ndarray,
         next_pose_mat: np.ndarray,
         grasp_flag: int,
         action_taken: bool,
@@ -63,6 +64,7 @@ class ActionContainer:
         is_gripper_open: bool,
         toggle_gripper: bool,
     ):
+        self.current_pose_mat = current_pose_mat
         self.next_pose_mat = next_pose_mat
         self.grasp_flag = grasp_flag
         self.action_taken = action_taken
@@ -108,6 +110,32 @@ class ObsActHelper:
         self.last_grip_step = 0
         self.steps_since_grasp = 0
         self.record_latency_when_grasping = 15
+
+    @staticmethod
+    def to_isaac_dpose_from_abs(current_pose_mat, goal_pose_mat, grasp_flag, rm=True):
+        """
+        Convert from absolute current and desired pose to delta pose
+
+        Args:
+            rm (bool): 'rm' stands for 'right multiplication' - If True, assume commands send as right multiply (local rotations)
+        """
+        if rm:
+            delta_rot_mat = (
+                np.linalg.inv(current_pose_mat[:-1, :-1]) @ goal_pose_mat[:-1, :-1]
+            )
+        else:
+            delta_rot_mat = goal_pose_mat[:-1:-1] @ np.linalg.inv(
+                current_pose_mat[:-1, :-1]
+            )
+
+        target_translation = goal_pose_mat[:-1, -1] - current_pose_mat[:-1, -1]
+        target_quat_xyzw = st.Rotation.from_matrix(delta_rot_mat).as_quat()
+
+        target_dpose = np.concatenate(
+            (target_translation, target_quat_xyzw, grasp_flag), axis=-1
+        ).reshape(1, -1)
+
+        return target_dpose
 
     @staticmethod
     def to_pose_mat(pose_):
@@ -179,6 +207,7 @@ class ObsActHelper:
         new_target_pose_mat = self.to_pose_mat(new_target_pose)
 
         action_struct = ActionContainer(
+            current_pose_mat=self.to_pose_mat(self.target_pose),
             next_pose_mat=new_target_pose_mat,
             grasp_flag=self.grasp_flag,
             action_taken=action_taken,
@@ -389,6 +418,7 @@ def main():
 
                 # get and unpack action
                 action_struct = obs_act_helper.get_action()
+                action_current_pose_mat = action_struct.current_pose_mat
                 action_next_pose_mat = action_struct.next_pose_mat
                 grasp_flag = action_struct.grasp_flag
                 action_taken = action_struct.action_taken
@@ -405,8 +435,11 @@ def main():
 
                 # log the data
                 if action_taken:
-                    action = obs_act_helper.posemat2action(
-                        action_next_pose_mat, grasp_flag
+                    # convert to delta actions (where action quat is a right mult.)
+                    action = obs_act_helper.to_isaac_dpose_from_abs(
+                        current_pose_mat=action_current_pose_mat,
+                        goal_pose_mat=action_next_pose_mat,
+                        grasp_flag=grasp_flag,
                     )
                     episode_data["actions"].append(action)
                     episode_data["observations"].append(observation)
