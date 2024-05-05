@@ -112,6 +112,7 @@ parser.add_argument("--verbose", "-v", action="store_true")
 parser.add_argument("--multitask", action="store_true")
 parser.add_argument("-ex", "--execute", action="store_true")
 parser.add_argument("-s", "--state_only", action="store_true")
+parser.add_argument("-w", "--wts-name", default="best", type=str)
 
 args = parser.parse_args()
 
@@ -371,7 +372,7 @@ class SimpleDiffIKFrankaEnv:
         # calculate timing
         # precise_wait(t_cycle_end)
         self.iter_idx += 1
-        time.sleep(0.05)
+        time.sleep(0.01)
 
         # get new obs
         new_obs = self.get_obs()
@@ -421,10 +422,8 @@ def main():
     # Get the run(s) to test
     run: Run = api.run(args.run_id)
 
-    wts_name = "_99"
-
     model_file = [
-        f for f in run.files() if f.name.endswith(".pt") and wts_name in f.name
+        f for f in run.files() if f.name.endswith(".pt") and args.wts_name in f.name
     ][0]
     model_path = model_file.download(
         root=f"./models/{run.name}", exist_ok=True, replace=True
@@ -439,8 +438,8 @@ def main():
             "project_name": run.project,
             "actor": {
                 **run.config["actor"],
-                "inference_steps": 8,
-                "action_horizon": 8,
+                "inference_steps": 16,
+                "action_horizon": 12,
             },
         },
         # flags={"readonly": True},
