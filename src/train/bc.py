@@ -15,14 +15,12 @@ from src.dataset.dataset import (
     FurnitureImageDataset,
     FurnitureStateDataset,
 )
-from src.dataset import get_normalizer
 from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_env, get_rl_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
 from src.dataset.dataloader import FixedStepsDataloader
-from src.dataset.normalizer import Normalizer
 from src.common.pytorch_util import dict_to_device
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
@@ -91,10 +89,6 @@ def main(config: DictConfig):
         suffix=to_native(config.data.suffix),
     )
 
-    normalizer: Normalizer = get_normalizer(
-        config.data.normalization, config.control.control_mode
-    )
-
     print(f"Using data from {data_path}")
 
     if config.observation_type == "image":
@@ -103,7 +97,6 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer,
             augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
@@ -117,13 +110,11 @@ def main(config: DictConfig):
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            normalizer=normalizer,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
             first_action_idx=config.actor.first_action_index,
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
-            act_rot_repr=config.control.act_rot_repr,
         )
     else:
         raise ValueError(f"Unknown observation type: {config.observation_type}")
@@ -143,9 +134,10 @@ def main(config: DictConfig):
     # Create the policy network
     actor = get_actor(
         config,
-        normalizer.get_copy(),
         device,
     )
+    actor.set_normalizer(dataset.normalizer)
+    actor.to(device)
 
     # Set the data path in the config object
     config.data_path = [str(f) for f in data_path]

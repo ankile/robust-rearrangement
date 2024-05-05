@@ -9,7 +9,6 @@ from src.behavior.base import Actor
 from src.models.mlp import MLP
 from src.models import get_encoder
 from src.common.control import RotationMode
-from src.dataset.normalizer import Normalizer
 
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
@@ -24,7 +23,6 @@ class MLPActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__()
@@ -47,9 +45,6 @@ class MLPActor(Actor):
         self.feature_dropout = config.regularization.feature_dropout
         self.feature_layernorm = config.regularization.feature_layernorm
         self.state_noise = config.regularization.get("state_noise", False)
-
-        # Convert the stats to tensors on the device
-        self.normalizer = normalizer.to(device)
 
         encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
         encoder_name = config.vision_encoder.model
@@ -142,11 +137,10 @@ class MLPActor(Actor):
         return loss
 
 
-class MLPStateActor(nn.Module):
+class MLPStateActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        normalizer: Normalizer,
         config,
     ) -> None:
         super().__init__()
@@ -164,13 +158,8 @@ class MLPStateActor(nn.Module):
         # A queue of the next actions to be executed in the current horizon
         self.actions = deque(maxlen=self.action_horizon)
 
-        # Convert the stats to tensors on the device
-        self.normalizer = normalizer.to(device)
-
         # Get the dimension of the parts poses
-        self.parts_poses_dim = (
-            35  # self.normalizer.stats["parts_poses"]["min"].shape[0]
-        )
+        self.parts_poses_dim = 35
 
         self.timestep_obs_dim = config.robot_state_dim + self.parts_poses_dim
 

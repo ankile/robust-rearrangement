@@ -12,7 +12,6 @@ from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
-from src.dataset import get_normalizer
 
 from ipdb import set_trace as bp  # noqa
 import wandb
@@ -355,12 +354,12 @@ if __name__ == "__main__":
                     f"does not match the action type: {args.action_type}"
                 )
 
-                # Get the normalizer
-                normalizer_type = config.get("data", {}).get("normalization", "min_max")
-                normalizer = get_normalizer(
-                    normalizer_type=normalizer_type,
-                    control_mode=config.control.control_mode,
-                )
+                # # Get the normalizer
+                # normalizer_type = config.get("data", {}).get("normalization", "min_max")
+                # normalizer = get_normalizer(
+                #     normalizer_type=normalizer_type,
+                #     control_mode=config.control.control_mode,
+                # )
 
                 # TODO: Fix this properly, but for now have an ugly escape hatch
                 # vision_encoder_field_hotfix(run, config)
@@ -368,27 +367,23 @@ if __name__ == "__main__":
                 print(OmegaConf.to_yaml(config))
 
                 # Make the actor
-                actor: Actor = get_actor(
-                    cfg=config, normalizer=normalizer, device=device
-                )
+                actor: Actor = get_actor(cfg=config, device=device)
 
-                print("NBNB: This is a hack to load the model weights, please fix soon")
-                # TODO: Fix this properly, but for now have an ugly escape hatch
-                import torch.nn as nn
+                # print("NBNB: This is a hack to load the model weights, please fix soon")
+                # # TODO: Fix this properly, but for now have an ugly escape hatch
+                # import torch.nn as nn
 
-                actor.normalizer.stats["parts_poses"] = nn.ParameterDict(
-                    {
-                        "min": nn.Parameter(torch.zeros(35)),
-                        "max": nn.Parameter(torch.ones(35)),
-                    }
-                )
+                # actor.normalizer.stats["parts_poses"] = nn.ParameterDict(
+                #     {
+                #         "min": nn.Parameter(torch.zeros(35)),
+                #         "max": nn.Parameter(torch.ones(35)),
+                #     }
+                # )
 
                 state_dict = torch.load(model_path)
 
-                actor_state_dict = actor.state_dict()
-
-                # Load the model weights
-                convert_state_dict(state_dict)
+                # # Load the model weights
+                # convert_state_dict(state_dict)
 
                 actor.load_state_dict(state_dict)
                 actor.eval()
