@@ -1,10 +1,9 @@
 from omegaconf import DictConfig
 
 from src.behavior.base import Actor
-from src.dataset.normalizer import Normalizer
 
 
-def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
+def get_actor(cfg: DictConfig, device) -> Actor:
     """Returns an actor model."""
     actor_name = cfg.actor.name
     obs_type = cfg.observation_type
@@ -18,7 +17,6 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
 
             return MLPActor(
                 device=device,
-                normalizer=normalizer,
                 config=cfg,
             )
 
@@ -27,7 +25,6 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
 
             return MLPStateActor(
                 device=device,
-                normalizer=normalizer,
                 config=cfg,
             )
 
@@ -64,7 +61,6 @@ def get_actor(cfg: DictConfig, normalizer: Normalizer, device) -> Actor:
 
             return DiffusionPolicy(
                 device=device,
-                normalizer=normalizer,
                 config=cfg,
             )
     elif actor_name == "guided_diffusion":

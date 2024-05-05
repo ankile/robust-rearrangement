@@ -1,9 +1,9 @@
 from pathlib import Path
 import numpy as np
 import torch
-from typing import Union, List
+from typing import Dict, Union, List
 
-from src.dataset.normalizer import Normalizer
+from src.dataset.normalizer import LinearNormalizer
 from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
@@ -50,13 +50,13 @@ def create_sample_indices(
 
 
 def sample_sequence(
-    train_data,
-    sequence_length,
-    buffer_start_idx,
-    buffer_end_idx,
-    sample_start_idx,
-    sample_end_idx,
-):
+    train_data: Dict[str, torch.Tensor],
+    sequence_length: int,
+    buffer_start_idx: int,
+    buffer_end_idx: int,
+    sample_start_idx: int,
+    sample_end_idx: int,
+) -> Dict[str, torch.Tensor]:
     result = dict()
     for key, input_arr in train_data.items():
         sample = input_arr[buffer_start_idx:buffer_end_idx]
@@ -81,7 +81,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: Normalizer,
         augment_image: bool = False,
         data_subset: int = None,
         first_action_idx: int = 0,
@@ -94,7 +93,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.obs_horizon = obs_horizon
         self.control_mode = control_mode
 
-        normalizer = normalizer.cpu()
+        self.normalizer = LinearNormalizer()
 
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
@@ -121,15 +120,26 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         self.train_data = {
-            "color_image1": torch.from_numpy(combined_data["color_image1"]),
-            "color_image2": torch.from_numpy(combined_data["color_image2"]),
             "robot_state": torch.from_numpy(combined_data["robot_state"]),
             "action": torch.from_numpy(combined_data[f"action/{control_mode}"]),
         }
 
+        # Fit the normalizer to the data
+        self.normalizer.fit(self.train_data)
+
         # Normalize data to [-1,1]
-        for key in normalizer.keys():
-            self.train_data[key] = normalizer(self.train_data[key], key, forward=True)
+        for key in self.normalizer.keys():
+            self.train_data[key] = self.normalizer(
+                self.train_data[key], key, forward=True
+            )
+
+        # Add the color images to the train_data (it's not supposed to be normalized)
+        self.train_data["color_image1"] = torch.from_numpy(
+            combined_data["color_image1"]
+        )
+        self.train_data["color_image2"] = torch.from_numpy(
+            combined_data["color_image2"]
+        )
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -142,6 +152,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add image augmentation
         self.augment_image = augment_image
+        # NOTE: Should this be only in the actor class?
         self.image1_transform = WristCameraTransform(
             mode="train" if augment_image else "eval"
         )
@@ -245,11 +256,9 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        normalizer: Union[Normalizer, None],
         data_subset: int = None,
         first_action_idx: int = 0,
         control_mode: ControlMode = ControlMode.delta,
-        act_rot_repr: str = "quat",
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
         task: str = None,
@@ -295,26 +304,18 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             "action": action,
         }
 
-        if normalizer is not None:
-            normalizer.cpu()
-            for key in self.train_data:
-                if key in normalizer.keys():
-                    continue
-                normalizer.fit({key: self.train_data[key].numpy()})
-
-            normalizer.cuda()
+        # Fit the normalizer to the data
+        self.normalizer = LinearNormalizer()
+        self.normalizer.fit(self.train_data)
 
         if task == "place-tabletop":
             self._make_tabletop_goal()
 
-        if normalizer is not None:
-            normalizer.cpu()
-            for key in self.train_data:
-                self.train_data[key] = normalizer(
-                    self.train_data[key], key, forward=True
-                )
-
-            normalizer.cuda()
+        # Normalize data to [-1,1]
+        for key in self.normalizer.keys():
+            self.train_data[key] = self.normalizer(
+                self.train_data[key], key, forward=True
+            )
 
         # Concatenate the robot_state and parts_poses into a single observation
         self.train_data["obs"] = torch.cat(

@@ -1,8 +1,9 @@
 from typing import Tuple
 from collections import deque
+from src.models.vib import VIB
 import torch
 import torch.nn as nn
-from src.dataset.normalizer import Normalizer
+from src.dataset.normalizer import LinearNormalizer
 
 from ipdb import set_trace as bp  # noqa
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
@@ -27,7 +28,6 @@ class PostInitCaller(type(torch.nn.Module)):
 class Actor(torch.nn.Module, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
-    normalizer: Normalizer
 
     # Regularization
     feature_noise: bool = False
@@ -35,9 +35,11 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     feature_layernorm: bool = False
     state_noise: bool = False
     proprioception_dropout: float = 0.0
+    front_camera_dropout: float = 0.0
+    vib_front_feature_beta: float = 0.0
 
     encoding_dim: int
-    augment_image: bool = False
+    augment_image: bool = True
 
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
@@ -47,6 +49,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
     encoder2: nn.Module
     encoder2_proj: nn.Module
+
+    camera_2_vib: VIB
+
+    def __init__(self):
+        super().__init__()
+        self.normalizer = LinearNormalizer()
 
     def __post_init__(self, *args, **kwargs):
 
@@ -61,7 +69,29 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 self.layernorm1 = nn.LayerNorm(self.encoding_dim).to(self.device)
                 self.layernorm2 = nn.LayerNorm(self.encoding_dim).to(self.device)
 
+            self.camera_2_vib = None
+            if self.vib_front_feature_beta > 0:
+                self.camera_2_vib = VIB(self.encoding_dim, self.encoding_dim)
+                self.camera_2_vib.to(self.device)
+
         self.print_model_params()
+
+    def set_normalizer(self, normalizer: LinearNormalizer):
+        self.normalizer.load_state_dict(normalizer.state_dict())
+
+    def load_state_dict(self, state_dict):
+        # Extract the normalizer state dict from the overall state dict
+        normalizer_state_dict = {
+            key[len("normalizer.") :]: value
+            for key, value in state_dict.items()
+            if key.startswith("normalizer.")
+        }
+
+        # Load the normalizer state dict
+        self.normalizer.load_state_dict(normalizer_state_dict)
+
+        # Load the rest of the state dict
+        super().load_state_dict(state_dict)
 
     def print_model_params(self: torch.nn.Module):
         total_params = sum(p.numel() for p in self.parameters())
@@ -127,6 +157,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 feature1 = self.layernorm1(feature1)
                 feature2 = self.layernorm2(feature2)
 
+            if self.camera_2_vib is not None:
+                # Apply the VIB to the front camera features
+                feature2 = self.camera_2_vib(feature2)
+
             # Reshape concatenate the features
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
         elif self.observation_type == "state":
@@ -150,16 +184,25 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     def regularize_features(
         self, feature1: torch.Tensor, feature2: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.training and self.feature_dropout:
-            print("[WARNING] Make sure this is disabled during evaluation")
+        if self.training and self.feature_dropout > 0:
+            # print("[WARNING] Make sure this is disabled during evaluation")
             feature1 = self.dropout(feature1)
             feature2 = self.dropout(feature2)
 
         if self.training and self.feature_noise:
-            print("[WARNING] Make sure this is disabled during evaluation")
+            # print("[WARNING] Make sure this is disabled during evaluation")
             # Add noise to the features
             feature1 = feature1 + torch.randn_like(feature1) * self.feature_noise
             feature2 = feature2 + torch.randn_like(feature2) * self.feature_noise
+
+        if self.training and self.front_camera_dropout > 0:
+            # print("[WARNING] Make sure this is disabled during evaluation")
+            # Apply dropout to the front camera features, i.e., feature 2
+            mask = (
+                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
+                > self.front_camera_dropout
+            )
+            feature2 = feature2 * mask
 
         return feature1, feature2
 
@@ -234,26 +277,16 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 feature1 = self.layernorm1(feature1)
                 feature2 = self.layernorm2(feature2)
 
-            # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
-            nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+            if self.camera_2_vib is not None:
+                feature2, mu, log_var = self.camera_2_vib.train_sample(feature2)
 
-        elif self.observation_type == "feature":
-            # The robot state is already normalized in the dataset
-            nrobot_state = batch["robot_state"]
-
-            # All observations already normalized in the dataset
-            feature1 = self.encoder1_proj(batch["feature1"])
-            feature2 = self.encoder2_proj(batch["feature2"])
-
-            # Apply the regularization to the features
-            feature1, feature2 = self.regularize_features(feature1, feature2)
-
-            if self.feature_layernorm:
-                feature1 = self.layernorm1(feature1)
-                feature2 = self.layernorm2(feature2)
+                # Store the mu and log_var for the loss computation later
+                batch["mu"] = mu
+                batch["log_var"] = log_var
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
+
         elif self.observation_type == "state":
             # Parts poses are already normalized in the dataset
             nobs = batch["obs"]
