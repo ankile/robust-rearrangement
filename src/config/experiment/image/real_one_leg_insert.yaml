@@ -22,7 +22,7 @@ training:
   checkpoint_interval: 20
 
 regularization:
-  feature_layernorm: false
+  feature_layernorm: true
   feature_noise: false
   feature_dropout: false
   proprioception_dropout: false
