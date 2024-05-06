@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 import math
 
+from src.behavior import get_actor
+from src.behavior.base import Actor
 from src.common.files import get_processed_paths
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
 from src.gym.furniture_sim_env import (
@@ -30,7 +32,6 @@ import tyro
 from torch.utils.tensorboard import SummaryWriter
 
 from src.dataset.normalizer import LinearNormalizer
-import src.common.geometry as G
 
 from src.behavior.mlp import (
     SmallMLPAgent,
@@ -38,6 +39,8 @@ from src.behavior.mlp import (
     ResidualMLPAgent,
     ResidualMLPAgentSeparate,
 )
+
+from omegaconf import OmegaConf, DictConfig
 
 from ipdb import set_trace as bp
 
@@ -49,18 +52,6 @@ import wandb
 
 
 from src.gym import turn_off_april_tags
-
-
-def get_model_weights(run_id: str):
-    api = wandb.Api(overrides=dict(entity="ankile"))
-    run = api.run(run_id)
-    model_path = (
-        [f for f in run.files() if f.name.endswith(".pt")][0]
-        .download(exist_ok=True)
-        .name
-    )
-    print(f"Loading checkpoint from {run_id}")
-    return torch.load(model_path)
 
 
 @dataclass
@@ -130,8 +121,6 @@ class Args:
     """if toggled, the debug mode will be enabled"""
 
     # Algorithm specific arguments
-    # env_id: str = "HalfCheetah-v4"
-    # """the id of the environment"""
     total_timesteps: int = 40_000_000
     """total timesteps of the experiments"""
     learning_rate: float = 1e-4
@@ -178,6 +167,27 @@ class Args:
     """the number of steps (computed in runtime)"""
     continue_run_id: str = None
     """the run id to continue training from"""
+
+
+def load_bc_actor(run_id: str):
+    api = wandb.Api(overrides=dict(entity="ankile"))
+    run = api.run(run_id)
+
+    cfg: DictConfig = OmegaConf.create(run.config)
+
+    bc_actor: Actor = get_actor(cfg, device)
+
+    model_path = (
+        [f for f in run.files() if f.name.endswith(".pt")][0]
+        .download(exist_ok=True)
+        .name
+    )
+
+    bc_actor.load_state_dict(torch.load(model_path))
+    bc_actor.eval()
+    bc_actor.to(device)
+
+    return bc_actor
 
 
 def get_demo_data_loader(
@@ -271,6 +281,64 @@ def get_dataset_action(dataset, step, episode):
     return action
 
 
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+from torch.distributions.normal import Normal
+
+
+class ResidualPolicy(nn.Module):
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        """
+        Args:
+            obs_shape: the shape of the observation (i.e., state + base action)
+            action_shape: the shape of the action (i.e., residual, same size as base action)
+        """
+        super().__init__()
+        self.actor_mean = nn.Sequential(
+            nn.Linear(np.prod(obs_shape + action_shape), 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+        )
+
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, 1, self.action_dim) * init_logstd
+        )
+
+    def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
+        return self.critic(nobs)
+
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        action_mean: torch.Tensor = self.actor_mean(nobs)
+
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        if action is None:
+            action = probs.sample()
+
+        return (
+            action,
+            probs.log_prob(action).sum(dim=1),
+            probs.entropy().sum(dim=1),
+            self.critic(nobs),
+        )
+
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
 
@@ -356,7 +424,10 @@ if __name__ == "__main__":
     env.max_force_magnitude = 0.1
     env.max_torque_magnitude = 0.005
 
-    env = FurnitureEnvRLWrapper(
+    # Load the behavior cloning actor
+    bc_actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
+
+    env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
         env,
         max_env_steps=args.num_env_steps,
         ee_dof=args.ee_dof,
@@ -364,66 +435,64 @@ if __name__ == "__main__":
         task=args.exp_name,
         add_relative_pose=args.add_relative_pose,
     )
+    env.set_normalizer(bc_actor.normalizer)
 
-    if args.normalize_reward:
-        print("Wrapping the environment with reward normalization")
-        env = NormalizeReward(env, device=device)
-        normrewenv = env
-    else:
-        normrewenv = None
-        print("Not wrapping the environment with reward normalization")
-
-    if args.agent == "small":
-        agent = SmallMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "big":
-        agent = BigMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    elif args.agent == "residual":
-        agent = ResidualMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-            dropout=0.1,
-        )
-    elif args.agent == "residual-separate":
-        agent = ResidualMLPAgentSeparate(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=args.init_logstd,
-        )
-    else:
-        raise ValueError(f"Unknown agent type: {args.agent}")
-
-    # normalizer = None
-    normalizer = LinearNormalizer(control_mode=action_type).to(device)
-    assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
-        f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
-        f"does not match env action shape {env.action_space.shape[-1]}"
+    residual_policy = ResidualPolicy(
+        obs_shape=env.observation_space.shape,
+        action_shape=env.action_space.shape,
+        init_logstd=args.init_logstd,
     )
 
-    env.normalizer = normalizer
+    # if args.normalize_reward:
+    #     print("Wrapping the environment with reward normalization")
+    #     env = NormalizeReward(env, device=device)
+    #     normrewenv = env
+    # else:
+    #     normrewenv = None
+    #     print("Not wrapping the environment with reward normalization")
+
+    # if args.agent == "small":
+    #     agent = SmallMLPAgent(
+    #         obs_shape=env.observation_space.shape,
+    #         action_shape=env.action_space.shape,
+    #         init_logstd=args.init_logstd,
+    #     )
+    # elif args.agent == "big":
+    #     agent = BigMLPAgent(
+    #         obs_shape=env.observation_space.shape,
+    #         action_shape=env.action_space.shape,
+    #         init_logstd=args.init_logstd,
+    #     )
+    # elif args.agent == "residual":
+    #     agent = ResidualMLPAgent(
+    #         obs_shape=env.observation_space.shape,
+    #         action_shape=env.action_space.shape,
+    #         init_logstd=args.init_logstd,
+    #         dropout=0.1,
+    #     )
+    # elif args.agent == "residual-separate":
+    #     agent = ResidualMLPAgentSeparate(
+    #         obs_shape=env.observation_space.shape,
+    #         action_shape=env.action_space.shape,
+    #         init_logstd=args.init_logstd,
+    #     )
+    # else:
+    #     raise ValueError(f"Unknown agent type: {args.agent}")
 
     optimizer = optim.AdamW(
-        agent.parameters(),
+        residual_policy.parameters(),
         lr=args.learning_rate,
         eps=1e-5,
-        weight_decay=1e-5,
+        weight_decay=1e-6,
     )
-    policy_steps = math.ceil(args.num_env_steps / agent.action_horizon)
+    policy_steps = math.ceil(args.num_env_steps / 1)
     args.num_steps = args.data_collection_steps
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    print(
-        f"With chunk size {agent.action_horizon}, we have {policy_steps} policy steps."
-    )
+    # print(
+    #     f"With chunk size {agent.action_horizon}, we have {policy_steps} policy steps."
+    # )
     print(f"Total timesteps: {args.total_timesteps}, batch size: {args.batch_size}")
     print(
         f"Mini-batch size: {args.minibatch_size}, num iterations: {args.num_iterations}"
@@ -443,36 +512,20 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs))
     values = torch.zeros((args.num_steps, args.num_envs))
 
-    # Get the dataloader for the demo data for the behavior cloning
-    demo_data_loader = get_demo_data_loader(
-        control_mode=action_type,
-        n_batches=args.num_minibatches,
-        task=args.exp_name,
-        act_rot_repr=act_rot_repr,
-        normalizer=normalizer,
-        action_horizon=agent.action_horizon,
-        num_workers=4 if not args.debug else 0,
-        add_relative_pose=args.add_relative_pose,
-    )
+    # # Get the dataloader for the demo data for the behavior cloning
+    # demo_data_loader = get_demo_data_loader(
+    #     control_mode=action_type,
+    #     n_batches=args.num_minibatches,
+    #     task=args.exp_name,
+    #     act_rot_repr=act_rot_repr,
+    #     normalizer=normalizer,
+    #     action_horizon=agent.action_horizon,
+    #     num_workers=4 if not args.debug else 0,
+    #     add_relative_pose=args.add_relative_pose,
+    # )
 
-    # Print the number of batches in the dataloader
-    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
-
-    if args.load_checkpoint:
-        wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
-
-        # Filter out keys not starting with "model"
-        model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-        # Change the "model" prefix to "actor_mean"
-        model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
-
-        print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
-
-        # Load in the weights for the normalizer
-        normalizer_wts = {
-            k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-        }
-        print(normalizer.load_state_dict(normalizer_wts))
+    # # Print the number of batches in the dataloader
+    # print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     agent = agent.to(device)
     global_step = 0
@@ -502,18 +555,12 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                naction, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
-            # Clamp action to be [-5, 5], arbitrary value
-            action = torch.clamp(action, -5, 5)
-
-            naction = (
-                normalizer(action, "action", forward=False) if normalizer else action
-            )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
-            actions[step] = action.cpu()
+            actions[step] = naction.cpu()
             logprobs[step] = logprob.cpu()
 
             rewards[step] = reward.view(-1).cpu()

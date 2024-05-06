@@ -1,5 +1,6 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from typing import Dict
+from src.dataset.normalizer import LinearNormalizer
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
 )
@@ -17,7 +18,6 @@ gym.logger.set_level(40)
 
 
 class FurnitureEnvRLWrapper:
-    normalizer = None
 
     def __init__(
         self,
@@ -35,6 +35,7 @@ class FurnitureEnvRLWrapper:
         self.task = task
         self.add_relative_pose = add_relative_pose
         self.device = device
+        self.normalizer = LinearNormalizer()
 
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
@@ -48,13 +49,13 @@ class FurnitureEnvRLWrapper:
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
-        # self.global_timestep = torch.zeros(
-        #     env.num_envs, device=device, dtype=torch.int32
-        # )
 
         self.no_rotation_or_gripper = torch.tensor(
             [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
         ).repeat(self.num_envs, 1)
+
+    def set_normalizer(self, normalizer: LinearNormalizer):
+        self.normalizer.load_state_dict(normalizer.state_dict())
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
@@ -156,3 +157,13 @@ class FurnitureEnvRLWrapper:
     @property
     def torque_magnitude(self):
         return self.env.max_torque_magnitude
+
+
+class ResidualPolicyEnvWrapper:
+    def __init__(
+        self,
+        env: FurnitureRLSimEnv,
+        base_policy: torch.nn.Module,
+    ):
+        """ """
+        pass
