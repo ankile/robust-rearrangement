@@ -263,6 +263,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         max_episode_count: Union[dict, None] = None,
         task: str = None,
         add_relative_pose: bool = False,
+        normalizer: LinearNormalizer = None,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -306,7 +307,11 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # Fit the normalizer to the data
         self.normalizer = LinearNormalizer()
-        self.normalizer.fit(self.train_data)
+        if normalizer is None:
+            self.normalizer.fit(self.train_data)
+        else:
+            self.normalizer.load_state_dict(normalizer.state_dict())
+            self.normalizer.cpu()
 
         if task == "place-tabletop":
             self._make_tabletop_goal()
