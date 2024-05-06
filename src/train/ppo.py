@@ -205,10 +205,8 @@ def get_demo_data_loader(
         obs_horizon=1,
         pred_horizon=action_horizon,
         action_horizon=action_horizon,
-        normalizer=normalizer,
         data_subset=None,
         control_mode=control_mode,
-        act_rot_repr=act_rot_repr,
         first_action_idx=0,
         pad_after=False,
         max_episode_count=None,
@@ -402,11 +400,11 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown agent type: {args.agent}")
 
     # normalizer = None
-    normalizer = LinearNormalizer(control_mode=action_type).to(device)
-    assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
-        f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
-        f"does not match env action shape {env.action_space.shape[-1]}"
-    )
+    normalizer = LinearNormalizer().to(device)
+    # assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
+    #     f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
+    #     f"does not match env action shape {env.action_space.shape[-1]}"
+    # )
 
     env.normalizer = normalizer
 
