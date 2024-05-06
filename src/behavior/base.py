@@ -327,6 +327,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         # Return the first action in the queue
         return self.actions.popleft()
 
+    def action_normalized(self, obs: deque):
+        action = self.action(obs)
+        return self.normalizer(action, "action", forward=True)
+
     # === Training Observations ===
     def _training_obs(self, batch, flatten: bool = True):
 

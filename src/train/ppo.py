@@ -1,5 +1,6 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
-from typing import Dict, Literal
+from collections import deque
+from typing import Dict, Literal, Tuple
 import furniture_bench  # noqa
 
 import random
@@ -10,7 +11,7 @@ import math
 from src.behavior import get_actor
 from src.behavior.base import Actor
 from src.common.files import get_processed_paths
-from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
+from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
     FurnitureRLSimEnvPlaceTabletop,
@@ -174,6 +175,8 @@ def load_bc_actor(run_id: str):
     run = api.run(run_id)
 
     cfg: DictConfig = OmegaConf.create(run.config)
+    # cfg.actor.predict_past_actions = False
+    # cfg.actor.flatten_obs = True
 
     bc_actor: Actor = get_actor(cfg, device)
 
@@ -298,30 +301,34 @@ class ResidualPolicy(nn.Module):
             action_shape: the shape of the action (i.e., residual, same size as base action)
         """
         super().__init__()
+
+        self.action_dim = action_shape[-1]
+        self.obs_dim = np.prod(obs_shape) + np.prod(action_shape)
+
         self.actor_mean = nn.Sequential(
-            nn.Linear(np.prod(obs_shape + action_shape), 256),
+            nn.Linear(self.obs_dim, 256),
             nn.ReLU(),
             nn.Linear(256, 256),
             nn.ReLU(),
-            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.01),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.005),
         )
 
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(obs_shape).prod(), 256)),
+            layer_init(nn.Linear(self.obs_dim, 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 1), std=1.0),
         )
 
-        self.actor_logstd = nn.Parameter(
-            torch.ones(1, 1, self.action_dim) * init_logstd
-        )
+        self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)
 
     def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
         return self.critic(nobs)
 
-    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+    def get_action_and_value(
+        self, nobs: torch.Tensor, action: torch.Tensor = None
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         action_mean: torch.Tensor = self.actor_mean(nobs)
 
         action_logstd = self.actor_logstd.expand_as(action_mean)
@@ -369,7 +376,7 @@ if __name__ == "__main__":
             save_code=True,
         )
 
-    run_directory = f"runs/debug-{args.exp_name}-8"
+    run_directory = f"runs/debug-{args.exp_name}-residual-8"
     run_directory += "-delete" if args.debug else ""
     print(f"Run directory: {run_directory}")
     writer = SummaryWriter(f"{run_directory}/{run_name}")
@@ -425,13 +432,15 @@ if __name__ == "__main__":
     env.max_torque_magnitude = 0.005
 
     # Load the behavior cloning actor
-    bc_actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
+    # TODO: The actor should keep tack of its own deque of observations
+    # Similar to how it keeps track of a deque of actions
+    bc_actor: Actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
+    # bc_actor: Actor = load_bc_actor("ankile/one_leg-diffusion-state-1/runs/7623y5vn")
 
-    env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
+    env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
         max_env_steps=args.num_env_steps,
         ee_dof=args.ee_dof,
-        chunk_size=args.chunk_size,
         task=args.exp_name,
         add_relative_pose=args.add_relative_pose,
     )
@@ -442,42 +451,7 @@ if __name__ == "__main__":
         action_shape=env.action_space.shape,
         init_logstd=args.init_logstd,
     )
-
-    # if args.normalize_reward:
-    #     print("Wrapping the environment with reward normalization")
-    #     env = NormalizeReward(env, device=device)
-    #     normrewenv = env
-    # else:
-    #     normrewenv = None
-    #     print("Not wrapping the environment with reward normalization")
-
-    # if args.agent == "small":
-    #     agent = SmallMLPAgent(
-    #         obs_shape=env.observation_space.shape,
-    #         action_shape=env.action_space.shape,
-    #         init_logstd=args.init_logstd,
-    #     )
-    # elif args.agent == "big":
-    #     agent = BigMLPAgent(
-    #         obs_shape=env.observation_space.shape,
-    #         action_shape=env.action_space.shape,
-    #         init_logstd=args.init_logstd,
-    #     )
-    # elif args.agent == "residual":
-    #     agent = ResidualMLPAgent(
-    #         obs_shape=env.observation_space.shape,
-    #         action_shape=env.action_space.shape,
-    #         init_logstd=args.init_logstd,
-    #         dropout=0.1,
-    #     )
-    # elif args.agent == "residual-separate":
-    #     agent = ResidualMLPAgentSeparate(
-    #         obs_shape=env.observation_space.shape,
-    #         action_shape=env.action_space.shape,
-    #         init_logstd=args.init_logstd,
-    #     )
-    # else:
-    #     raise ValueError(f"Unknown agent type: {args.agent}")
+    residual_policy.to(device)
 
     optimizer = optim.AdamW(
         residual_policy.parameters(),
@@ -485,6 +459,7 @@ if __name__ == "__main__":
         eps=1e-5,
         weight_decay=1e-6,
     )
+
     policy_steps = math.ceil(args.num_env_steps / 1)
     args.num_steps = args.data_collection_steps
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -505,7 +480,7 @@ if __name__ == "__main__":
     decrease_lr_counter = 0
     steps_since_last_randomness_increase = 0
 
-    obs = torch.zeros((args.num_steps, args.num_envs) + env.observation_space.shape)
+    obs = torch.zeros((args.num_steps, args.num_envs, residual_policy.obs_dim))
     actions = torch.zeros((args.num_steps, args.num_envs) + env.action_space.shape)
     logprobs = torch.zeros((args.num_steps, args.num_envs))
     rewards = torch.zeros((args.num_steps, args.num_envs))
@@ -527,17 +502,26 @@ if __name__ == "__main__":
     # # Print the number of batches in the dataloader
     # print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
-    agent = agent.to(device)
     global_step = 0
     start_time = time.time()
     # bp()
     next_done = torch.zeros(args.num_envs)
     next_obs = env.reset()
+    base_observation_deque = deque(
+        [next_obs for _ in range(bc_actor.obs_horizon)],
+        maxlen=bc_actor.obs_horizon,
+    )
+
+    # First get the base normalized action
+    base_naction = bc_actor.action_normalized(base_observation_deque)
+
+    # Make the observation for the residual policy by concatenating the state and the base action
+    next_obs = env.process_obs(next_obs)
+    next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
 
     for iteration in range(1, args.num_iterations + 1):
         print(f"Iteration: {iteration}/{args.num_iterations}")
         print(f"Run name: {run_name}")
-        agent.eval()
 
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -551,28 +535,41 @@ if __name__ == "__main__":
                 continue
 
             global_step += args.num_envs
-            obs[step] = next_obs
             dones[step] = next_done
+            obs[step] = next_residual_obs
 
             with torch.no_grad():
-                naction, logprob, _, value = agent.get_action_and_value(next_obs)
+
+                residual_naction, logprob, _, value = (
+                    residual_policy.get_action_and_value(next_residual_obs)
+                )
                 values[step] = value.flatten().cpu()
+
+            naction = base_naction + residual_naction
 
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
-            actions[step] = naction.cpu()
+            # Add the observation to the deque
+            base_observation_deque.append(next_obs)
+
+            # Get the base normalized action
+            base_naction = bc_actor.action_normalized(base_observation_deque)
+
+            # Process the obs for the residual policy
+            next_obs = env.process_obs(next_obs)
+
+            next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
+
+            actions[step] = residual_naction.cpu()
             logprobs[step] = logprob.cpu()
 
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if step > 0 and (env_step := step * agent.action_horizon) % 100 == 0:
+            if step > 0 and (env_step := step * 1) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
-
-        if normrewenv is not None:
-            print(f"Current return_rms.var: {normrewenv.return_rms.var.item()}")
 
         # Calculate the discounted rewards
         # TODO: Change this so that it takes into account cyclic resets and multiple episodes
@@ -593,7 +590,7 @@ if __name__ == "__main__":
             f"Mean return: {discounted_rewards:.4f}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
         )
 
-        b_obs = obs.reshape((-1,) + env.observation_space.shape)
+        b_obs = obs.reshape((-1, residual_policy.obs_dim))
         b_actions = actions.reshape((-1,) + env.action_space.shape)
         b_logprobs = logprobs.reshape(-1)
         b_rewards = rewards.reshape(-1)
@@ -604,25 +601,23 @@ if __name__ == "__main__":
         b_advantages, b_returns = calculate_advantage(
             args,
             device,
-            agent,
-            b_obs.view(
-                (args.num_steps, args.num_envs) + env.observation_space.shape
-            ).to(device),
-            next_obs.to(device),
+            residual_policy,
+            b_obs.view((args.num_steps, args.num_envs, residual_policy.obs_dim)).to(
+                device
+            ),
+            next_residual_obs.to(device),
             b_rewards.view(args.num_steps, -1).to(device),
             b_dones.view(args.num_steps, -1).to(device),
         )
         b_advantages = b_advantages.reshape(-1).cpu()
         b_returns = b_returns.reshape(-1).cpu()
 
-        agent.train()
-
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
         clipfracs = []
         for epoch in trange(args.update_epochs, desc="Policy update"):
-            if args.bc_coef > 0:
-                demo_data_iter = iter(demo_data_loader)
+            # if args.bc_coef > 0:
+            #     demo_data_iter = iter(demo_data_loader)
 
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
@@ -638,7 +633,7 @@ if __name__ == "__main__":
                 mb_values = b_values[mb_inds].to(device)
 
                 # Calculate the loss
-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(
+                _, newlogprob, entropy, newvalue = residual_policy.get_action_and_value(
                     mb_obs, mb_actions
                 )
                 logratio = newlogprob - mb_logprobs
@@ -689,53 +684,55 @@ if __name__ == "__main__":
                 if iteration > args.n_iterations_train_only_value:
                     policy_loss += ppo_loss
 
-                # Behavior cloning loss
-                if args.bc_coef > 0:
-                    batch = next(demo_data_iter)
-                    batch = dict_to_device(batch, device)
-                    bc_obs = batch["obs"].squeeze()
+                # # Behavior cloning loss
+                # if args.bc_coef > 0:
+                #     batch = next(demo_data_iter)
+                #     batch = dict_to_device(batch, device)
+                #     bc_obs = batch["obs"].squeeze()
 
-                    norm_bc_actions = batch["action"]
+                #     norm_bc_actions = batch["action"]
 
-                    # Normalize the actions
-                    if args.bc_loss_type == "mse":
-                        action_pred = agent.actor_mean(bc_obs)
-                        bc_loss = F.mse_loss(action_pred, norm_bc_actions)
-                    elif args.bc_loss_type == "nll":
-                        _, bc_logprob, _, bc_values = agent.get_action_and_value(
-                            bc_obs, norm_bc_actions
-                        )
-                        bc_loss = -bc_logprob.mean()
-                    else:
-                        raise ValueError(
-                            f"Unknown behavior cloning loss type: {args.bc_loss_type}"
-                        )
+                #     # Normalize the actions
+                #     if args.bc_loss_type == "mse":
+                #         action_pred = agent.actor_mean(bc_obs)
+                #         bc_loss = F.mse_loss(action_pred, norm_bc_actions)
+                #     elif args.bc_loss_type == "nll":
+                #         _, bc_logprob, _, bc_values = agent.get_action_and_value(
+                #             bc_obs, norm_bc_actions
+                #         )
+                #         bc_loss = -bc_logprob.mean()
+                #     else:
+                #         raise ValueError(
+                #             f"Unknown behavior cloning loss type: {args.bc_loss_type}"
+                #         )
 
-                    with torch.no_grad():
-                        bc_values = agent.get_value(bc_obs)
-                    bc_v_loss = (
-                        0.5
-                        * (
-                            (bc_values.squeeze() - batch["returns"].squeeze()) ** 2
-                        ).mean()
-                    )
+                #     with torch.no_grad():
+                #         bc_values = agent.get_value(bc_obs)
+                #     bc_v_loss = (
+                #         0.5
+                #         * (
+                #             (bc_values.squeeze() - batch["returns"].squeeze()) ** 2
+                #         ).mean()
+                #     )
 
-                    bc_total_loss = (
-                        bc_loss + bc_v_loss
-                        if args.supervise_value_function
-                        else bc_loss
-                    )
+                #     bc_total_loss = (
+                #         bc_loss + bc_v_loss
+                #         if args.supervise_value_function
+                #         else bc_loss
+                #     )
 
-                    policy_loss = (
-                        1 - args.bc_coef
-                    ) * policy_loss + args.bc_coef * bc_total_loss
+                #     policy_loss = (
+                #         1 - args.bc_coef
+                #     ) * policy_loss + args.bc_coef * bc_total_loss
 
                 # Total loss
                 loss = policy_loss + args.vf_coef * v_loss
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                nn.utils.clip_grad_norm_(
+                    residual_policy.parameters(), args.max_grad_norm
+                )
                 optimizer.step()
 
             if (
@@ -748,21 +745,21 @@ if __name__ == "__main__":
                 )
                 break
 
-            # Recalculate the advantages with the updated policy before the next epoch
-            if args.recalculate_advantages:
-                b_advantages, b_returns = calculate_advantage(
-                    args,
-                    device,
-                    agent,
-                    b_obs.view(
-                        (args.num_steps, args.num_envs) + env.observation_space.shape
-                    ).to(device),
-                    next_obs.to(device),
-                    b_rewards.view(args.num_steps, -1).to(device),
-                    b_dones.view(args.num_steps, -1).to(device),
-                )
-                b_advantages = b_advantages.reshape(-1).cpu()
-                b_returns = b_returns.reshape(-1).cpu()
+            # # Recalculate the advantages with the updated policy before the next epoch
+            # if args.recalculate_advantages:
+            #     b_advantages, b_returns = calculate_advantage(
+            #         args,
+            #         device,
+            #         residual_policy,
+            #         b_obs.view(
+            #             (args.num_steps, args.num_envs, residual_policy.obs_dim)
+            #         ).to(device),
+            #         next_obs.to(device),
+            #         b_rewards.view(args.num_steps, -1).to(device),
+            #         b_dones.view(args.num_steps, -1).to(device),
+            #     )
+            #     b_advantages = b_advantages.reshape(-1).cpu()
+            #     b_returns = b_returns.reshape(-1).cpu()
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -772,9 +769,9 @@ if __name__ == "__main__":
         advantages, returns = calculate_advantage(
             args,
             device,
-            agent,
+            residual_policy,
             obs.to(device),
-            next_obs.to(device),
+            next_residual_obs.to(device),
             rewards.to(device),
             dones.to(device),
         )
@@ -791,9 +788,9 @@ if __name__ == "__main__":
             global_step,
         )
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
-        if args.bc_coef > 0:
-            writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
-            writer.add_scalar("losses/bc_v_loss", bc_v_loss.item(), global_step)
+        # if args.bc_coef > 0:
+        #     writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
+        #     writer.add_scalar("losses/bc_v_loss", bc_v_loss.item(), global_step)
         writer.add_scalar("losses/total_loss", loss.item(), global_step)
         writer.add_scalar("losses/entropy_loss", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
@@ -821,7 +818,7 @@ if __name__ == "__main__":
         writer.add_scalar("env/torque_magnitude", env.torque_magnitude, global_step)
 
         # Add histograms for the gradients and the weights
-        for name, param in agent.named_parameters():
+        for name, param in residual_policy.named_parameters():
             writer.add_histogram(f"weights/{name}", param, global_step)
             if param.grad is not None:
                 writer.add_histogram(f"grads/{name}", param.grad, global_step)
@@ -835,14 +832,14 @@ if __name__ == "__main__":
             best_mean_episode_return = max(discounted_rewards, best_mean_episode_return)
 
             model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
-            torch.save(agent.state_dict(), model_path)
+            torch.save(residual_policy.state_dict(), model_path)
             print(f"model saved to {model_path}")
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
     if args.save_model:
         model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
-        torch.save(agent.state_dict(), model_path)
+        torch.save(residual_policy.state_dict(), model_path)
         print(f"model saved to {model_path}")
 
     writer.close()
