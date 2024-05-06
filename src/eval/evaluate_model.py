@@ -343,6 +343,7 @@ if __name__ == "__main__":
                                 if args.action_horizon is not None
                                 else run.config["actor"]["action_horizon"]
                             ),
+                            "flatten_obs": True,
                         },
                     },
                     flags={"readonly": True},

@@ -145,10 +145,14 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         }
 
         # Load the normalizer state dict
-        self.normalizer.load_state_dict(normalizer_state_dict)
+        norm_load_res = self.normalizer.load_state_dict(normalizer_state_dict)
 
         # Load the rest of the state dict
-        super().load_state_dict(state_dict)
+        model_load_res = super().load_state_dict(state_dict)
+
+        print(
+            f"Normalizer load result: {norm_load_res}, Model load result: {model_load_res}"
+        )
 
     def print_model_params(self: torch.nn.Module):
         total_params = sum(p.numel() for p in self.parameters())

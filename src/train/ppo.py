@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 import math
 
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 from src.behavior import get_actor
 from src.behavior.base import Actor
 from src.common.files import get_processed_paths
@@ -176,12 +177,13 @@ def load_bc_actor(run_id: str):
 
     cfg: DictConfig = OmegaConf.create(run.config)
     # cfg.actor.predict_past_actions = False
-    # cfg.actor.flatten_obs = True
+    cfg.actor.flatten_obs = True
 
     bc_actor: Actor = get_actor(cfg, device)
 
+    wt_type = "best_success_rate"
     model_path = (
-        [f for f in run.files() if f.name.endswith(".pt")][0]
+        [f for f in run.files() if f.name.endswith(".pt") and wt_type in f.name][0]
         .download(exist_ok=True)
         .name
     )
@@ -310,7 +312,7 @@ class ResidualPolicy(nn.Module):
             nn.ReLU(),
             nn.Linear(256, 256),
             nn.ReLU(),
-            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.005),
+            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.1),
         )
 
         self.critic = nn.Sequential(
@@ -420,6 +422,7 @@ if __name__ == "__main__":
         )
         if args.exp_name == "oneleg":
             env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
+            # env: FurnitureSimEnv = FurnitureSimEnv(**kwargs)
         elif args.exp_name == "place-tabletop":
             env: FurnitureRLSimEnv = FurnitureRLSimEnvPlaceTabletop(**kwargs)
         elif args.exp_name == "reacher":
@@ -428,14 +431,14 @@ if __name__ == "__main__":
         else:
             raise ValueError(f"Unknown experiment name: {args.exp_name}")
 
-    env.max_force_magnitude = 0.1
-    env.max_torque_magnitude = 0.005
+    env.max_force_magnitude = 0.05
+    env.max_torque_magnitude = 0.0025
 
     # Load the behavior cloning actor
     # TODO: The actor should keep tack of its own deque of observations
     # Similar to how it keeps track of a deque of actions
-    bc_actor: Actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
-    # bc_actor: Actor = load_bc_actor("ankile/one_leg-diffusion-state-1/runs/7623y5vn")
+    # bc_actor: Actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
+    bc_actor: Actor = load_bc_actor("ankile/one_leg-diffusion-state-1/runs/7623y5vn")
 
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
@@ -596,6 +599,14 @@ if __name__ == "__main__":
         b_rewards = rewards.reshape(-1)
         b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
+
+        rounded_list = lambda x: [round(i, 3) for i in x.tolist()]
+
+        # Print some stats on the actions stored from the rollouts
+        print(f"Action mean: {rounded_list(b_actions.mean(dim=0))}")
+        print(f"Action std: {rounded_list(b_actions.std(dim=0))}")
+        print(f"Action max: {rounded_list(b_actions.max(dim=0).values)}")
+        print(f"Action min: {rounded_list(b_actions.min(dim=0).values)}")
 
         # bootstrap value if not done
         b_advantages, b_returns = calculate_advantage(
