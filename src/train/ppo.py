@@ -314,7 +314,7 @@ class ResidualPolicy(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(512, 512)),
             nn.ReLU(),
-            layer_init(nn.Linear(512, np.prod(action_shape)), std=0.25),
+            layer_init(nn.Linear(512, np.prod(action_shape)), std=0.1),
         )
 
         self.critic = nn.Sequential(
