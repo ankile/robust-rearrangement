@@ -119,6 +119,8 @@ class Args:
     """the number of iterations to train only the value function"""
     load_checkpoint: bool = True
     """the checkpoint to load the model from"""
+    reset_on_failure: bool = False
+    """if toggled, the environment will be reset on failure"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -446,6 +448,7 @@ if __name__ == "__main__":
         ee_dof=args.ee_dof,
         task=args.exp_name,
         add_relative_pose=args.add_relative_pose,
+        reset_on_failure=args.reset_on_failure,
     )
     env.set_normalizer(bc_actor.normalizer)
 

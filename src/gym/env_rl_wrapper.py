@@ -169,12 +169,14 @@ class ResidualPolicyEnvWrapper:
         ee_dof=10,
         task="oneleg",
         add_relative_pose=False,
+        reset_on_failure=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.task = task
         self.add_relative_pose = add_relative_pose
+        self.reset_on_failure = reset_on_failure
         self.device = device
         self.normalizer = LinearNormalizer()
 
@@ -263,8 +265,16 @@ class ResidualPolicyEnvWrapper:
         obs, reward, _, info = self.env.step(action)
         reward = reward.squeeze()
 
-        # Episodes that received reward are terminated
-        terminated = reward > 0
+        if self.reset_on_failure:
+            # Get the gripper width
+            gripper_width = obs["robot_state"][:, -1]
+
+            # If the gripper width is less than 0.002, give a negative reward
+            # (means we closed the gripper witdt nothing in it)
+            reward -= torch.where(gripper_width < 0.002, 0.1, 0.0)
+
+        # Episodes that received any reward are terminated
+        terminated = reward != 0
 
         # Check if any envs have reached the max number of steps
         truncated = self.env.env_steps >= self.max_env_steps
