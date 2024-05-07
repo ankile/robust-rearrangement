@@ -310,19 +310,19 @@ class ResidualPolicy(nn.Module):
         self.obs_dim = np.prod(obs_shape) + np.prod(action_shape)
 
         self.actor_mean = nn.Sequential(
-            nn.Linear(self.obs_dim, 256),
+            layer_init(nn.Linear(self.obs_dim, 512)),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            layer_init(nn.Linear(512, 512)),
             nn.ReLU(),
-            layer_init(nn.Linear(256, np.prod(action_shape)), std=0.1),
+            layer_init(nn.Linear(512, np.prod(action_shape)), std=0.25),
         )
 
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(self.obs_dim, 256)),
+            layer_init(nn.Linear(self.obs_dim, 512)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 256)),
+            layer_init(nn.Linear(512, 512)),
             nn.Tanh(),
-            layer_init(nn.Linear(256, 1), std=1.0),
+            layer_init(nn.Linear(512, 1), std=1.0),
         )
 
         self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)
