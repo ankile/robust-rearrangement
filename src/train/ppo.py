@@ -499,18 +499,15 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                naction, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
             # Clamp action to be [-5, 5], arbitrary value
-            action = torch.clamp(action, -5, 5)
+            naction = torch.clamp(naction, -5, 5)
 
-            naction = (
-                normalizer(action, "action", forward=False) if normalizer else action
-            )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
-            actions[step] = action.cpu()
+            actions[step] = naction.cpu()
             logprobs[step] = logprob.cpu()
 
             rewards[step] = reward.view(-1).cpu()

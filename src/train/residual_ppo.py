@@ -10,6 +10,7 @@ import math
 from src.behavior import get_actor
 from src.behavior.base import Actor
 from src.common.files import get_processed_paths
+from src.eval.load_model import load_bc_actor
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.gym.furniture_sim_env import (
     FurnitureRLSimEnv,
@@ -163,30 +164,6 @@ class Args:
     """the number of steps (computed in runtime)"""
     continue_run_id: str = None
     """the run id to continue training from"""
-
-
-def load_bc_actor(run_id: str):
-    api = wandb.Api(overrides=dict(entity="ankile"))
-    run = api.run(run_id)
-
-    cfg: DictConfig = OmegaConf.create(run.config)
-    # cfg.actor.predict_past_actions = False
-    cfg.actor.flatten_obs = True
-
-    bc_actor: Actor = get_actor(cfg, device)
-
-    wt_type = "best_success_rate"
-    model_path = (
-        [f for f in run.files() if f.name.endswith(".pt") and wt_type in f.name][0]
-        .download(exist_ok=True)
-        .name
-    )
-
-    bc_actor.load_state_dict(torch.load(model_path))
-    bc_actor.eval()
-    bc_actor.to(device)
-
-    return bc_actor
 
 
 def get_demo_data_loader(
