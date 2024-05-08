@@ -52,7 +52,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoder2: nn.Module
     encoder2_proj: nn.Module
 
-    camera_2_vib: VIB
+    camera_2_vib: VIB = None
 
     def __init__(self):
         super().__init__()
