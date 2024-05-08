@@ -1,4 +1,3 @@
-# docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from collections import deque
 from typing import Dict, Literal, Tuple
 import furniture_bench  # noqa
@@ -8,7 +7,6 @@ import time
 from dataclasses import dataclass
 import math
 
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 from src.behavior import get_actor
 from src.behavior.base import Actor
 from src.common.files import get_processed_paths
@@ -21,9 +19,7 @@ from src.gym.furniture_sim_env import (
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
-from src.common.pytorch_util import dict_to_device
 from src.dataset.dataset import FurnitureStateDataset
-from src.gym.utils import NormalizeReward
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -33,13 +29,9 @@ from tqdm import trange
 import tyro
 from torch.utils.tensorboard import SummaryWriter
 
-from src.dataset.normalizer import LinearNormalizer
 
 from src.behavior.mlp import (
     SmallMLPAgent,
-    BigMLPAgent,
-    ResidualMLPAgent,
-    ResidualMLPAgentSeparate,
 )
 
 from omegaconf import OmegaConf, DictConfig

@@ -148,14 +148,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         }
 
         # Load the normalizer state dict
-        norm_load_res = self.normalizer.load_state_dict(normalizer_state_dict)
+        self.normalizer.load_state_dict(normalizer_state_dict)
 
         # Load the rest of the state dict
-        model_load_res = super().load_state_dict(state_dict)
-
-        print(
-            f"Normalizer load result: {norm_load_res}, Model load result: {model_load_res}"
-        )
+        super().load_state_dict(state_dict)
 
     def print_model_params(self: torch.nn.Module):
         total_params = sum(p.numel() for p in self.parameters())
@@ -292,24 +288,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         This is specific to the model and must be implemented by the subclass
         """
-
-        if self.training and self.wrist_camera_dropout > 0:
-            # print("[WARNING] Make sure this is disabled during evaluation")
-            # Apply dropout to the front camera features, i.e., feature 2
-            mask = (
-                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
-                > self.wrist_camera_dropout
-            )
-            feature1 = feature1 * mask
-
-        if self.training and self.front_camera_dropout > 0:
-            # print("[WARNING] Make sure this is disabled during evaluation")
-            # Apply dropout to the front camera features, i.e., feature 2
-            mask = (
-                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
-                > self.front_camera_dropout
-            )
-            feature2 = feature2 * mask
+        raise NotImplementedError
 
     def _sample_action_pred(self, nobs):
         # Predict normalized action
@@ -553,17 +532,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         """
         self.eval()
         self.camera2_transform.eval()
-
-    def action(self, obs: deque) -> torch.Tensor:
-        """
-        Given a deque of observations, predict the action
-
-        The action is predicted for the next step for all the environments (n_envs, action_dim)
-        """
-        raise NotImplementedError
-
-    def compute_loss(self, batch) -> torch.Tensor:
-        raise NotImplementedError
 
     def set_task(self, task):
         """
