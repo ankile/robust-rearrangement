@@ -95,6 +95,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         self.vib_front_feature_beta = config.regularization.get(
             "vib_front_feature_beta", 0.0
         )
+        self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
 
