@@ -11,5 +11,6 @@ dropout: 0.1
 residual: false
 
 loss_fn: MSELoss  # MSELoss | L1Loss
+confusion_loss_beta: 0.0
 
 projection_dim: 128

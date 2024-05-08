@@ -70,6 +70,8 @@ def combine_zarr_datasets(
 
     metadata = {}
 
+    domain_idx = dict(sim=0, real=1)
+
     # First pass to calculate total shapes
     for path in zarr_paths:
         # [F]urniture, [S]ource, [R]andomness, [O]utcome
@@ -99,6 +101,8 @@ def combine_zarr_datasets(
         "episode_ends": np.zeros(total_episodes, dtype=np.int64),
         "furniture": [],
         "success": np.zeros(total_episodes, dtype=np.uint8),
+        # Domain is 0 for sim, 1 for real
+        "domain": np.zeros(total_episodes, dtype=np.uint8),
     }
     for key in keys:
         combined_data[key] = np.zeros(
@@ -137,6 +141,9 @@ def combine_zarr_datasets(
         combined_data["failure_idx"] = dataset.get(
             "failure_idx", np.full_like(end_idxs, -1)
         )
+        combined_data["domain"][n_episodes : n_episodes + len(end_idxs)] = domain_idx[
+            dataset.attrs["domain"][:max_episodes]
+        ]
 
         # Upddate the counters
         last_episode_end += end_idxs[-1]

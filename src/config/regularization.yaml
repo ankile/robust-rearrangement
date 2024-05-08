@@ -4,6 +4,7 @@ regularization:
   feature_dropout: 0.0
   proprioception_dropout: 0.0
   front_camera_dropout: 0.0
+  wrist_camera_dropout: 0.0
   weight_decay: 1e-6
   vib_front_feature_beta: 0.0
 

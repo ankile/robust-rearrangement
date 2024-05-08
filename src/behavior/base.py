@@ -40,7 +40,9 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     state_noise: bool = False
     proprioception_dropout: float = 0.0
     front_camera_dropout: float = 0.0
+    wrist_camera_dropout: float = 0.0
     vib_front_feature_beta: float = 0.0
+    confusion_loss_beta: float = 0.0
 
     encoding_dim: int
     augment_image: bool = True
@@ -286,7 +288,23 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         This is specific to the model and must be implemented by the subclass
         """
 
-        raise NotImplementedError
+        if self.training and self.wrist_camera_dropout > 0:
+            # print("[WARNING] Make sure this is disabled during evaluation")
+            # Apply dropout to the front camera features, i.e., feature 2
+            mask = (
+                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
+                > self.wrist_camera_dropout
+            )
+            feature1 = feature1 * mask
+
+        if self.training and self.front_camera_dropout > 0:
+            # print("[WARNING] Make sure this is disabled during evaluation")
+            # Apply dropout to the front camera features, i.e., feature 2
+            mask = (
+                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
+                > self.front_camera_dropout
+            )
+            feature2 = feature2 * mask
 
     def _sample_action_pred(self, nobs):
         # Predict normalized action
@@ -420,6 +438,11 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 batch["mu"] = mu
                 batch["log_var"] = log_var
 
+            if self.confusion_loss_beta > 0:
+                # Apply the confusion loss to the front camera features
+                confusion_loss = self.confusion_loss(batch, feature1, feature2)
+                batch["confusion_loss"] = confusion_loss
+
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
 
@@ -450,6 +473,15 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             feature1 = feature1 + torch.randn_like(feature1) * self.feature_noise
             feature2 = feature2 + torch.randn_like(feature2) * self.feature_noise
 
+        if self.training and self.wrist_camera_dropout > 0:
+            # print("[WARNING] Make sure this is disabled during evaluation")
+            # Apply dropout to the front camera features, i.e., feature 2
+            mask = (
+                torch.rand(feature1.shape[0], self.obs_horizon, 1, device=self.device)
+                > self.wrist_camera_dropout
+            )
+            feature1 = feature1 * mask
+
         if self.training and self.front_camera_dropout > 0:
             # print("[WARNING] Make sure this is disabled during evaluation")
             # Apply dropout to the front camera features, i.e., feature 2
@@ -463,6 +495,35 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
     def compute_loss(self, batch):
         raise NotImplementedError
+
+    def confusion_loss(self, batch, feature1, feature2):
+        domain_idx = batch["domain"]
+
+        # Split the embeddings into the two domains (sim/real)
+        sim_emb1 = feature1[domain_idx == 0]  # N1 x 128
+        real_emb1 = feature1[domain_idx == 1]  # N2 x 128
+
+        real_emb1_expanded = real_emb1.unsqueeze(1)
+        sim_emb1_expanded = sim_emb1.unsqueeze(0)
+
+        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
+        differences1 = torch.norm((real_emb1_expanded - sim_emb1_expanded), dim=-1)
+
+        # Split the embeddings into the two domains (sim/real)
+        sim_emb2 = feature2[domain_idx == 0]
+        real_emb2 = feature2[domain_idx == 1]
+
+        real_emb2_expanded = real_emb2.unsqueeze(1)
+        sim_emb2_expanded = sim_emb2.unsqueeze(0)
+
+        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
+        differences2 = torch.norm((real_emb2_expanded - sim_emb2_expanded), dim=-1)
+
+        # Sum along all dimensions except the last to compute the accumulated loss
+        # Final shape after sum will be [128], so another sum over the last dimension is needed
+        loss = differences1.mean(dim=(0, 1)) + differences2.mean(dim=(0, 1))
+
+        return loss
 
     # === Mode Toggle ===
     def train_mode(self):
@@ -483,6 +544,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         """
         self.eval()
         self.camera2_transform.eval()
+
+    def action(self, obs: deque) -> torch.Tensor:
+        """
+        Given a deque of observations, predict the action
+
+        The action is predicted for the next step for all the environments (n_envs, action_dim)
+        """
+        raise NotImplementedError
+
+    def compute_loss(self, batch) -> torch.Tensor:
+        raise NotImplementedError
 
     def set_task(self, task):
         """
