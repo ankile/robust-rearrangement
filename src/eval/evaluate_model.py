@@ -346,8 +346,9 @@ if __name__ == "__main__":
                             "flatten_obs": True,
                         },
                     },
-                    flags={"readonly": True},
                 )
+                if "predict_past_actions" not in config.actor:
+                    config.actor.predict_past_actions = True
 
                 # Check that we didn't set the wrong action type above
                 assert config.control.control_mode == args.action_type, (
