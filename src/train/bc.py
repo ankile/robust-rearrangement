@@ -32,10 +32,10 @@ from gym import logger
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from wandb_osh.hooks import TriggerWandbSyncHook
+from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 
 trigger_sync = TriggerWandbSyncHook(
-    communication_dir=os.environ.get("WANDB_OSH_COMMUNICATION_DIR", None)
+    communication_dir=os.environ.get("WANDB_OSH_COMM_DIR", _comm_default_dir),
 )
 
 logger.set_level(logger.DISABLED)
