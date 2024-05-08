@@ -329,31 +329,48 @@ if __name__ == "__main__":
         choices=["osc", "diffik"],
     )
     parser.add_argument(
-        "--domain", "-d", type=str, nargs="+", default=None, choices=["sim", "real"]
+        "--domain",
+        "-d",
+        type=str,
+        choices=["sim", "real"],
+        required=True,
+        # default=None,
+        # nargs="+",
     )
-    parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
+    parser.add_argument(
+        "--furniture",
+        "-f",
+        type=str,
+        required=True,
+        # default=None,
+        # nargs="+",
+    )
     parser.add_argument(
         "--source",
         "-s",
         type=str,
         choices=["scripted", "rollout", "teleop", "augmentation"],
-        default=None,
-        nargs="+",
+        required=True,
+        # default=None,
+        # nargs="+",
     )
     parser.add_argument(
         "--randomness",
         "-r",
         type=str,
-        default=None,
-        nargs="+",
+        choices=["low", "med", "high"],
+        required=True,
+        # default=None,
+        # nargs="+",
     )
     parser.add_argument(
         "--demo-outcome",
         "-o",
         type=str,
         choices=["success", "failure", "partial_success"],
-        default=None,
-        nargs="+",
+        required=True,
+        # default=None,
+        # nargs="+",
     )
     parser.add_argument(
         "--suffix",
@@ -469,4 +486,10 @@ if __name__ == "__main__":
     z.attrs["calculated_pos_action_from_delta"] = True
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
-    z.attrs["demo_source"] = args.source[0]
+    z.attrs["demo_source"] = args.source
+    z.attrs["controller"] = args.controller
+    z.attrs["domain"] = args.domain
+    z.attrs["furniture"] = args.furniture
+    z.attrs["randomness"] = args.randomness
+    z.attrs["demo_outcome"] = args.demo_outcome
+    z.attrs["suffix"] = args.suffix

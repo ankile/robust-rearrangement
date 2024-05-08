@@ -7,6 +7,7 @@ regularization:
   wrist_camera_dropout: 0.0
   weight_decay: 1e-6
   vib_front_feature_beta: 0.0
+  confusion_loss_beta: 0.0
 
   # Ke et al., “Grasping with Chopsticks.”
   # Right now we use two different but fixed \sigma of 1 cm and 0.1 rad.

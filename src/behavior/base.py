@@ -297,7 +297,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             if self.confusion_loss_beta > 0:
                 # Apply the confusion loss to the front camera features
-                feature2 = self.camera_2_vib.test_sample(feature2)
+                confusion_loss = self.confusion_loss(batch, feature1, feature2)
+                batch["confusion_loss"] = confusion_loss
 
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
@@ -315,36 +316,27 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         return nobs
 
-    def confusion_loss(self, obs_real, obs_sim):
-        real_img1 = obs_real["color_image1"]
-        sim_img1 = obs_sim["color_image1"]
-        real_img2 = obs_real["color_image2"]
-        sim_img2 = obs_sim["color_image2"]
+    def confusion_loss(self, batch, feature1, feature2):
+        domain_idx = batch["domain"]
 
-        real_emb1 = self.encoder2_proj(self.encoder2(real_img2)).reshape(
-            -1, self.encoding_dim
-        )
-        sim_emb1 = self.encoder2_proj(self.encoder2(sim_img2)).reshape(
-            -1, self.encoding_dim
-        )
-
-        real_emb2 = self.encoder1_proj(self.encoder1(real_img1)).reshape(
-            -1, self.encoding_dim
-        )
-        sim_emb2 = self.encoder1_proj(self.encoder1(sim_img1)).reshape(
-            -1, self.encoding_dim
-        )
+        # Split the embeddings into the two domains (sim/real)
+        sim_emb1 = feature1[domain_idx == 0]  # N1 x 128
+        real_emb1 = feature1[domain_idx == 1]  # N2 x 128
 
         real_emb1_expanded = real_emb1.unsqueeze(1)
         sim_emb1_expanded = sim_emb1.unsqueeze(0)
 
-        # Subtract using broadcasting, resulting shape will be [N, N, 128]
+        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
         differences1 = torch.norm((real_emb1_expanded - sim_emb1_expanded), dim=-1)
+
+        # Split the embeddings into the two domains (sim/real)
+        sim_emb2 = feature2[domain_idx == 0]
+        real_emb2 = feature2[domain_idx == 1]
 
         real_emb2_expanded = real_emb2.unsqueeze(1)
         sim_emb2_expanded = sim_emb2.unsqueeze(0)
 
-        # Subtract using broadcasting, resulting shape will be [N, N, 128]
+        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
         differences2 = torch.norm((real_emb2_expanded - sim_emb2_expanded), dim=-1)
 
         # Sum along all dimensions except the last to compute the accumulated loss
