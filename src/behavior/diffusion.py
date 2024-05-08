@@ -27,27 +27,6 @@ class DiffusionPolicy(Actor):
 
         # Diffusion-specific parameters
         self.inference_steps = actor_cfg.inference_steps
-        self.observation_type = config.observation_type
-
-        # Regularization
-        self.feature_noise = config.regularization.get("feature_noise", None)
-        self.feature_dropout = config.regularization.get("feature_dropout", None)
-        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
-        self.state_noise = config.regularization.get("state_noise", False)
-        self.proprioception_dropout = config.regularization.get(
-            "proprioception_dropout", 0.0
-        )
-        self.front_camera_dropout = config.regularization.get(
-            "front_camera_dropout", 0.0
-        )
-
-        self.vib_front_feature_beta = config.regularization.get(
-            "vib_front_feature_beta", 0.0
-        )
-        self.confusion_loss_beta = actor_cfg["confusion_loss_beta"]
-
-        self.device = device
-
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
             beta_schedule=actor_cfg.beta_schedule,
