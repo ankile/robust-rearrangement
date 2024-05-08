@@ -27,6 +27,27 @@ class DiffusionPolicy(Actor):
 
         # Diffusion-specific parameters
         self.inference_steps = actor_cfg.inference_steps
+        self.observation_type = config.observation_type
+
+        # Regularization
+        self.feature_noise = config.regularization.get("feature_noise", None)
+        self.feature_dropout = config.regularization.get("feature_dropout", None)
+        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
+        self.state_noise = config.regularization.get("state_noise", False)
+        self.proprioception_dropout = config.regularization.get(
+            "proprioception_dropout", 0.0
+        )
+        self.front_camera_dropout = config.regularization.get(
+            "front_camera_dropout", 0.0
+        )
+
+        self.vib_front_feature_beta = config.regularization.get(
+            "vib_front_feature_beta", 0.0
+        )
+        self.confusion_loss_beta = actor_cfg["confusion_loss_beta"]
+
+        self.device = device
+
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
             beta_schedule=actor_cfg.beta_schedule,
@@ -133,11 +154,22 @@ class DiffusionPolicy(Actor):
             vib_loss = self.camera_2_vib.kl_divergence(mu, log_var)
 
             # Clip the VIB loss to prevent it from dominating the total loss
-            wandb.log({"vib_loss": vib_loss.item(), "bc_loss": loss.item()})
+            wandb.log({"vib_loss": vib_loss.item()}, commit=False)
             vib_loss = torch.clamp(vib_loss, max=1)
 
             # Scale the VIB loss by the beta and add it to the total loss
             loss += self.vib_front_feature_beta * vib_loss
+
+        # Add the confusion loss
+        if self.confusion_loss_beta > 0:
+            confusion_loss = batch["confusion_loss"]
+            loss += self.confusion_loss_beta * confusion_loss
+
+            # Log the confusion loss
+            wandb.log({"confusion_loss": confusion_loss.item()}, commit=False)
+
+        # Log the bc loss and commit the log
+        wandb.log({"bc_loss": loss.item()}, commit=True)
 
         return loss
 

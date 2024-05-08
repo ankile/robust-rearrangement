@@ -127,7 +127,7 @@ https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimag
 
 ### Install the robust-rearrangement Package
 
-Finally, install the ImitationJuicer package by running:
+Finally, install the `robust-rearrangement` package by running:
 
 ```bash
 cd ..
