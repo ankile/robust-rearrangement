@@ -34,7 +34,9 @@ from omegaconf import DictConfig, OmegaConf
 
 from wandb_osh.hooks import TriggerWandbSyncHook
 
-trigger_sync = TriggerWandbSyncHook()
+trigger_sync = TriggerWandbSyncHook(
+    communication_dir=os.environ.get("WANDB_OSH_COMMUNICATION_DIR", None)
+)
 
 logger.set_level(logger.DISABLED)
 OmegaConf.register_new_resolver("eval", eval)
