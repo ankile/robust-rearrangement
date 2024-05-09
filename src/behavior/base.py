@@ -56,7 +56,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoder2: VisionEncoder
     encoder2_proj: nn.Module
 
-    camera_2_vib: VIB = None
+    camera_2_vib: VIB
 
     def __init__(
         self,
@@ -130,6 +130,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 self.layernorm1 = nn.LayerNorm(self.encoding_dim).to(self.device)
                 self.layernorm2 = nn.LayerNorm(self.encoding_dim).to(self.device)
 
+            self.camera_2_vib = None
             if self.vib_front_feature_beta > 0:
                 self.camera_2_vib = VIB(self.encoding_dim, self.encoding_dim)
                 self.camera_2_vib.to(self.device)
@@ -232,17 +233,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             ).reshape(B * self.obs_horizon, *img_size)
 
             # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
-            # TODO: Remove this changing back and forth of channels first and last
             image1 = image1.permute(0, 3, 1, 2)
             image2 = image2.permute(0, 3, 1, 2)
 
             # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
             image1: torch.Tensor = self.camera1_transform(image1)
             image2: torch.Tensor = self.camera2_transform(image2)
-
-            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
-            image1 = image1.permute(0, 2, 3, 1)
-            image2 = image2.permute(0, 2, 3, 1)
 
             # Encode the images and reshape back to (B, obs_horizon, -1)
             feature1: torch.Tensor = self.encoder1_proj(self.encoder1(image1)).reshape(
@@ -386,30 +382,24 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             image1: torch.Tensor = batch["color_image1"]
             image2: torch.Tensor = batch["color_image2"]
 
-            # TODO: Remove this changing back and forth of channels first and last
-            # Reshape the images to (B * obs_horizon, H, W, C) for the encoder
+            # Images now have the channels first
+            assert image1.shape[-3:] == (3, 240, 320)
+
+            # Reshape the images to (B * obs_horizon, C, H, W) for the encoder
             image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])
             image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
 
-            # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
-            image1 = image1.permute(0, 3, 1, 2)
-            image2 = image2.permute(0, 3, 1, 2)
-
             # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
-            # Since we're in training mode, the tranform also performs augmentation
+            # Since we're in training mode, the transform also performs augmentation
             image1: torch.Tensor = self.camera1_transform(image1)
             image2: torch.Tensor = self.camera2_transform(image2)
 
-            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
-            image1 = image1.permute(0, 2, 3, 1)
-            image2 = image2.permute(0, 2, 3, 1)
-
             # Encode images and reshape back to (B, obs_horizon, encoding_dim)
             feature1 = self.encoder1_proj(self.encoder1(image1)).reshape(
-                B, self.obs_horizon, -1
+                B, self.obs_horizon, self.encoding_dim
             )
             feature2 = self.encoder2_proj(self.encoder2(image2)).reshape(
-                B, self.obs_horizon, -1
+                B, self.obs_horizon, self.encoding_dim
             )
 
             # Apply the regularization to the features

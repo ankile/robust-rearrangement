@@ -80,10 +80,8 @@ class SpatialSoftmaxEncoder(VisionEncoder):
         if freeze:
             self.freeze()
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         # Normalize images
         x = x / 255.0
         x = self.normalize(x)
@@ -126,10 +124,8 @@ class ResnetEncoder(VisionEncoder):
         if freeze:
             self.freeze()
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         # Normalize images
         x = x / 255.0
         x = self.normalize(x)
@@ -159,9 +155,8 @@ class DinoV2Encoder(torch.nn.Module):
 
             self.model.eval()
 
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         x = self.trans(x, return_tensors="pt").pixel_values.to(self.device)
         x = self.model(x).pooler_output
         return x
@@ -183,10 +178,8 @@ class VIPEncoder(torch.nn.Module):
 
             self.model.eval()
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         x = self.model(x)
         return x
 
@@ -216,10 +209,8 @@ class R3MEncoder(torch.nn.Module):
 
             self.model.eval()
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         x = self.model(x)
         return x
 
@@ -246,10 +237,8 @@ class DinoEncoder(torch.nn.Module):
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         # Normalize images
         x = x / 255.0
         x = self.normalize(x)
@@ -287,10 +276,8 @@ class MAEEncoder(torch.nn.Module):
 
         self.model = self.model.to(device)
 
-    # Expect input to be a batch of images of shape (batch_size, 224, 224, 3) in range [0, 255]
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x):
-        # Move channels to the front
-        x = x.permute(0, 3, 1, 2)
         # Normalize images
         x = x / 255.0
         x = self.normalize(x)
@@ -319,8 +306,8 @@ class VoltronEncoder(torch.nn.Module):
 
         self.encoding_dim = 384
 
+    # Expect input to be a batch of images of shape (batch_size, 3, 224, 224) in range [0, 255]
     def forward(self, x, lang=None):
-        x = x.permute(0, 3, 1, 2)
         x = self.preprocess(x)
         if lang is not None:
             x = self.model(x, lang, mode="multimodal")

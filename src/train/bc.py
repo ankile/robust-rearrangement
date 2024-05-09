@@ -94,18 +94,14 @@ def main(config: DictConfig):
     print(f"Using data from {data_path}")
 
     if config.observation_type == "image":
-        raise ValueError(
-            "Implement the `predict_past_actions` code for image observations"
-        )
         dataset = FurnitureImageDataset(
             dataset_paths=data_path,
             pred_horizon=config.data.pred_horizon,
             obs_horizon=config.data.obs_horizon,
             action_horizon=config.data.action_horizon,
-            augment_image=config.data.augment_image,
             data_subset=config.data.data_subset,
             control_mode=config.control.control_mode,
-            first_action_idx=config.actor.first_action_index,
+            predict_past_actions=config.data.predict_past_actions,
             pad_after=config.data.get("pad_after", True),
             max_episode_count=config.data.get("max_episode_count", None),
         )
@@ -272,7 +268,6 @@ def main(config: DictConfig):
 
         # batch loop
         actor.train_mode()
-        dataset.train()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -313,7 +308,6 @@ def main(config: DictConfig):
 
         # Evaluation loop
         actor.eval_mode()
-        dataset.eval()
 
         if config.training.ema.use:
             ema.apply_shadow()
