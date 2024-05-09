@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-a6000,vision-pulkitag-h100,vision-pulkitag-3090,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-main
+#SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --job-name=real_olci_r3m
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -23,5 +23,6 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     environment=real \
     randomness='[low,med]' \
     wandb.project=real-one_leg_corner_insert-1 \
+    actor.diffusion_model.down_dims='[128,256,512]' \
     dryrun=false
     # actor.loss_fn=L1Loss \

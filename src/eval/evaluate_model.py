@@ -312,7 +312,7 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                checkpoint_type = "best_success_rate"  # or "best_test_loss"
+                checkpoint_type = "best_test_loss"  #  best_test_loss, best_success_rate
                 model_file = [
                     f
                     for f in run.files()
@@ -345,8 +345,11 @@ if __name__ == "__main__":
                             ),
                         },
                     },
-                    flags={"readonly": True},
+                    # flags={"readonly": True},
                 )
+
+                if "confusion_loss_beta" not in config.actor:
+                    config.actor.confusion_loss_beta = 0.0
 
                 # Check that we didn't set the wrong action type above
                 assert config.control.control_mode == args.action_type, (
@@ -354,31 +357,10 @@ if __name__ == "__main__":
                     f"does not match the action type: {args.action_type}"
                 )
 
-                # # Get the normalizer
-                # normalizer_type = config.get("data", {}).get("normalization", "min_max")
-                # normalizer = get_normalizer(
-                #     normalizer_type=normalizer_type,
-                #     control_mode=config.control.control_mode,
-                # )
-
-                # TODO: Fix this properly, but for now have an ugly escape hatch
-                # vision_encoder_field_hotfix(run, config)
-
                 print(OmegaConf.to_yaml(config))
 
                 # Make the actor
                 actor: Actor = get_actor(cfg=config, device=device)
-
-                # print("NBNB: This is a hack to load the model weights, please fix soon")
-                # # TODO: Fix this properly, but for now have an ugly escape hatch
-                # import torch.nn as nn
-
-                # actor.normalizer.stats["parts_poses"] = nn.ParameterDict(
-                #     {
-                #         "min": nn.Parameter(torch.zeros(35)),
-                #         "max": nn.Parameter(torch.ones(35)),
-                #     }
-                # )
 
                 state_dict = torch.load(model_path)
 
