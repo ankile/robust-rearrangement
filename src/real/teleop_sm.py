@@ -23,6 +23,8 @@ from rdt.image.factory import enable_single_realsense
 
 from src.real.serials import FRONT_CAMERA_SERIAL, WRIST_CAMERA_SERIAL
 
+from ipdb import set_trace as bp
+
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -51,6 +53,54 @@ def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monoton
         while time_func() < t_end:
             pass
     return
+
+
+def convert_reference_frame_mat(
+    pose_source_mat, pose_frame_target_mat, pose_frame_source_mat
+):
+
+    # transform that maps from target to source (S = XT)
+    target2source_mat = np.matmul(
+        pose_frame_source_mat, np.linalg.inv(pose_frame_target_mat)
+    )
+
+    # obtain source pose in target frame
+    pose_source_in_target_mat = np.matmul(target2source_mat, pose_source_mat)
+    return pose_source_in_target_mat
+
+
+def convert_tip2wrist(tip_pose_mat):
+
+    tip2wrist_tf_mat = np.eye(4)
+    tip2wrist_tf_mat[:-1, -1] = np.array([0.0, 0.0, -0.1034])
+    tip2wrist_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, 0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    wrist_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=tip2wrist_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=tip_pose_mat,
+    )
+
+    return wrist_pose_mat
+
+
+def convert_wrist2tip(wrist_pose_mat):
+
+    wrist2tip_tf_mat = np.eye(4)
+    wrist2tip_tf_mat[:-1, -1] = np.array([0.0, 0.0, 0.1034])
+    wrist2tip_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, -0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    tip_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=wrist2tip_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=wrist_pose_mat,
+    )
+
+    return tip_pose_mat
 
 
 class ActionContainer:
@@ -132,8 +182,8 @@ class ObsActHelper:
         target_quat_xyzw = st.Rotation.from_matrix(delta_rot_mat).as_quat()
 
         target_dpose = np.concatenate(
-            (target_translation, target_quat_xyzw, grasp_flag), axis=-1
-        ).reshape(1, -1)
+            (target_translation, target_quat_xyzw, np.array([grasp_flag])), axis=-1
+        )
 
         return target_dpose
 
@@ -205,9 +255,10 @@ class ObsActHelper:
             drot * st.Rotation.from_rotvec(self.target_pose[3:])
         ).as_rotvec()
         new_target_pose_mat = self.to_pose_mat(new_target_pose)
+        current_pose_mat = self.to_pose_mat(self.target_pose)
 
         action_struct = ActionContainer(
-            current_pose_mat=self.to_pose_mat(self.target_pose),
+            current_pose_mat=current_pose_mat,
             next_pose_mat=new_target_pose_mat,
             grasp_flag=self.grasp_flag,
             action_taken=action_taken,
@@ -254,7 +305,15 @@ class ObsActHelper:
         wrist_rgbd = self.get_rgbd_rs(self.wrist_image_pipeline)
 
         # get the robot state
-        current_ee_pose = torch.cat(self.robot.get_ee_pose(), dim=-1)
+        # wrist pose
+        # current_ee_pose = torch.cat(self.robot.get_ee_pose(), dim=-1)
+
+        # convert to tip
+        current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
+        current_ee_tip_pose_mat = convert_wrist2tip(current_ee_wrist_pose_mat)
+        current_ee_tip_pose = poly_util.mat2polypose(current_ee_tip_pose_mat)
+        current_ee_pose = torch.cat(current_ee_tip_pose, dim=-1)
+
         current_joint_positions = self.robot.get_joint_positions()
         jacobian = self.robot.robot_model.compute_jacobian(current_joint_positions)
         ee_spatial_velocity = jacobian @ self.robot.get_joint_velocities()
@@ -363,15 +422,32 @@ def main():
     # Setup other interfaces
     keyboard = KeyboardInterface()
 
-    translation, quat_xyzw = robot.get_ee_pose()
-    rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
-    target_pose = np.array([*translation.numpy(), *rotvec])
-
     def polypose2target(poly_pose):
         translation, quat_xyzw = poly_pose[0], poly_pose[1]
         rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
         target_pose = np.array([*translation.numpy(), *rotvec])
         return target_pose
+
+    def to_pose_mat(pose_):
+        pose_mat = np.eye(4)
+        pose_mat[:-1, -1] = pose_[:3]
+        pose_mat[:-1, :-1] = st.Rotation.from_rotvec(pose_[3:]).as_matrix()
+        return pose_mat
+
+    def wrist_target_to_tip(wrist_target_pose_rv):
+        wrist_target_pose_mat = to_pose_mat(wrist_target_pose_rv)
+        tip_target_pose_mat = convert_wrist2tip(wrist_target_pose_mat)
+        tip_target_pos = tip_target_pose_mat[:-1, -1]
+        tip_target_rv = st.Rotation.from_matrix(
+            tip_target_pose_mat[:-1, :-1]
+        ).as_rotvec()
+        tip_target_pose_rv = np.array([*tip_target_pos, *tip_target_rv])
+        return tip_target_pose_rv
+
+    translation, quat_xyzw = robot.get_ee_pose()
+    rotvec = st.Rotation.from_quat(quat_xyzw.numpy()).as_rotvec()
+    target_pose = np.array([*translation.numpy(), *rotvec])
+    tip_target_pose = wrist_target_to_tip(target_pose)
 
     def execute_gripper_action(toggle_gripper: bool, gripper_open: bool):
         if not toggle_gripper:
@@ -396,7 +472,8 @@ def main():
                 wrist_image_pipeline=wrist_image_pipeline,
             )
 
-            obs_act_helper.set_target_pose(target_pose)
+            # obs_act_helper.set_target_pose(target_pose)
+            obs_act_helper.set_target_pose(tip_target_pose)
             obs_act_helper.set_constants(
                 max_pos_speed=args.max_pos_speed,
                 max_rot_speed=args.max_rot_speed,
@@ -416,6 +493,10 @@ def main():
                 # get robot state/image observation
                 observation = obs_act_helper.get_observation()
 
+                # print(f"EE xyz: {observation['robot_state']['ee_pos'].round(3)}")
+                # At pick tabletop-time, EE xyz: [0.433 0.009 0.127]
+                # At pick table leg-time, EE xyz: [0.437 0.212 0.051]
+
                 # get and unpack action
                 action_struct = obs_act_helper.get_action()
                 action_current_pose_mat = action_struct.current_pose_mat
@@ -430,7 +511,10 @@ def main():
                     break
 
                 # send command to the robot
-                robot.update_desired_ee_pose(action_next_pose_mat, dt=dt)
+                # robot.update_desired_ee_pose(action_next_pose_mat, dt=dt)
+                robot.update_desired_ee_pose(
+                    convert_tip2wrist(action_next_pose_mat), dt=dt
+                )
                 execute_gripper_action(toggle_gripper, is_gripper_open)
 
                 # log the data
@@ -446,11 +530,18 @@ def main():
                     episode_data["observations"].append(observation)
 
                 target_pose = polypose2target(robot.get_ee_pose())
-                obs_act_helper.set_target_pose(target_pose)
+                tip_target_pose = wrist_target_to_tip(target_pose)
+                # obs_act_helper.set_target_pose(target_pose)
+                obs_act_helper.set_target_pose(tip_target_pose)
 
                 # Draw the current and target pose (in meshcat)
                 mc_util.meshcat_frame_show(
-                    mc_vis, f"scene/target_pose", action_next_pose_mat
+                    mc_vis,
+                    f"scene/target_pose_wrist",
+                    convert_tip2wrist(action_next_pose_mat),
+                )
+                mc_util.meshcat_frame_show(
+                    mc_vis, f"scene/target_pose_tip", action_next_pose_mat
                 )
                 mc_util.meshcat_frame_show(
                     mc_vis,

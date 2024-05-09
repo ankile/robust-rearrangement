@@ -27,6 +27,7 @@ from rdt.image.factory import get_realsense_rgbd_subscribers
 import lcm
 from rdt.image.factory import enable_realsense_devices
 import pyrealsense2 as rs
+from src.real.serials import WRIST_CAMERA_SERIAL, FRONT_CAMERA_SERIAL
 
 from typing import List
 
@@ -247,6 +248,54 @@ def resize_crop_image(obs, key):
         pass
 
 
+def convert_reference_frame_mat(
+    pose_source_mat, pose_frame_target_mat, pose_frame_source_mat
+):
+
+    # transform that maps from target to source (S = XT)
+    target2source_mat = np.matmul(
+        pose_frame_source_mat, np.linalg.inv(pose_frame_target_mat)
+    )
+
+    # obtain source pose in target frame
+    pose_source_in_target_mat = np.matmul(target2source_mat, pose_source_mat)
+    return pose_source_in_target_mat
+
+
+def convert_tip2wrist(tip_pose_mat):
+
+    tip2wrist_tf_mat = np.eye(4)
+    tip2wrist_tf_mat[:-1, -1] = np.array([0.0, 0.0, -0.1034])
+    tip2wrist_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, 0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    wrist_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=tip2wrist_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=tip_pose_mat,
+    )
+
+    return wrist_pose_mat
+
+
+def convert_wrist2tip(wrist_pose_mat):
+
+    wrist2tip_tf_mat = np.eye(4)
+    wrist2tip_tf_mat[:-1, -1] = np.array([0.0, 0.0, 0.1034])
+    wrist2tip_tf_mat[:-1, :-1] = st.Rotation.from_quat(
+        [0.0, 0.0, -0.3826834323650898, 0.9238795325112867]
+    ).as_matrix()
+
+    tip_pose_mat = convert_reference_frame_mat(
+        pose_source_mat=wrist2tip_tf_mat,
+        pose_frame_target_mat=np.eye(4),
+        pose_frame_source_mat=wrist_pose_mat,
+    )
+
+    return tip_pose_mat
+
+
 class SimpleDiffIKFrankaEnv:
     def __init__(
         self,
@@ -258,6 +307,7 @@ class SimpleDiffIKFrankaEnv:
         execute: bool = False,
         state_only: bool = False,
         proprioceptive_state_dim: int = 10,
+        control_mode: str = "pos",
     ):
 
         self.device = device
@@ -282,6 +332,7 @@ class SimpleDiffIKFrankaEnv:
         # flags
         self.state_only = state_only
         self.proprioceptive_state_dim = proprioceptive_state_dim
+        self.control_mode = control_mode
 
     def set_timing(
         self, iter_idx: int = 0, dt: float = 0.1, command_latency: float = 0.01
@@ -318,7 +369,8 @@ class SimpleDiffIKFrankaEnv:
         frame_rate = rs_cfg.FRAME_RATE  # fps
 
         ctx = rs.context()  # Create librealsense context for managing devices
-        serials = rs_cfg.SERIAL_NUMBERS
+        # serials = rs_cfg.SERIAL_NUMBERS
+        serials = [WRIST_CAMERA_SERIAL, FRONT_CAMERA_SERIAL]
 
         print(f"Enabling devices with serial numbers: {serials}")
         self.image_pipelines = enable_realsense_devices(
@@ -436,6 +488,14 @@ class SimpleDiffIKFrankaEnv:
         # convert action
         new_target_pose_mat = self.action2pose_mat(action)
 
+        # If the action type is delta, we need to apply it to the
+        # current state so we get the desired pose
+        if self.control_mode == "delta":
+            ee_pose_mat = torch.from_numpy(
+                poly_util.polypose2mat(self.robot.get_ee_pose())
+            ).to(torch.float32)
+            new_target_pose_mat = torch.matmul(new_target_pose_mat, ee_pose_mat)
+
         self.last_grip_step += 1
         grasp = action[-1]
         grasp_cond1 = (torch.sign(grasp) != torch.sign(self.last_grasp)).item()
@@ -489,17 +549,16 @@ def main():
     franka_ip = "173.16.0.1"
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
+    gripper = GripperInterface(ip_address=franka_ip)
 
-    # manual home
+    # manual home, open gripper first
+    gripper.goto(0.08, 0.05, 0.1, blocking=False)
     robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
     robot.move_to_joint_positions(robot_home)
 
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
     Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
     robot.start_joint_impedance(Kq=Kq_new, Kqd=Kqd_new, adaptive=True)
-
-    gripper = GripperInterface(ip_address=franka_ip)
-    gripper.goto(0.08, 0.05, 0.1, blocking=False)
 
     zmq_url = f"tcp://127.0.0.1:{args.port_vis}"
     mc_vis = meshcat.Visualizer(zmq_url=zmq_url)
@@ -568,6 +627,7 @@ def main():
         execute=args.execute,
         state_only=args.state_only,
         proprioceptive_state_dim=config.robot_state_dim,
+        control_mode=config.control.control_mode,
     )
 
     obs = env.get_obs()
