@@ -21,5 +21,6 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     furniture='[one_leg_corner_insert,one_leg]' \
     actor.confusion_loss_beta=0.1 \
     environment='[sim,real]' \
+    randomness='[low,med]' \
     wandb.project=real-one_leg_corner_insert-1 \
     dryrun=false
