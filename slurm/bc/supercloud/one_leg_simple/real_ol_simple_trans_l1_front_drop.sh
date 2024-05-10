@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p xeon-g6-volta
-#SBATCH -t 0-12:00
+#SBATCH -t 1-00:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH --job-name=real_ol_simple_trans_l1_front_drop
 #SBATCH -c 20
