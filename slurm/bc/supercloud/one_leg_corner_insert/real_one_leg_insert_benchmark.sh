@@ -3,8 +3,10 @@
 #SBATCH -p xeon-g6-volta
 #SBATCH -t 0-12:00
 #SBATCH --gres=gpu:volta:1
-#SBATCH --job-name=bc_benchmark_old
+#SBATCH --job-name=bc_benchmark_new
 #SBATCH -c 20
+
+git checkout actor-action-chunk-refactor
 
 # Run your command with the provided arguments
 python -m src.train.bc +experiment=image/real_one_leg_insert \
@@ -17,7 +19,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     furniture=one_leg_corner_insert \
     environment=real \
     randomness='[low]' \
-    real-image-speed-compare-channels-first \
+    wandb.project=real-image-speed-compare-channels-first \
     wandb.mode=offline \
-    wandb.name=bc-benchmark-old-1 \
+    wandb.name=bc-benchmark-new-1 \
     dryrun=false

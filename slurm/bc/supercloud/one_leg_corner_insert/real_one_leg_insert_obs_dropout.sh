@@ -14,6 +14,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.wrist_camera_dropout=0.0 \
     regularization.proprioception_dropout=0.0 \
     regularization.vib_front_feature_beta=0.1 \
+    regularization.image_augmention.random_erase=true \
     furniture=one_leg_corner_insert \
     environment=real \
     wandb.project=real-one_leg_corner_insert-1 \
