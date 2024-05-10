@@ -219,7 +219,7 @@ def main(config: DictConfig):
     )
     config_dict = OmegaConf.to_container(config, resolve=True)
     # Init wandb
-    wandb.init(
+    run = wandb.init(
         id=config.wandb.continue_run_id,
         name=config.wandb.name,
         resume=config.wandb.continue_run_id is not None,
@@ -229,6 +229,10 @@ def main(config: DictConfig):
         mode=config.wandb.mode,
         notes=config.wandb.notes,
     )
+
+    # Print the run name and storage location
+    print(f"Run name: {run.name}")
+    print(f"Run storage location: {run.dir}")
 
     # In sweeps, the init is ignored, so to make sure that the config is saved correctly
     # to wandb we need to log it manually
