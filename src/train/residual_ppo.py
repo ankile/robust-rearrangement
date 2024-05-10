@@ -35,7 +35,6 @@ from src.behavior.mlp import (
     SmallMLPAgent,
 )
 
-from omegaconf import OmegaConf, DictConfig
 
 from ipdb import set_trace as bp
 
@@ -152,6 +151,8 @@ class Args:
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
     """the target KL divergence threshold"""
+    residual_regularization: float = 0.0
+    """the regularization coefficient for the residual policy"""
 
     # to be filled in runtime
     batch_size: int = 0
@@ -301,7 +302,7 @@ class ResidualPolicy(nn.Module):
 
     def get_action_and_value(
         self, nobs: torch.Tensor, action: torch.Tensor = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         action_mean: torch.Tensor = self.actor_mean(nobs)
 
         action_logstd = self.actor_logstd.expand_as(action_mean)
@@ -316,6 +317,7 @@ class ResidualPolicy(nn.Module):
             probs.log_prob(action).sum(dim=1),
             probs.entropy().sum(dim=1),
             self.critic(nobs),
+            action_mean,
         )
 
 
@@ -515,7 +517,7 @@ if __name__ == "__main__":
 
             with torch.no_grad():
 
-                residual_naction, logprob, _, value = (
+                residual_naction, logprob, _, value, _ = (
                     residual_policy.get_action_and_value(next_residual_obs)
                 )
                 values[step] = value.flatten().cpu()
@@ -616,8 +618,8 @@ if __name__ == "__main__":
                 mb_values = b_values[mb_inds].to(device)
 
                 # Calculate the loss
-                _, newlogprob, entropy, newvalue = residual_policy.get_action_and_value(
-                    mb_obs, mb_actions
+                _, newlogprob, entropy, newvalue, action_mean = (
+                    residual_policy.get_action_and_value(mb_obs, mb_actions)
                 )
                 logratio = newlogprob - mb_logprobs
                 ratio = logratio.exp()
@@ -667,46 +669,9 @@ if __name__ == "__main__":
                 if iteration > args.n_iterations_train_only_value:
                     policy_loss += ppo_loss
 
-                # # Behavior cloning loss
-                # if args.bc_coef > 0:
-                #     batch = next(demo_data_iter)
-                #     batch = dict_to_device(batch, device)
-                #     bc_obs = batch["obs"].squeeze()
-
-                #     norm_bc_actions = batch["action"]
-
-                #     # Normalize the actions
-                #     if args.bc_loss_type == "mse":
-                #         action_pred = agent.actor_mean(bc_obs)
-                #         bc_loss = F.mse_loss(action_pred, norm_bc_actions)
-                #     elif args.bc_loss_type == "nll":
-                #         _, bc_logprob, _, bc_values = agent.get_action_and_value(
-                #             bc_obs, norm_bc_actions
-                #         )
-                #         bc_loss = -bc_logprob.mean()
-                #     else:
-                #         raise ValueError(
-                #             f"Unknown behavior cloning loss type: {args.bc_loss_type}"
-                #         )
-
-                #     with torch.no_grad():
-                #         bc_values = agent.get_value(bc_obs)
-                #     bc_v_loss = (
-                #         0.5
-                #         * (
-                #             (bc_values.squeeze() - batch["returns"].squeeze()) ** 2
-                #         ).mean()
-                #     )
-
-                #     bc_total_loss = (
-                #         bc_loss + bc_v_loss
-                #         if args.supervise_value_function
-                #         else bc_loss
-                #     )
-
-                #     policy_loss = (
-                #         1 - args.bc_coef
-                #     ) * policy_loss + args.bc_coef * bc_total_loss
+                # Add the auxiliary regularization loss
+                aux_loss = torch.mean(torch.square(action_mean))
+                policy_loss += args.residual_regularization * aux_loss
 
                 # Total loss
                 loss = policy_loss + args.vf_coef * v_loss
@@ -781,6 +746,7 @@ if __name__ == "__main__":
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
         writer.add_scalar("losses/bc_coef", args.bc_coef, global_step)
+        writer.add_scalar("losses/residual_l2", aux_loss.item(), global_step)
         print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
@@ -800,11 +766,11 @@ if __name__ == "__main__":
         writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)
         writer.add_scalar("env/torque_magnitude", env.torque_magnitude, global_step)
 
-        # Add histograms for the gradients and the weights
-        for name, param in residual_policy.named_parameters():
-            writer.add_histogram(f"weights/{name}", param, global_step)
-            if param.grad is not None:
-                writer.add_histogram(f"grads/{name}", param.grad, global_step)
+        # # Add histograms for the gradients and the weights
+        # for name, param in residual_policy.named_parameters():
+        #     writer.add_histogram(f"weights/{name}", param, global_step)
+        #     if param.grad is not None:
+        #         writer.add_histogram(f"grads/{name}", param.grad, global_step)
 
         # Checkpoint the model if the success rate improves
         if success_rate > 0.1 and (
