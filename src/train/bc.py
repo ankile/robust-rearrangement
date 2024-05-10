@@ -52,7 +52,9 @@ def to_native(obj):
 def set_dryrun_params(config: DictConfig):
     if config.dryrun:
         OmegaConf.set_struct(config, False)
-        config.training.steps_per_epoch = 10
+        config.training.steps_per_epoch = (
+            10 if config.training.steps_per_epoch != -1 else -1
+        )
         config.data.data_subset = 5
         config.data.dataloader_workers = 0
 
@@ -164,15 +166,21 @@ def main(config: DictConfig):
         actor.load_state_dict(torch.load(model_path))
 
     # Create dataloaders
-    trainloader = FixedStepsDataloader(
+    trainload_kwargs = dict(
         dataset=train_dataset,
-        n_batches=config.training.steps_per_epoch,
         batch_size=config.training.batch_size,
         num_workers=config.data.dataloader_workers,
         shuffle=True,
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
+    )
+    trainloader = (
+        FixedStepsDataloader(
+            **trainload_kwargs, n_batches=config.training.steps_per_epoch
+        )
+        if config.training.steps_per_epoch != -1
+        else DataLoader(**trainload_kwargs)
     )
 
     testloader = DataLoader(
