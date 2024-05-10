@@ -665,16 +665,27 @@ if __name__ == "__main__":
                 entropy_loss = entropy.mean() * args.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
-
-                if iteration > args.n_iterations_train_only_value:
-                    policy_loss += ppo_loss
-
                 # Add the auxiliary regularization loss
                 aux_loss = torch.mean(torch.square(action_mean))
-                policy_loss += args.residual_regularization * aux_loss
+
+                # Normalize the losses so that each term has the same scale
+                if iteration > args.n_iterations_train_only_value:
+                    # Calculate the scaling factors based on the magnitudes of the losses
+                    ppo_loss_scale = 1.0 / (torch.abs(ppo_loss.detach()) + 1e-8)
+                    aux_loss_scale = 1.0 / (torch.abs(aux_loss.detach()) + 1e-8)
+
+                    # Scale the losses using the calculated scaling factors
+                    policy_loss += ppo_loss * ppo_loss_scale
+                    policy_loss += (
+                        args.residual_regularization * aux_loss * aux_loss_scale
+                    )
+
+                # Scale the value loss
+                v_loss_scale = 1.0 / (torch.abs(v_loss.detach()) + 1e-8)
+                scaled_v_loss = args.vf_coef * v_loss * v_loss_scale
 
                 # Total loss
-                loss = policy_loss + args.vf_coef * v_loss
+                loss = policy_loss + scaled_v_loss
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -725,6 +736,7 @@ if __name__ == "__main__":
         )
         advantages = advantages.cpu()
         returns = returns.cpu()
+        action_norms = torch.norm(b_actions[:, :3], dim=-1).cpu()
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         writer.add_scalar(
@@ -755,6 +767,10 @@ if __name__ == "__main__":
         writer.add_scalar("charts/discounted_rewards", discounted_rewards, global_step)
         writer.add_scalar("charts/success_rate", success_rate, global_step)
 
+        # Add the mean and std of the action norms to the tensorboard
+        writer.add_scalar("charts/action_norm_mean", action_norms.mean(), global_step)
+        writer.add_scalar("charts/action_norm_std", action_norms.std(), global_step)
+
         # Add histograms
         writer.add_histogram("histograms/values", values, global_step)
         writer.add_histogram("histograms/returns", returns, global_step)
@@ -762,9 +778,12 @@ if __name__ == "__main__":
         writer.add_histogram("histograms/logprobs", logprobs, global_step)
         writer.add_histogram("histograms/rewards", rewards, global_step)
 
-        # Log the current randomness of the environment
-        writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)
-        writer.add_scalar("env/torque_magnitude", env.torque_magnitude, global_step)
+        # # Log the current randomness of the environment
+        # writer.add_scalar("env/force_magnitude", env.force_magnitude, global_step)
+        # writer.add_scalar("env/torque_magnitude", env.torque_magnitude, global_step)
+
+        # Get the norm of the xyz of actions and plot that on a histogram
+        writer.add_histogram("histograms/action_norms", action_norms, global_step)
 
         # # Add histograms for the gradients and the weights
         # for name, param in residual_policy.named_parameters():
