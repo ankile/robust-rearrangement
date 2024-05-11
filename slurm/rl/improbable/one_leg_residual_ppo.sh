@@ -17,5 +17,5 @@ python -m src.train.residual_ppo --num-env-steps 1024 --data-collection-steps 10
     --normalize-reward --update-epochs 4 \
     --no-normalize-obs --no-clip-vloss --num-minibatches 1 --init-logstd -4 \
     --ee-dof 10 --agent residual \
-    --action-type pos --gamma 0.99 --n-iterations-train-only-value 5 --residual_regularization 0.25 \
+    --action-type pos --gamma 0.99 --n-iterations-train-only-value 5 --residual_regularization 0.01 \
     --no-debug
