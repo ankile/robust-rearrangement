@@ -11,6 +11,8 @@ training:
   batch_size: 64
   start_epoch: 0
   steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
+
+  sample_every: 5
   
   load_checkpoint_run_id: null
   checkpoint_model: true
