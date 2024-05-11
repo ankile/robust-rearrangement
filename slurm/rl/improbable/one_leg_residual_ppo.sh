@@ -7,15 +7,15 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64GB
-#SBATCH --time=1-00:00
+#SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 
 git checkout residual-ppo
 
-python -m src.train.residual_ppo --num-env-steps 1024 --data-collection-steps 1024 --num-envs 1024 --bc-coef 0.0 \
-    --learning-rate 1e-4 --save-model --total-timesteps 120000000 --headless --exp-name oneleg \
+python -m src.train.residual_ppo --num-env-steps 800 --data-collection-steps 800 --num-envs 2048 --bc-coef 0.0 \
+    --learning-rate 3e-4 --save-model --total-timesteps 200000000 --headless --exp-name oneleg \
     --normalize-reward --update-epochs 4 \
     --no-normalize-obs --no-clip-vloss --num-minibatches 1 --init-logstd -4 \
     --ee-dof 10 --agent residual \
-    --action-type pos --gamma 0.99 --n-iterations-train-only-value 5 --residual_regularization 0.01 \
+    --action-type pos --gamma 0.997 --n-iterations-train-only-value 5 --residual_regularization 0.01 \
     --no-debug
