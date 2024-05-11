@@ -260,7 +260,10 @@ def get_dataset_action(dataset, step, episode):
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.orthogonal_(layer.weight, std)
-    torch.nn.init.constant_(layer.bias, bias_const)
+
+    # Only initialize the bias if it exists
+    if layer.bias is not None:
+        torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
 
@@ -284,7 +287,7 @@ class ResidualPolicy(nn.Module):
             nn.ReLU(),
             layer_init(nn.Linear(512, 512)),
             nn.ReLU(),
-            layer_init(nn.Linear(512, np.prod(action_shape)), std=0.1),
+            layer_init(nn.Linear(512, np.prod(action_shape), bias=False), std=0.1),
         )
 
         self.critic = nn.Sequential(
@@ -516,13 +519,12 @@ if __name__ == "__main__":
             obs[step] = next_residual_obs
 
             with torch.no_grad():
-
                 residual_naction, logprob, _, value, _ = (
                     residual_policy.get_action_and_value(next_residual_obs)
                 )
                 values[step] = value.flatten().cpu()
 
-            naction = base_naction + residual_naction
+            naction = base_naction + residual_naction / 10.0
 
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 

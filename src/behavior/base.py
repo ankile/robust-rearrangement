@@ -531,6 +531,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         Set models to eval mode
         """
         self.eval()
+        self.camera1_transform.eval()
         self.camera2_transform.eval()
 
     def set_task(self, task):
