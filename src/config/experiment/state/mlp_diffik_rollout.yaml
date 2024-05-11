@@ -29,8 +29,8 @@ training:
   batch_size: 1024
 
 furniture: ???
-randomness: low
-demo_source: [teleop, rollout]
+randomness: [low, med]
+demo_source: teleop
 
 wandb:
   project: ${furniture}-mlp-state-1

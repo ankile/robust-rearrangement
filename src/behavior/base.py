@@ -65,6 +65,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     ):
         super().__init__()
         self.normalizer = LinearNormalizer()
+        self.camera_2_vib = None
 
         actor_cfg = config.actor
         self.obs_horizon = actor_cfg.obs_horizon
@@ -130,7 +131,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
                 self.layernorm1 = nn.LayerNorm(self.encoding_dim).to(self.device)
                 self.layernorm2 = nn.LayerNorm(self.encoding_dim).to(self.device)
 
-            self.camera_2_vib = None
             if self.vib_front_feature_beta > 0:
                 self.camera_2_vib = VIB(self.encoding_dim, self.encoding_dim)
                 self.camera_2_vib.to(self.device)
@@ -304,6 +304,22 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             actions.append(action_pred[:, i, :])
 
         return actions
+
+    @torch.no_grad()
+    def action_pred(self, batch):
+        """
+        Predict the action given the batch of observations
+        """
+        # Normalize observations
+        nobs = self._training_obs(batch, flatten=self.flatten_obs)
+
+        # Predict the action
+        naction = self._normalized_action(nobs)
+
+        # Unnormalize the action
+        action = self.normalizer(naction, "action", forward=False)
+
+        return action
 
     @torch.no_grad()
     def action(self, obs: deque):
