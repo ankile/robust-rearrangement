@@ -17,7 +17,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.vib_front_feature_beta=0.0 \
     actor/diffusion_model=unet \
     actor.loss_fn=L1Loss \
-    training.actor_lr=1e-4 training.encoder_lr=1e-5 \
+    training.actor_lr=1e-4 training.encoder_lr=1e-4 \
     furniture=one_leg_simple \
     environment=real \
     wandb.project=real-one_leg_simple-1 \

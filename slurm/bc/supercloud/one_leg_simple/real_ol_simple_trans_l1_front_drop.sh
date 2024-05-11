@@ -17,7 +17,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.vib_front_feature_beta=0.0 \
     actor/diffusion_model=transformer \
     actor.loss_fn=L1Loss \
-    training.actor_lr=1e-4 training.encoder_lr=1e-5 \
+    training.actor_lr=1e-4 training.encoder_lr=1e-4 \
     training.num_epochs=5000 \
     early_stopper.patience=inf \
     furniture=one_leg_simple \
