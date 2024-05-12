@@ -8,7 +8,9 @@ inference_steps: 16
 prediction_type: epsilon
 num_diffusion_iters: 100
 clip_sample: true
+
 loss_fn: MSELoss  # MSELoss | L1Loss
+confusion_loss_beta: 0.0
 
 projection_dim: 128
 

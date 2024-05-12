@@ -187,11 +187,10 @@ def get_demo_data_loader(
     control_mode,
     n_batches,
     task,
-    act_rot_repr="quat",
     num_workers=4,
-    normalizer=None,
     action_horizon=1,
     add_relative_pose=False,
+    normalizer=None,
 ) -> DataLoader:
 
     paths = get_processed_paths(
@@ -215,6 +214,7 @@ def get_demo_data_loader(
         max_episode_count=None,
         task=task,
         add_relative_pose=add_relative_pose,
+        normalizer=normalizer,
     )
 
     batch_size = len(demo_data) // n_batches
@@ -451,21 +451,6 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs))
     values = torch.zeros((args.num_steps, args.num_envs))
 
-    # Get the dataloader for the demo data for the behavior cloning
-    demo_data_loader = get_demo_data_loader(
-        control_mode=action_type,
-        n_batches=args.num_minibatches,
-        task=args.exp_name,
-        act_rot_repr=act_rot_repr,
-        normalizer=normalizer,
-        action_horizon=agent.action_horizon,
-        num_workers=4 if not args.debug else 0,
-        add_relative_pose=args.add_relative_pose,
-    )
-
-    # Print the number of batches in the dataloader
-    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
-
     if args.load_checkpoint:
         wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
 
@@ -485,6 +470,20 @@ if __name__ == "__main__":
     if args.kl_coef > 0:
         ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
         ref_agent = ref_agent.to(device)
+
+    # Get the dataloader for the demo data for the behavior cloning
+    demo_data_loader = get_demo_data_loader(
+        control_mode=action_type,
+        n_batches=args.num_minibatches,
+        task=args.exp_name,
+        normalizer=normalizer,
+        action_horizon=agent.action_horizon,
+        num_workers=4 if not args.debug else 0,
+        add_relative_pose=args.add_relative_pose,
+    )
+
+    # Print the number of batches in the dataloader
+    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     agent = agent.to(device)
     global_step = 0
