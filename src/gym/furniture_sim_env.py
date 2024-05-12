@@ -1815,6 +1815,41 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         assert success, "Failed to set part state"
 
 
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
+
+
+class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
+    def reset_arg(self, options_list=None):
+        obs = self.reset()
+
+        # Concat together the robot_state and parts_poses
+        robot_state = obs["robot_state"]
+
+        # Convert the robot state to have 6D pose
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
+        parts_poses = obs["parts_poses"]
+
+        return torch.cat([robot_state, parts_poses], dim=-1).cpu().numpy()
+
+    def step(self, action):
+        action = torch.tensor(action, device=self.device)
+        obs, reward, done, info = super().step(action)
+        robot_state = obs["robot_state"]
+
+        # Convert the robot state to have 6D pose
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
+        parts_poses = obs["parts_poses"]
+
+        return (
+            torch.cat([robot_state, parts_poses], dim=-1).cpu().numpy(),
+            reward.squeeze().cpu().numpy(),
+            done.squeeze().cpu().numpy(),
+            info,
+        )
+
+
 class FurnitureRLSimEnvPlaceTabletop(FurnitureRLSimEnv):
 
     def __init__(self, *args, **kwargs):
