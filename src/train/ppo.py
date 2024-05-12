@@ -46,7 +46,8 @@ import gym
 
 gym.logger.set_level(40)
 import wandb
-
+import copy
+from torch.distributions.normal import Normal
 
 from src.gym import turn_off_april_tags
 
@@ -162,6 +163,8 @@ class Args:
     """coefficient of the value function"""
     bc_coef: float = 0.0
     """coefficient of the behavior cloning loss"""
+    kl_coef: float = 1.0
+    """coefficient of the KL regularization loss"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
@@ -399,6 +402,13 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
+    if args.kl_coef > 0:
+        ref_agent = ResidualMLPAgentSeparate(
+                obs_shape=env.observation_space.shape,
+                action_shape=env.action_space.shape,
+                init_logstd=args.init_logstd,
+            )
+
     # normalizer = None
     normalizer = LinearNormalizer().to(device)
     # assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
@@ -471,6 +481,10 @@ if __name__ == "__main__":
             k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
         }
         print(normalizer.load_state_dict(normalizer_wts))
+
+    if args.kl_coef > 0:
+        ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
+        ref_agent = ref_agent.to(device)
 
     agent = agent.to(device)
     global_step = 0
@@ -681,6 +695,16 @@ if __name__ == "__main__":
                         1 - args.bc_coef
                     ) * policy_loss + args.bc_coef * bc_total_loss
 
+                # KL regularization loss
+                if args.kl_coef > 0:
+                    mb_new_actions, _, _, _ = agent.get_action_and_value(mb_obs)
+                    with torch.no_grad():
+                        action_mean = ref_agent.actor_mean(mb_obs)
+                        action_logstd = ref_agent.actor_logstd.expand_as(action_mean)
+                        action_std = torch.exp(action_logstd)
+                        ref_dist = Normal(action_mean, action_std)
+                    kl_loss = - ref_dist.log_prob(mb_new_actions).mean()
+                    policy_loss = policy_loss + args.kl_coef * kl_loss
                 # Total loss
                 loss = policy_loss + args.vf_coef * v_loss
 
