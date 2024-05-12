@@ -12,7 +12,7 @@
 
 git checkout residual-ppo
 
-python -m src.train.residual_ppo --num-env-steps 800 --data-collection-steps 800 --num-envs 2048 --bc-coef 0.0 \
+python -m src.train.residual_ppo --num-env-steps 800 --data-collection-steps 800 --num-envs 1536 --bc-coef 0.0 \
     --learning-rate 3e-4 --save-model --total-timesteps 200000000 --headless --exp-name oneleg \
     --normalize-reward --update-epochs 4 \
     --no-normalize-obs --no-clip-vloss --num-minibatches 1 --init-logstd -4 \
