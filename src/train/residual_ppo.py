@@ -321,7 +321,7 @@ class BiggerResidualPolicy(ResidualPolicy):
             self.layer_init(nn.Linear(self.obs_dim, 1024), nonlinearity="swish"),
             nn.LayerNorm(1024),
             nn.SiLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             # self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
             # nn.LayerNorm(1024),
             # nn.SiLU(),
@@ -329,7 +329,7 @@ class BiggerResidualPolicy(ResidualPolicy):
             self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
             nn.LayerNorm(1024),
             nn.SiLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             layer_init(nn.Linear(1024, np.prod(action_shape), bias=False), std=0.1),
         )
 
