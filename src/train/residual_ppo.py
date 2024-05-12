@@ -79,11 +79,9 @@ class Args:
     headless: bool = True
     """if toggled, the environment will be set to headless mode"""
     agent: Literal[
-        "small",
-        "big",
         "residual",
-        "residual-separate",
-    ] = "small"
+        "bigger-residual",
+    ] = "residual"
     """the agent to use"""
     normalize_reward: bool = False
     """if toggled, the rewards will be normalized"""
@@ -218,38 +216,6 @@ def get_demo_data_loader(
     return demo_data_loader
 
 
-@torch.no_grad()
-def calculate_advantage(
-    args: Args,
-    device: torch.device,
-    agent: SmallMLPAgent,
-    obs: torch.Tensor,
-    next_obs: torch.Tensor,
-    rewards: torch.Tensor,
-    dones: torch.Tensor,
-):
-    # bp()
-    values = agent.get_value(obs).squeeze()
-    next_value = agent.get_value(next_obs).reshape(1, -1)
-
-    advantages = torch.zeros_like(rewards).to(device)
-    lastgaelam = 0
-    for t in reversed(range(args.num_steps)):
-        if t == args.num_steps - 1:
-            nextnonterminal = 1.0 - dones[-1].to(torch.float)
-            nextvalues = next_value
-        else:
-            nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
-            nextvalues = values[t + 1]
-
-        delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
-        advantages[t] = lastgaelam = (
-            delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
-        )
-    returns = advantages + values
-    return advantages, returns
-
-
 def get_dataset_action(dataset, step, episode):
     ep_ends = dataset.episode_ends
     start_idx = ep_ends[episode - 1] if episode > 0 else 0
@@ -322,6 +288,98 @@ class ResidualPolicy(nn.Module):
             self.critic(nobs),
             action_mean,
         )
+
+
+class BiggerResidualPolicy(ResidualPolicy):
+    def layer_init(self, layer, nonlinearity="relu", bias_const=0.0):
+        if isinstance(layer, nn.Linear):
+            if nonlinearity == "relu":
+                nn.init.kaiming_normal_(
+                    layer.weight, mode="fan_in", nonlinearity="relu"
+                )
+            elif nonlinearity == "swish":
+                nn.init.kaiming_normal_(
+                    layer.weight, mode="fan_in", nonlinearity="relu"
+                )  # Use relu for Swish
+            else:
+                nn.init.xavier_normal_(layer.weight)
+            nn.init.constant_(layer.bias, bias_const)
+        return layer
+
+    def __init__(self, obs_shape, action_shape, init_logstd=0):
+        """
+        Args:
+            obs_shape: the shape of the observation (i.e., state + base action)
+            action_shape: the shape of the action (i.e., residual, same size as base action)
+        """
+        super().__init__(obs_shape, action_shape, init_logstd)
+
+        self.action_dim = action_shape[-1]
+        self.obs_dim = np.prod(obs_shape) + np.prod(action_shape)
+
+        self.actor_mean = nn.Sequential(
+            self.layer_init(nn.Linear(self.obs_dim, 1024), nonlinearity="swish"),
+            nn.LayerNorm(1024),
+            nn.SiLU(),
+            nn.Dropout(0.5),
+            # self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
+            # nn.LayerNorm(1024),
+            # nn.SiLU(),
+            # nn.Dropout(0.5),
+            self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
+            nn.LayerNorm(1024),
+            nn.SiLU(),
+            nn.Dropout(0.5),
+            layer_init(nn.Linear(1024, np.prod(action_shape), bias=False), std=0.1),
+        )
+
+        self.critic = nn.Sequential(
+            self.layer_init(nn.Linear(self.obs_dim, 1024), nonlinearity="swish"),
+            nn.LayerNorm(1024),
+            nn.SiLU(),
+            nn.Dropout(0.5),
+            # self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
+            # nn.LayerNorm(1024),
+            # nn.SiLU(),
+            # nn.Dropout(0.5),
+            self.layer_init(nn.Linear(1024, 1024), nonlinearity="swish"),
+            nn.LayerNorm(1024),
+            nn.SiLU(),
+            nn.Dropout(0.5),
+            layer_init(nn.Linear(1024, 1), std=1.0),
+        )
+
+
+@torch.no_grad()
+def calculate_advantage(
+    args: Args,
+    device: torch.device,
+    agent: ResidualPolicy,
+    obs: torch.Tensor,
+    next_obs: torch.Tensor,
+    rewards: torch.Tensor,
+    dones: torch.Tensor,
+):
+    # bp()
+    values = agent.get_value(obs).squeeze()
+    next_value = agent.get_value(next_obs).reshape(1, -1)
+
+    advantages = torch.zeros_like(rewards).to(device)
+    lastgaelam = 0
+    for t in reversed(range(args.num_steps)):
+        if t == args.num_steps - 1:
+            nextnonterminal = 1.0 - dones[-1].to(torch.float)
+            nextvalues = next_value
+        else:
+            nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
+            nextvalues = values[t + 1]
+
+        delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
+        advantages[t] = lastgaelam = (
+            delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+        )
+    returns = advantages + values
+    return advantages, returns
 
 
 if __name__ == "__main__":
@@ -426,11 +484,22 @@ if __name__ == "__main__":
     )
     env.set_normalizer(bc_actor.normalizer)
 
-    residual_policy = ResidualPolicy(
-        obs_shape=env.observation_space.shape,
-        action_shape=env.action_space.shape,
-        init_logstd=args.init_logstd,
-    )
+    # Residual policy setup
+    if args.agent == "residual":
+        residual_policy = SmallMLPAgent(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        )
+    elif args.agent == "bigger-residual":
+        residual_policy = BiggerResidualPolicy(
+            obs_shape=env.observation_space.shape,
+            action_shape=env.action_space.shape,
+            init_logstd=args.init_logstd,
+        )
+    else:
+        raise ValueError(f"Unknown agent: {args.agent}")
+
     residual_policy.to(device)
 
     optimizer = optim.AdamW(
