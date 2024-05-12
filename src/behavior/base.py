@@ -310,6 +310,19 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         return actions
 
     @torch.no_grad()
+    def normalized_action_chunk(self, obs: deque):
+        # Normalize observations
+        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
+
+        naction = self._normalized_action(nobs)
+
+        # unnormalize action
+        # (B, pred_horizon, action_dim)
+        action_pred = self.normalizer(naction, "action", forward=False)
+
+        return action_pred
+
+    @torch.no_grad()
     def action(self, obs: deque):
         """
         Given a deque of observations, predict the action
