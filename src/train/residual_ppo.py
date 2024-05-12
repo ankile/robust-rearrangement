@@ -486,7 +486,7 @@ if __name__ == "__main__":
 
     # Residual policy setup
     if args.agent == "residual":
-        residual_policy = SmallMLPAgent(
+        residual_policy = ResidualPolicy(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
