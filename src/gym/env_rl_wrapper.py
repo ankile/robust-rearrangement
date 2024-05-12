@@ -73,7 +73,7 @@ class FurnitureEnvRLWrapper:
             if self.task != "reacher":
                 parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
-        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        nobs = torch.cat([robot_state, parts_poses], dim=-1)
 
         if self.add_relative_pose:
             ee_pose = robot_state[..., :7].unsqueeze(1)
@@ -81,12 +81,12 @@ class FurnitureEnvRLWrapper:
                 N, -1
             )
 
-            obs = torch.cat([obs, relative_poses], dim=-1)
+            nobs = torch.cat([obs, relative_poses], dim=-1)
 
         # Clamp the observation to be bounded to [-5, 5]
-        obs = torch.clamp(obs, -5, 5)
+        nobs = torch.clamp(obs, -5, 5)
 
-        return obs
+        return nobs
 
     def process_action(self, action: torch.Tensor):
         """
