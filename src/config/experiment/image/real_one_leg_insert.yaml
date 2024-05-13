@@ -20,7 +20,7 @@ data:
 training:
   batch_size: 256
   checkpoint_interval: 40
-  epochs: 2000
+  num_epochs: 2000
   steps_per_epoch: -1
 
 regularization:
