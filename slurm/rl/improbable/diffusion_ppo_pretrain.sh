@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
-#SBATCH -q vision-pulkitag-free-cycles
-#SBATCH --job-name=oneleg_residual_ppo
+#SBATCH -q vision-pulkitag-main
+#SBATCH --job-name=ol_diff_adapt
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
