@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p xeon-g6-volta
-#SBATCH -t 0-12:00
+#SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH --job-name=real_ol_simple_base
 #SBATCH -c 20
@@ -16,7 +16,9 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.proprioception_dropout=0.0 \
     regularization.vib_front_feature_beta=0.0 \
     actor/diffusion_model=unet \
-    actor.loss_fn=MSELoss \
+    actor.diffusion_model.down_dims='[128,256,512]' \
+    actor.loss_fn=L1Loss \
+    early_stopper.patience=inf \
     training.actor_lr=1e-4 training.encoder_lr=1e-5 \
     furniture=one_leg_simple \
     environment=real \
