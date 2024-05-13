@@ -71,7 +71,7 @@ def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-@hydra.main(config_path="../config", config_name="base")
+@hydra.main(config_path="../config/bc", config_name="base")
 def main(config: DictConfig):
     set_dryrun_params(config)
     OmegaConf.resolve(config)

@@ -1,0 +1,48 @@
+seed: null
+torch_deterministic: true
+headless: true
+normalize_reward: false
+n_iterations_train_only_value: 0
+reset_on_failure: false
+eval_interval: 5
+
+total_timesteps: 100_000_000
+num_envs: 1024
+num_minibatches: 4
+num_env_steps: 800
+data_collection_steps: ${num_env_steps}
+# Calculate the batch size as the data collection steps times the number of environments
+batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
+minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
+num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
+
+action_type: pos
+act_rot_repr: rot_6d
+
+residual_policy:
+  _target_: src.models.residual.ResidualPolicy
+  init_logstd: -3.0
+  action_head_std: 0.001
+  action_scale: 0.1
+
+
+# Algorithm specific arguments
+learning_rate: 1e-4
+anneal_lr: true
+gamma: 0.998
+gae_lambda: 0.95
+update_epochs: 5
+norm_adv: true
+clip_coef: 0.2
+clip_vloss: true
+ent_coef: 0.0
+vf_coef: 0.5
+max_grad_norm: 0.5
+target_kl: 0.03
+residual_regularization: 0.0
+
+wandb:
+  entity: ankile
+  project: residual-ppo-1
+
+debug: false

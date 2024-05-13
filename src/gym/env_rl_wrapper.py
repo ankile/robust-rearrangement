@@ -14,8 +14,6 @@ from ipdb import set_trace as bp
 # Set the gym logger to not print to console
 import gym
 
-gym.logger.set_level(40)
-
 
 class FurnitureEnvRLWrapper:
 
