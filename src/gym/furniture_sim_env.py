@@ -1830,6 +1830,7 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
                 "/data/scratch/ankile/diffusion-adapt/data/furniture/one_leg_low_dim_normalizer.pth"
             )
         )
+        self.normalizer.to(self.device)
 
     def reset_arg(self, options_list=None):
         obs = self.reset()
