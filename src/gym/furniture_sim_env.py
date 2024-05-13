@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from furniture_bench.furniture.furniture import Furniture
+from src.dataset.normalizer import LinearNormalizer
 import torch
 import cv2
 import gym
@@ -1819,6 +1820,17 @@ from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Load in the normalizer weights
+        self.normalizer = LinearNormalizer()
+        self.normalizer.load_state_dict(
+            torch.load(
+                "/data/scratch/ankile/diffusion-adapt/data/furniture/one_leg_low_dim_normalizer.pth"
+            )
+        )
+
     def reset_arg(self, options_list=None):
         obs = self.reset()
 
@@ -1830,10 +1842,17 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
 
         parts_poses = obs["parts_poses"]
 
-        return torch.cat([robot_state, parts_poses], dim=-1).cpu().numpy()
+        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        nobs = self.normalizer(obs, "observations", forward=True)
+
+        return nobs.cpu().numpy()
 
     def step(self, action):
         action = torch.tensor(action, device=self.device)
+
+        # Denormalize the action
+        action = self.normalizer(action, "actions", forward=False)
+
         obs, reward, done, info = super().step(action)
         robot_state = obs["robot_state"]
 
@@ -1842,8 +1861,11 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
 
         parts_poses = obs["parts_poses"]
 
+        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        nobs = self.normalizer(obs, "observations", forward=True)
+
         return (
-            torch.cat([robot_state, parts_poses], dim=-1).cpu().numpy(),
+            nobs.cpu().numpy(),
             reward.squeeze().cpu().numpy(),
             done.squeeze().cpu().numpy(),
             info,
