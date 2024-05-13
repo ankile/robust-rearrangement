@@ -280,7 +280,7 @@ def main(cfg: DictConfig):
         }
 
         # batch loop
-        actor.train_mode()
+        actor.train()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
@@ -319,7 +319,7 @@ def main(cfg: DictConfig):
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
         # Evaluation loop
-        actor.eval_mode()
+        actor.eval()
 
         if cfg.training.ema.use:
             ema.apply_shadow()

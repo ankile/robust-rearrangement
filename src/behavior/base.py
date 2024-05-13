@@ -45,7 +45,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     confusion_loss_beta: float = 0.0
 
     encoding_dim: int
-    augment_image: bool = True
+    augment_image: bool
 
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
@@ -82,6 +82,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         self.observation_type = config.observation_type
 
         # Regularization
+        self.augment_image = config.data.augment_image
         self.feature_noise = config.regularization.get("feature_noise", None)
         self.feature_dropout = config.regularization.get("feature_dropout", None)
         self.feature_layernorm = config.regularization.get("feature_layernorm", None)
@@ -520,11 +521,11 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         return loss
 
     # === Mode Toggle ===
-    def train_mode(self):
+    def train(self, mode=True):
         """
         Set models to train mode
         """
-        self.train()
+        super().train()
         if self.augment_image:
             self.camera1_transform.train()
             self.camera2_transform.train()
@@ -532,11 +533,11 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             self.camera1_transform.eval()
             self.camera2_transform.eval()
 
-    def eval_mode(self):
+    def eval(self):
         """
         Set models to eval mode
         """
-        self.eval()
+        super().eval()
         self.camera2_transform.eval()
 
     def set_task(self, task):
