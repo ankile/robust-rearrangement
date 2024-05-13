@@ -91,6 +91,8 @@ class Args:
     """if toggled, the advantages will be recalculated every update epoch"""
     init_logstd: float = 0.0
     """the initial value of the log standard deviation"""
+    action_head_std: float = 0.01
+    """the standard deviation of the action head"""
     ee_dof: int = 3
     """the number of degrees of freedom of the end effector"""
     bc_loss_type: Literal["mse", "nll"] = "mse"
@@ -224,12 +226,23 @@ def get_dataset_action(dataset, step, episode):
     return action
 
 
-def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
-    torch.nn.init.orthogonal_(layer.weight, std)
+def layer_init(layer, nonlinearity="relu", std=np.sqrt(2), bias_const=0.0):
+    if isinstance(layer, nn.Linear):
+        if nonlinearity == "relu":
+            nn.init.kaiming_normal_(layer.weight, mode="fan_in", nonlinearity="relu")
+        elif nonlinearity == "swish":
+            nn.init.kaiming_normal_(
+                layer.weight, mode="fan_in", nonlinearity="relu"
+            )  # Use relu for Swish
+        elif nonlinearity == "tanh":
+            torch.nn.init.orthogonal_(layer.weight, std)
+        else:
+            nn.init.xavier_normal_(layer.weight)
 
     # Only initialize the bias if it exists
     if layer.bias is not None:
         torch.nn.init.constant_(layer.bias, bias_const)
+
     return layer
 
 
@@ -237,7 +250,7 @@ from torch.distributions.normal import Normal
 
 
 class ResidualPolicy(nn.Module):
-    def __init__(self, obs_shape, action_shape, init_logstd=0):
+    def __init__(self, obs_shape, action_shape, init_logstd=0, action_head_std=0.01):
         """
         Args:
             obs_shape: the shape of the observation (i.e., state + base action)
@@ -249,19 +262,23 @@ class ResidualPolicy(nn.Module):
         self.obs_dim = np.prod(obs_shape) + np.prod(action_shape)
 
         self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(self.obs_dim, 512)),
-            nn.ReLU(),
-            layer_init(nn.Linear(512, 512)),
-            nn.ReLU(),
-            layer_init(nn.Linear(512, np.prod(action_shape), bias=False), std=0.1),
+            layer_init(nn.Linear(self.obs_dim, 512), nonlinearity="swish"),
+            nn.SiLU(),
+            layer_init(nn.Linear(512, 512), nonlinearity="swish"),
+            nn.SiLU(),
+            layer_init(
+                nn.Linear(512, np.prod(action_shape), bias=False),
+                std=action_head_std,
+                nonlinearity="tanh",
+            ),
         )
 
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(self.obs_dim, 512)),
+            layer_init(nn.Linear(self.obs_dim, 512), nonlinearity="tanh"),
             nn.Tanh(),
-            layer_init(nn.Linear(512, 512)),
+            layer_init(nn.Linear(512, 512), nonlinearity="tanh"),
             nn.Tanh(),
-            layer_init(nn.Linear(512, 1), std=1.0),
+            layer_init(nn.Linear(512, 1), std=1.0, nonlinearity="tanh"),
         )
 
         self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)
@@ -291,22 +308,8 @@ class ResidualPolicy(nn.Module):
 
 
 class BiggerResidualPolicy(ResidualPolicy):
-    def layer_init(self, layer, nonlinearity="relu", bias_const=0.0):
-        if isinstance(layer, nn.Linear):
-            if nonlinearity == "relu":
-                nn.init.kaiming_normal_(
-                    layer.weight, mode="fan_in", nonlinearity="relu"
-                )
-            elif nonlinearity == "swish":
-                nn.init.kaiming_normal_(
-                    layer.weight, mode="fan_in", nonlinearity="relu"
-                )  # Use relu for Swish
-            else:
-                nn.init.xavier_normal_(layer.weight)
-            nn.init.constant_(layer.bias, bias_const)
-        return layer
 
-    def __init__(self, obs_shape, action_shape, init_logstd=0):
+    def __init__(self, obs_shape, action_shape, init_logstd=0, action_head_std=0.01):
         """
         Args:
             obs_shape: the shape of the observation (i.e., state + base action)
@@ -330,7 +333,9 @@ class BiggerResidualPolicy(ResidualPolicy):
             nn.LayerNorm(1024),
             nn.SiLU(),
             # nn.Dropout(0.5),
-            layer_init(nn.Linear(1024, np.prod(action_shape), bias=False), std=0.1),
+            layer_init(
+                nn.Linear(1024, np.prod(action_shape), bias=False), std=action_head_std
+            ),
         )
 
         self.critic = nn.Sequential(
@@ -490,12 +495,14 @@ if __name__ == "__main__":
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
+            action_head_std=args.action_head_std,
         )
     elif args.agent == "bigger-residual":
         residual_policy = BiggerResidualPolicy(
             obs_shape=env.observation_space.shape,
             action_shape=env.action_space.shape,
             init_logstd=args.init_logstd,
+            action_head_std=args.action_head_std,
         )
     else:
         raise ValueError(f"Unknown agent: {args.agent}")

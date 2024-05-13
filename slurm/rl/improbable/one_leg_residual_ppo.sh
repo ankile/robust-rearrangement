@@ -12,10 +12,10 @@
 
 git checkout residual-ppo
 
-python -m src.train.residual_ppo --num-env-steps 800 --data-collection-steps 800 --num-envs 1536 --bc-coef 0.0 \
+python -m src.train.residual_ppo --num-env-steps 1000 --data-collection-steps 1000 --num-envs 1536 --bc-coef 0.0 \
     --learning-rate 3e-4 --save-model --total-timesteps 200000000 --headless --exp-name oneleg \
-    --normalize-reward --update-epochs 2 \
-    --no-normalize-obs --no-clip-vloss --num-minibatches 4 --init-logstd -4 \
-    --ee-dof 10 --agent bigger-residual --target-kl 0.1 \
-    --action-type pos --gamma 0.997 --n-iterations-train-only-value 5 --residual_regularization 0.1 \
+    --normalize-reward --update-epochs 4 \
+    --no-normalize-obs --no-clip-vloss --num-minibatches 2 --init-logstd -4 \
+    --ee-dof 10 --agent residual --target-kl 0.03 \
+    --action-type pos --gamma 0.998 --n-iterations-train-only-value 5 --residual_regularization 0.01 \
     --no-debug
