@@ -1,3 +1,4 @@
+from pathlib import Path
 import furniture_bench  # noqa
 
 from ipdb import set_trace as bp
@@ -197,6 +198,10 @@ def main(cfg: DictConfig):
     next_obs = env.process_obs(next_obs)
     next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
 
+    # Create model save dir
+    model_save_dir: Path = Path("models") / wandb.run.name
+    model_save_dir.mkdir(parents=True, exist_ok=True)
+
     while global_step < cfg.total_timesteps:
         iteration += 1
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
@@ -230,7 +235,7 @@ def main(cfg: DictConfig):
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else action_mean
-            naction = base_naction + residual_naction / cfg.residual_policy.action_scale
+            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
             # Add the observation to the deque
@@ -272,7 +277,7 @@ def main(cfg: DictConfig):
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = f"{run_directory}/{run_name}.pt"
+                model_path = model_save_dir / f"{run_name}.pt"
                 torch.save(
                     {
                         "model_state_dict": residual_policy.state_dict(),
@@ -281,7 +286,7 @@ def main(cfg: DictConfig):
                         "success_rate": success_rate,
                         "iteration": iteration,
                     },
-                    model_path,
+                    str(model_path),
                 )
 
                 wandb.save(model_path)

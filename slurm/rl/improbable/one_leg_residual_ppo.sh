@@ -2,7 +2,7 @@
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
 #SBATCH -q vision-pulkitag-free-cycles
-#SBATCH --job-name=oneleg_residual_ppo
+#SBATCH --job-name=ol_res_ppo_new
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
@@ -10,12 +10,12 @@
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 
-git checkout residual-ppo
-
-python -m src.train.residual_ppo --num-env-steps 1000 --data-collection-steps 1000 --num-envs 1536 --bc-coef 0.0 \
-    --learning-rate 3e-4 --save-model --total-timesteps 200000000 --headless --exp-name oneleg \
-    --normalize-reward --update-epochs 4 \
-    --no-normalize-obs --no-clip-vloss --num-minibatches 2 --init-logstd -4 \
-    --ee-dof 10 --agent residual --target-kl 0.03 \
-    --action-type pos --gamma 0.998 --n-iterations-train-only-value 5 --residual_regularization 0.01 \
-    --no-debug
+python -m src.train.residual_ppo \
+    learning_rate=1e-4 \
+    residual_regularization=0.1 \
+    n_iterations_train_only_value=2 \
+    residual_policy.init_logstd=-3.5 \
+    residual_policy.action_head_std=0.1 \
+    gamma=0.997 \
+    num_envs=512 \
+    debug=false

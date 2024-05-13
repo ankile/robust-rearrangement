@@ -2,7 +2,6 @@ seed: null
 torch_deterministic: true
 headless: true
 normalize_reward: false
-n_iterations_train_only_value: 0
 reset_on_failure: false
 eval_interval: 5
 
@@ -22,9 +21,8 @@ act_rot_repr: rot_6d
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
   init_logstd: -3.0
-  action_head_std: 0.001
+  action_head_std: 0.01
   action_scale: 0.1
-
 
 # Algorithm specific arguments
 learning_rate: 1e-4
@@ -40,6 +38,7 @@ vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: 0.03
 residual_regularization: 0.0
+n_iterations_train_only_value: 5
 
 wandb:
   entity: ankile
