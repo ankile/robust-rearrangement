@@ -113,6 +113,8 @@ class Args:
     """the checkpoint to load the model from"""
     reset_on_failure: bool = False
     """if toggled, the environment will be reset on failure"""
+    eval_interval: int = 5
+    """the number of iterations between evaluations"""
     debug: bool = False
     """if toggled, the debug mode will be enabled"""
 
@@ -287,7 +289,9 @@ class ResidualPolicy(nn.Module):
         return self.critic(nobs)
 
     def get_action_and_value(
-        self, nobs: torch.Tensor, action: torch.Tensor = None
+        self,
+        nobs: torch.Tensor,
+        action: torch.Tensor = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         action_mean: torch.Tensor = self.actor_mean(nobs)
 
@@ -543,22 +547,8 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs))
     values = torch.zeros((args.num_steps, args.num_envs))
 
-    # # Get the dataloader for the demo data for the behavior cloning
-    # demo_data_loader = get_demo_data_loader(
-    #     control_mode=action_type,
-    #     n_batches=args.num_minibatches,
-    #     task=args.exp_name,
-    #     act_rot_repr=act_rot_repr,
-    #     normalizer=normalizer,
-    #     action_horizon=agent.action_horizon,
-    #     num_workers=4 if not args.debug else 0,
-    #     add_relative_pose=args.add_relative_pose,
-    # )
-
-    # # Print the number of batches in the dataloader
-    # print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
-
     global_step = 0
+    iteration = 0
     start_time = time.time()
     # bp()
     next_done = torch.zeros(args.num_envs)
@@ -575,33 +565,40 @@ if __name__ == "__main__":
     next_obs = env.process_obs(next_obs)
     next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
 
-    for iteration in range(1, args.num_iterations + 1):
+    while global_step < args.total_timesteps:
+        iteration += 1
         print(f"Iteration: {iteration}/{args.num_iterations}")
         print(f"Run name: {run_name}")
 
-        # Annealing the rate if instructed to do so.
+        if (iteration - 1) % args.eval_interval == 0:
+            eval_mode = True
+            # Also reset the env to have more consistent results
+            next_obs = env.reset()
+        else:
+            eval_mode = False
+        print(f"Eval mode: {eval_mode}")
+
+        # Annealing the learning rate if instructed to do so.
         if args.anneal_lr:
-            frac = 1.0 - (iteration - 1.0) / args.num_iterations
+            frac = 1.0 - (global_step - 1) / args.total_timesteps
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, args.num_steps):
-            if iteration == 1 and args.bc_coef == 1 and False:
-                # Skip the first step to avoid the initial randomness if we're only doing BC
-                continue
+            if not eval_mode:
+                # Only count environment steps during training
+                global_step += args.num_envs
 
-            global_step += args.num_envs
             dones[step] = next_done
             obs[step] = next_residual_obs
 
             with torch.no_grad():
-                residual_naction, logprob, _, value, _ = (
+                residual_naction_samp, logprob, _, value, action_mean = (
                     residual_policy.get_action_and_value(next_residual_obs)
                 )
-                values[step] = value.flatten().cpu()
 
+            residual_naction = residual_naction_samp if not eval_mode else action_mean
             naction = base_naction + residual_naction / 10.0
-
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
             # Add the observation to the deque
@@ -612,12 +609,11 @@ if __name__ == "__main__":
 
             # Process the obs for the residual policy
             next_obs = env.process_obs(next_obs)
-
             next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
 
+            values[step] = value.flatten().cpu()
             actions[step] = residual_naction.cpu()
             logprobs[step] = logprob.cpu()
-
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
@@ -629,21 +625,21 @@ if __name__ == "__main__":
         # Calculate the discounted rewards
         # TODO: Change this so that it takes into account cyclic resets and multiple episodes
         # per experience collection iteration
-        discounted_rewards = (
-            (rewards * args.gamma ** torch.arange(args.num_steps).float().unsqueeze(1))
-            .sum(dim=0)
-            .mean()
-            .item()
-        )
-        # If any positive reward was received, consider it a success
+
         reward_mask = (rewards.sum(dim=0) > 0).float()
         success_rate = reward_mask.mean().item()
 
         running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
 
-        print(
-            f"Mean return: {discounted_rewards:.4f}, SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}"
-        )
+        print(f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}")
+
+        if eval_mode:
+            # If we are in eval mode, we don't need to do any training, so log the result and continue
+            writer.add_scalar("charts/eval_success_rate", success_rate, global_step)
+
+            # Also reset the env before the next iteration
+            next_obs = env.reset()
+            continue
 
         b_obs = obs.reshape((-1, residual_policy.obs_dim))
         b_actions = actions.reshape((-1,) + env.action_space.shape)
@@ -782,22 +778,6 @@ if __name__ == "__main__":
                 )
                 break
 
-            # # Recalculate the advantages with the updated policy before the next epoch
-            # if args.recalculate_advantages:
-            #     b_advantages, b_returns = calculate_advantage(
-            #         args,
-            #         device,
-            #         residual_policy,
-            #         b_obs.view(
-            #             (args.num_steps, args.num_envs, residual_policy.obs_dim)
-            #         ).to(device),
-            #         next_obs.to(device),
-            #         b_rewards.view(args.num_steps, -1).to(device),
-            #         b_dones.view(args.num_steps, -1).to(device),
-            #     )
-            #     b_advantages = b_advantages.reshape(-1).cpu()
-            #     b_returns = b_returns.reshape(-1).cpu()
-
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
@@ -842,7 +822,6 @@ if __name__ == "__main__":
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
         writer.add_scalar("charts/rewards", rewards.sum().item(), global_step)
-        writer.add_scalar("charts/discounted_rewards", discounted_rewards, global_step)
         writer.add_scalar("charts/success_rate", success_rate, global_step)
 
         # Add the mean and std of the action norms to the tensorboard
@@ -870,12 +849,8 @@ if __name__ == "__main__":
         #         writer.add_histogram(f"grads/{name}", param.grad, global_step)
 
         # Checkpoint the model if the success rate improves
-        if success_rate > 0.1 and (
-            success_rate > best_success_rate
-            or discounted_rewards > best_mean_episode_return
-        ):
+        if success_rate > 0.1 and (success_rate > best_success_rate):
             best_success_rate = max(success_rate, best_success_rate)
-            best_mean_episode_return = max(discounted_rewards, best_mean_episode_return)
 
             model_path = f"{run_directory}/{run_name}/{args.exp_name}.cleanrl_model"
             torch.save(residual_policy.state_dict(), model_path)
