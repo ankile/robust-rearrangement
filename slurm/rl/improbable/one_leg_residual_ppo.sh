@@ -16,7 +16,7 @@ python -m src.train.residual_ppo \
     n_iterations_train_only_value=5 \
     residual_policy.init_logstd=-4 \
     residual_policy.action_head_std=0.01 \
-    normalize_rewards=true \
+    normalize_reward=true \
     num_minibatches=2 \
     update_epochs=4 \
     gamma=0.998 \
