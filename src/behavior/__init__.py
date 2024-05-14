@@ -12,21 +12,12 @@ def get_actor(cfg: DictConfig, device) -> Actor:
 
     if actor_name == "mlp":
 
-        if obs_type == "image":
-            from src.behavior.mlp import MLPActor
+        from src.behavior.mlp import MLPActor
 
-            return MLPActor(
-                device=device,
-                config=cfg,
-            )
-
-        if obs_type == "state":
-            from src.behavior.mlp import MLPStateActor
-
-            return MLPStateActor(
-                device=device,
-                config=cfg,
-            )
+        return MLPActor(
+            device=device,
+            config=cfg,
+        )
 
     elif actor_name == "rnn":
         assert False, "RNN actor is not supported at the moment."

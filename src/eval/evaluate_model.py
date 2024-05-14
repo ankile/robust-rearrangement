@@ -343,10 +343,12 @@ if __name__ == "__main__":
                                 if args.action_horizon is not None
                                 else run.config["actor"]["action_horizon"]
                             ),
+                            "flatten_obs": True,
                         },
                     },
-                    # flags={"readonly": True},
                 )
+                if "predict_past_actions" not in config.actor:
+                    config.actor.predict_past_actions = True
 
                 if "confusion_loss_beta" not in config.actor:
                     config.actor.confusion_loss_beta = 0.0
@@ -362,12 +364,7 @@ if __name__ == "__main__":
                 # Make the actor
                 actor: Actor = get_actor(cfg=config, device=device)
 
-                state_dict = torch.load(model_path)
-
-                # # Load the model weights
-                # convert_state_dict(state_dict)
-
-                actor.load_state_dict(state_dict)
+                actor.load_state_dict(torch.load(model_path))
                 actor.eval()
                 actor.cuda()
 

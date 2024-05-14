@@ -49,22 +49,23 @@ def to_native(obj):
         return obj
 
 
-def set_dryrun_params(config: DictConfig):
-    if config.dryrun:
-        OmegaConf.set_struct(config, False)
-        config.training.steps_per_epoch = 10
-        config.data.data_subset = 5
-        config.data.dataloader_workers = 0
+def set_dryrun_params(cfg: DictConfig):
+    if cfg.dryrun:
+        OmegaConf.set_struct(cfg, False)
+        cfg.training.steps_per_epoch = 10 if cfg.training.steps_per_epoch != -1 else -1
+        cfg.data.data_subset = 5
+        cfg.data.dataloader_workers = 0
+        cfg.training.sample_every = 1
 
-        if config.rollout.rollouts:
-            config.rollout.every = 1
-            config.rollout.num_rollouts = 1
-            config.rollout.loss_threshold = float("inf")
-            config.rollout.max_steps = 10
+        if cfg.rollout.rollouts:
+            cfg.rollout.every = 1
+            cfg.rollout.num_rollouts = 1
+            cfg.rollout.loss_threshold = float("inf")
+            cfg.rollout.max_steps = 10
 
-        config.wandb.mode = "disabled"
+        cfg.wandb.mode = "disabled"
 
-        OmegaConf.set_struct(config, True)
+        OmegaConf.set_struct(cfg, True)
 
 
 def now():
@@ -72,114 +73,117 @@ def now():
 
 
 @hydra.main(config_path="../config", config_name="base")
-def main(config: DictConfig):
-    set_dryrun_params(config)
-    OmegaConf.resolve(config)
-    print(OmegaConf.to_yaml(config))
+def main(cfg: DictConfig):
+    set_dryrun_params(cfg)
+    OmegaConf.resolve(cfg)
+    print(OmegaConf.to_yaml(cfg))
     env = None
     device = torch.device(
-        f"cuda:{config.training.gpu_id}" if torch.cuda.is_available() else "cpu"
+        f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
     data_path = get_processed_paths(
-        controller=to_native(config.control.controller),
-        domain=to_native(config.data.environment),
-        task=to_native(config.data.furniture),
-        demo_source=to_native(config.data.demo_source),
-        randomness=to_native(config.data.randomness),
-        demo_outcome=to_native(config.data.demo_outcome),
-        suffix=to_native(config.data.suffix),
+        controller=to_native(cfg.control.controller),
+        domain=to_native(cfg.data.environment),
+        task=to_native(cfg.data.furniture),
+        demo_source=to_native(cfg.data.demo_source),
+        randomness=to_native(cfg.data.randomness),
+        demo_outcome=to_native(cfg.data.demo_outcome),
+        suffix=to_native(cfg.data.suffix),
     )
 
     print(f"Using data from {data_path}")
 
-    if config.observation_type == "image":
+    if cfg.observation_type == "image":
         dataset = FurnitureImageDataset(
             dataset_paths=data_path,
-            pred_horizon=config.data.pred_horizon,
-            obs_horizon=config.data.obs_horizon,
-            action_horizon=config.data.action_horizon,
-            augment_image=config.data.augment_image,
-            data_subset=config.data.data_subset,
-            control_mode=config.control.control_mode,
-            first_action_idx=config.actor.first_action_index,
-            pad_after=config.data.get("pad_after", True),
-            max_episode_count=config.data.get("max_episode_count", None),
+            pred_horizon=cfg.data.pred_horizon,
+            obs_horizon=cfg.data.obs_horizon,
+            action_horizon=cfg.data.action_horizon,
+            data_subset=cfg.data.data_subset,
+            control_mode=cfg.control.control_mode,
+            predict_past_actions=cfg.data.predict_past_actions,
+            pad_after=cfg.data.get("pad_after", True),
+            max_episode_count=cfg.data.get("max_episode_count", None),
         )
-    elif config.observation_type == "state":
+    elif cfg.observation_type == "state":
         dataset = FurnitureStateDataset(
             dataset_paths=data_path,
-            pred_horizon=config.data.pred_horizon,
-            obs_horizon=config.data.obs_horizon,
-            action_horizon=config.data.action_horizon,
-            data_subset=config.data.data_subset,
-            control_mode=config.control.control_mode,
-            first_action_idx=config.actor.first_action_index,
-            pad_after=config.data.get("pad_after", True),
-            max_episode_count=config.data.get("max_episode_count", None),
+            pred_horizon=cfg.data.pred_horizon,
+            obs_horizon=cfg.data.obs_horizon,
+            action_horizon=cfg.data.action_horizon,
+            data_subset=cfg.data.data_subset,
+            control_mode=cfg.control.control_mode,
+            predict_past_actions=cfg.data.predict_past_actions,
+            pad_after=cfg.data.get("pad_after", True),
+            max_episode_count=cfg.data.get("max_episode_count", None),
         )
     else:
-        raise ValueError(f"Unknown observation type: {config.observation_type}")
+        raise ValueError(f"Unknown observation type: {cfg.observation_type}")
 
     # Split the dataset into train and test
-    train_size = int(len(dataset) * (1 - config.data.test_split))
+    train_size = int(len(dataset) * (1 - cfg.data.test_split))
     test_size = len(dataset) - train_size
     print(f"Splitting dataset into {train_size} train and {test_size} test samples.")
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
-    OmegaConf.set_struct(config, False)
-    config.robot_state_dim = dataset.robot_state_dim
+    OmegaConf.set_struct(cfg, False)
+    cfg.robot_state_dim = dataset.robot_state_dim
 
-    if config.observation_type == "state":
-        config.parts_poses_dim = dataset.parts_poses_dim
+    if cfg.observation_type == "state":
+        cfg.parts_poses_dim = dataset.parts_poses_dim
 
     # Create the policy network
     actor = get_actor(
-        config,
+        cfg,
         device,
     )
     actor.set_normalizer(dataset.normalizer)
     actor.to(device)
 
-    # Set the data path in the config object
-    config.data_path = [str(f) for f in data_path]
+    # Set the data path in the cfg object
+    cfg.data_path = [str(f) for f in data_path]
 
-    # Update the config object with the action dimension
-    config.action_dim = dataset.action_dim
-    config.n_episodes = len(dataset.episode_ends)
-    config.n_samples = len(dataset)
+    # Update the cfg object with the action dimension
+    cfg.action_dim = dataset.action_dim
+    cfg.n_episodes = len(dataset.episode_ends)
+    cfg.n_samples = len(dataset)
 
-    # Update the config object with the observation dimension
-    config.timestep_obs_dim = actor.timestep_obs_dim
-    OmegaConf.set_struct(config, True)
+    # Update the cfg object with the observation dimension
+    cfg.timestep_obs_dim = actor.timestep_obs_dim
+    OmegaConf.set_struct(cfg, True)
 
-    if config.training.load_checkpoint_run_id is not None:
+    if cfg.training.load_checkpoint_run_id is not None:
         api = wandb.Api()
-        run = api.run(config.training.load_checkpoint_run_id)
+        run = api.run(cfg.training.load_checkpoint_run_id)
         model_path = (
             [f for f in run.files() if f.name.endswith(".pt")][0]
             .download(exist_ok=True)
             .name
         )
-        print(f"Loading checkpoint from {config.training.load_checkpoint_run_id}")
+        print(f"Loading checkpoint from {cfg.training.load_checkpoint_run_id}")
         actor.load_state_dict(torch.load(model_path))
 
     # Create dataloaders
-    trainloader = FixedStepsDataloader(
+    trainload_kwargs = dict(
         dataset=train_dataset,
-        n_batches=config.training.steps_per_epoch,
-        batch_size=config.training.batch_size,
-        num_workers=config.data.dataloader_workers,
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.data.dataloader_workers,
         shuffle=True,
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
     )
+    trainloader = (
+        FixedStepsDataloader(**trainload_kwargs, n_batches=cfg.training.steps_per_epoch)
+        if cfg.training.steps_per_epoch != -1
+        else DataLoader(**trainload_kwargs)
+    )
 
     testloader = DataLoader(
         dataset=test_dataset,
-        batch_size=config.training.batch_size,
-        num_workers=config.data.dataloader_workers,
+        batch_size=cfg.training.batch_size,
+        num_workers=cfg.data.dataloader_workers,
         shuffle=False,
         pin_memory=True,
         drop_last=False,
@@ -189,61 +193,65 @@ def main(config: DictConfig):
     # AdamW optimizer for noise_net
     opt_noise = torch.optim.AdamW(
         params=actor.parameters(),
-        lr=config.training.actor_lr,
-        weight_decay=config.regularization.weight_decay,
+        lr=cfg.training.actor_lr,
+        weight_decay=cfg.regularization.weight_decay,
     )
 
-    if config.training.ema.use:
-        ema = SwitchEMA(actor, config.training.ema.decay)
+    if cfg.training.ema.use:
+        ema = SwitchEMA(actor, cfg.training.ema.decay)
         ema.register()
 
     n_batches = len(trainloader)
 
     lr_scheduler = get_scheduler(
-        name=config.lr_scheduler.name,
+        name=cfg.lr_scheduler.name,
         optimizer=opt_noise,
-        num_warmup_steps=config.lr_scheduler.warmup_steps,
-        num_training_steps=len(trainloader) * config.training.num_epochs,
+        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_training_steps=len(trainloader) * cfg.training.num_epochs,
     )
 
     early_stopper = EarlyStopper(
-        patience=config.early_stopper.patience,
-        smooth_factor=config.early_stopper.smooth_factor,
+        patience=cfg.early_stopper.patience,
+        smooth_factor=cfg.early_stopper.smooth_factor,
     )
-    config_dict = OmegaConf.to_container(config, resolve=True)
+    config_dict = OmegaConf.to_container(cfg, resolve=True)
     # Init wandb
-    wandb.init(
-        id=config.wandb.continue_run_id,
-        name=config.wandb.name,
-        resume=config.wandb.continue_run_id is not None,
-        project=config.wandb.project,
+    run = wandb.init(
+        id=cfg.wandb.continue_run_id,
+        name=cfg.wandb.name,
+        resume=cfg.wandb.continue_run_id is not None,
+        project=cfg.wandb.project,
         entity="ankile",
         config=config_dict,
-        mode=config.wandb.mode,
-        notes=config.wandb.notes,
+        mode=cfg.wandb.mode,
+        notes=cfg.wandb.notes,
     )
 
-    # In sweeps, the init is ignored, so to make sure that the config is saved correctly
+    # Print the run name and storage location
+    print(f"Run name: {run.name}")
+    print(f"Run storage location: {run.dir}")
+
+    # In sweeps, the init is ignored, so to make sure that the cfg is saved correctly
     # to wandb we need to log it manually
     wandb.config.update(config_dict)
 
-    # save stats to wandb and update the config object
+    # save stats to wandb and update the cfg object
     wandb.log(
         {
             "dataset/num_samples_train": len(train_dataset),
             "dataset/num_samples_test": len(test_dataset),
             "dataset/num_episodes_train": int(
-                len(dataset.episode_ends) * (1 - config.data.test_split)
+                len(dataset.episode_ends) * (1 - cfg.data.test_split)
             ),
             "dataset/num_episodes_test": int(
-                len(dataset.episode_ends) * config.data.test_split
+                len(dataset.episode_ends) * cfg.data.test_split
             ),
             "dataset/dataset_metadata": dataset.metadata,
         }
     )
 
     # Create model save dir
-    model_save_dir = Path(config.training.model_save_dir) / wandb.run.name
+    model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # Train loop
@@ -254,28 +262,30 @@ def main(config: DictConfig):
 
     print(f"Job started at: {now()}")
 
-    pbar_desc = f"Epoch ({config.furniture}, {config.observation_type}{f', {config.vision_encoder.model}' if config.observation_type == 'image' else ''})"
+    pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
     tglobal = trange(
-        config.training.start_epoch,
-        config.training.num_epochs,
-        initial=config.training.start_epoch,
-        total=config.training.num_epochs,
+        cfg.training.start_epoch,
+        cfg.training.num_epochs,
+        initial=cfg.training.start_epoch,
+        total=cfg.training.num_epochs,
         desc=pbar_desc,
     )
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
 
+        epoch_log = {
+            "epoch": epoch_idx,
+        }
+
         # batch loop
-        actor.train_mode()
-        dataset.train()
+        actor.train()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
         for batch in tepoch:
             opt_noise.zero_grad()
 
             # device transfer
-            # batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
             batch = dict_to_device(batch, device)
 
             # Get loss
@@ -288,7 +298,7 @@ def main(config: DictConfig):
             opt_noise.step()
             lr_scheduler.step()
 
-            if config.training.ema.use:
+            if cfg.training.ema.use:
                 ema.update()
 
             # logging
@@ -306,13 +316,12 @@ def main(config: DictConfig):
 
         tepoch.close()
 
-        train_loss_mean = np.mean(epoch_loss)
+        epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
         # Evaluation loop
-        actor.eval_mode()
-        dataset.eval()
+        actor.eval()
 
-        if config.training.ema.use:
+        if cfg.training.ema.use:
             ema.apply_shadow()
 
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
@@ -331,10 +340,10 @@ def main(config: DictConfig):
 
         test_tepoch.close()
 
-        test_loss_mean = np.mean(test_loss)
+        epoch_log["test_epoch_loss"] = test_loss_mean = np.mean(test_loss)
 
         # Save the model if the test loss is the best so far
-        if config.training.checkpoint_model and test_loss_mean < best_test_loss:
+        if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
             best_test_loss = test_loss_mean
             save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
             torch.save(
@@ -344,8 +353,8 @@ def main(config: DictConfig):
             wandb.save(save_path)
 
         if (
-            config.training.checkpoint_model
-            and (epoch_idx + 1) % config.training.checkpoint_interval == 0
+            cfg.training.checkpoint_model
+            and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
             torch.save(
@@ -354,44 +363,45 @@ def main(config: DictConfig):
             )
             wandb.save(save_path)
 
-        # Early stopping
-        if early_stopper.update(test_loss_mean):
-            print(
-                f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
+        def log_action_mse(log_dict, category, pred_action, gt_action):
+            B, T, _ = pred_action.shape
+            pred_action = pred_action.view(B, T, -1, 10)
+            gt_action = gt_action.view(B, T, -1, 10)
+            log_dict[f"action_sample/{category}_action_mse_error"] = (
+                torch.nn.functional.mse_loss(pred_action, gt_action)
             )
-            # Log to wandb the final counter
-            wandb.log(
-                {
-                    "early_stopper/counter": early_stopper.counter,
-                    "early_stopper/best_loss": early_stopper.best_loss,
-                    "early_stopper/ema_loss": early_stopper.ema_loss,
-                }
+            log_dict[f"action_sample/{category}_action_mse_error_pos"] = (
+                torch.nn.functional.mse_loss(pred_action[..., :3], gt_action[..., :3])
             )
-            break
+            log_dict[f"action_sample/{category}_action_mse_error_rot"] = (
+                torch.nn.functional.mse_loss(pred_action[..., 3:9], gt_action[..., 3:9])
+            )
+            log_dict[f"action_sample/{category}_action_mse_error_width"] = (
+                torch.nn.functional.mse_loss(pred_action[..., 9], gt_action[..., 9])
+            )
 
-        # Log epoch stats
-        wandb.log(
-            {
-                "epoch": epoch_idx,
-                "epoch_loss": np.mean(epoch_loss),
-                "test_epoch_loss": test_loss_mean,
-                "early_stopper/counter": early_stopper.counter,
-                "early_stopper/best_loss": early_stopper.best_loss,
-                "early_stopper/ema_loss": early_stopper.ema_loss,
-            }
-        )
-        tglobal.set_postfix(
-            time=now(),
-            loss=train_loss_mean,
-            test_loss=test_loss_mean,
-            best_success_rate=best_success_rate,
-            stopper_counter=early_stopper.counter,
-        )
+        # run diffusion sampling on a training batch
+        if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
+            with torch.no_grad():
+                # sample trajectory from training set, and evaluate difference
+                train_sampling_batch = dict_to_device(next(iter(trainloader)), device)
+                pred_action = actor.action_pred(train_sampling_batch)
+                gt_action = actor.normalizer(
+                    train_sampling_batch["action"], "action", forward=False
+                )
+                log_action_mse(epoch_log, "train", pred_action, gt_action)
+
+                val_sampling_batch = dict_to_device(next(iter(testloader)), device)
+                gt_action = actor.normalizer(
+                    val_sampling_batch["action"], "action", forward=False
+                )
+                pred_action = actor.action_pred(val_sampling_batch)
+                log_action_mse(epoch_log, "val", pred_action, gt_action)
 
         if (
-            config.rollout.rollouts
-            and (epoch_idx + 1) % config.rollout.every == 0
-            and np.mean(test_loss_mean) < config.rollout.loss_threshold
+            cfg.rollout.rollouts
+            and (epoch_idx + 1) % cfg.rollout.every == 0
+            and np.mean(test_loss_mean) < cfg.rollout.loss_threshold
         ):
             # Do not load the environment until we successfuly made it this far
             if env is None:
@@ -399,17 +409,17 @@ def main(config: DictConfig):
 
                 # env: FurnitureSimEnv = get_env(
                 env: FurnitureRLSimEnv = get_rl_env(
-                    config.training.gpu_id,
-                    furniture=config.rollout.furniture,
-                    num_envs=config.rollout.num_envs,
-                    randomness=config.rollout.randomness,
-                    observation_space=config.observation_type,
+                    cfg.training.gpu_id,
+                    furniture=cfg.rollout.furniture,
+                    num_envs=cfg.rollout.num_envs,
+                    randomness=cfg.rollout.randomness,
+                    observation_space=cfg.observation_type,
                     # Now using full size images in sim and resizing to be consistent
-                    # observation_space=config.observation_type,
+                    # observation_space=cfg.observation_type,
                     resize_img=False,
-                    act_rot_repr=config.control.act_rot_repr,
-                    ctrl_mode=config.control.controller,
-                    action_type=config.control.control_mode,
+                    act_rot_repr=cfg.control.act_rot_repr,
+                    ctrl_mode=cfg.control.controller,
+                    action_type=cfg.control.control_mode,
                     headless=True,
                     pos_scalar=1,
                     rot_scalar=1,
@@ -418,9 +428,9 @@ def main(config: DictConfig):
                 )
 
             best_success_rate = do_rollout_evaluation(
-                config,
+                cfg,
                 env,
-                config.rollout.save_rollouts,
+                cfg.rollout.save_rollouts,
                 actor,
                 best_success_rate,
                 epoch_idx,
@@ -428,7 +438,7 @@ def main(config: DictConfig):
 
             # Save the model if the success rate is the best so far
             if (
-                config.training.checkpoint_model
+                cfg.training.checkpoint_model
                 and best_success_rate > prev_best_success_rate
             ):
                 prev_best_success_rate = best_success_rate
@@ -439,17 +449,41 @@ def main(config: DictConfig):
                 )
                 wandb.save(save_path)
 
-            # After eval is done, we restore the model to the original state
-            if config.training.ema.use:
-                # If using normal EMA, restore the model
-                ema.restore()
+        # After eval is done, we restore the model to the original state
+        if cfg.training.ema.use:
+            # If using normal EMA, restore the model
+            ema.restore()
 
-                # If using switch EMA, set the model to the shadow
-                if config.training.ema.switch:
-                    ema.copy_to_model()
+            # If using switch EMA, set the model to the shadow
+            if cfg.training.ema.switch:
+                ema.copy_to_model()
 
-        if config.wandb.mode == "offline":
+        # Update the early stopper
+        early_stop = early_stopper.update(test_loss_mean)
+        epoch_log["early_stopper/counter"] = early_stopper.counter
+        epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
+        epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
+        # Log epoch stats
+        wandb.log(epoch_log)
+        tglobal.set_postfix(
+            time=now(),
+            loss=epoch_log["epoch_loss"],
+            test_loss=test_loss_mean,
+            best_success_rate=best_success_rate,
+            stopper_counter=early_stopper.counter,
+        )
+
+        # If we are in offline mode, trigger the sync
+        if cfg.wandb.mode == "offline":
             trigger_sync()
+
+        # Now that everything is logged and restored, we can check if we need to stop
+        if early_stop:
+            print(
+                f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
+            )
+            break
 
     tglobal.close()
     wandb.finish()
