@@ -223,9 +223,7 @@ class FurnitureSimEnv(gym.Env):
         self.act_low = torch.from_numpy(self.action_space.low).to(device=self.device)
         self.act_high = torch.from_numpy(self.action_space.high).to(device=self.device)
         self.sim_steps = int(
-            1.0 / config["robot"]["hz"] / sim_config["sim_params"].dt
-            # / sim_config["sim_params"].substeps
-            + 0.1
+            1.0 / config["robot"]["hz"] / sim_config["sim_params"].dt + 0.1
         )
 
         print(f"Sim steps: {self.sim_steps}")
@@ -609,7 +607,6 @@ class FurnitureSimEnv(gym.Env):
                 self.isaac_gym.set_camera_transform(camera, env, transform)
             return camera
 
-        # camera_names = {"1": "wrist", "2": "front", "3": "rear"}
         camera_names = {"1": "wrist", "2": "front"}
         for env_idx, env in enumerate(self.envs):
             for k in self.obs_keys:
@@ -905,8 +902,6 @@ class FurnitureSimEnv(gym.Env):
         rewards = torch.zeros(
             (self.num_envs, 1), dtype=torch.float32, device=self.device
         )
-
-        return rewards
 
         if self.manual_label:
             # Return zeros since the reward is manually labeled by data_collector.py.
@@ -1610,7 +1605,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
     """FurnitureSim environment for Reinforcement Learning."""
 
     def __init__(self, *args, **kwargs):
-        print("In FurnitureRLSimEnv")
         super().__init__(*args, **kwargs)
 
         # Store the default initialization pose for the parts in a convenient tensor

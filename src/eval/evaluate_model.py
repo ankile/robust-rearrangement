@@ -300,10 +300,9 @@ if __name__ == "__main__":
                         max_torque_magnitude=0.005,  # 0.0075,
                     )
                     if args.use_new_env:
-                        print("Using the new RL environment")
                         env: FurnitureRLSimEnv = get_rl_env(**kwargs)
                     else:
-                        print("Using the old environment")
+                        print("[WARNING] Using old env! Why?")
                         env: FurnitureSimEnv = get_env(**kwargs)
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
