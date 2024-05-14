@@ -136,6 +136,8 @@ class FurnitureSimEnv(gym.Env):
         self.furniture_name = furniture
         self.num_envs = num_envs
         self.obs_keys = obs_keys or DEFAULT_VISUAL_OBS
+
+        print(f"Observation keys: {self.obs_keys}")
         self.robot_state_keys = [
             k.split("/")[1] for k in self.obs_keys if k.startswith("robot_state")
         ]
@@ -221,12 +223,10 @@ class FurnitureSimEnv(gym.Env):
         self.act_low = torch.from_numpy(self.action_space.low).to(device=self.device)
         self.act_high = torch.from_numpy(self.action_space.high).to(device=self.device)
         self.sim_steps = int(
-            1.0
-            / config["robot"]["hz"]
-            / sim_config["sim_params"].dt
-            / sim_config["sim_params"].substeps
-            + 0.1
+            1.0 / config["robot"]["hz"] / sim_config["sim_params"].dt + 0.1
         )
+
+        print(f"Sim steps: {self.sim_steps}")
 
         self.robot_state_as_dict = kwargs.get("robot_state_as_dict", True)
         self.squeeze_batch_dim = kwargs.get("squeeze_batch_dim", False)
@@ -607,7 +607,7 @@ class FurnitureSimEnv(gym.Env):
                 self.isaac_gym.set_camera_transform(camera, env, transform)
             return camera
 
-        camera_names = {"1": "wrist", "2": "front", "3": "rear"}
+        camera_names = {"1": "wrist", "2": "front"}
         for env_idx, env in enumerate(self.envs):
             for k in self.obs_keys:
                 if k.startswith("color"):
@@ -793,11 +793,13 @@ class FurnitureSimEnv(gym.Env):
 
             # Move the real part to the first element.
             action_quat_wxyz = C.quat_xyzw_to_wxyz(action_quat_xyzw)
+
         elif self.act_rot_repr == "rot_6d":
             rot_6d = action[:, 3:9]
             rot_mat = pt.rotation_6d_to_matrix(rot_6d)
             # Real part is the first element in the quaternion.
             action_quat_wxyz = pt.matrix_to_quaternion(rot_mat)
+
         else:
             # Convert axis angle to quaternion.
             action_quat_wxyz = pt.matrix_to_quaternion(
@@ -816,66 +818,75 @@ class FurnitureSimEnv(gym.Env):
         # TODO: See if it makes sense to implement batching for the OSC controller.
         self.step_ctrl.set_goal(goals_pos, goals_quat_xyzw)
 
+        pos_action = torch.zeros_like(self.dof_pos)
+        torque_action = torch.zeros_like(self.dof_pos)
+        grip_action = torch.zeros((self.num_envs, 1))
+
+        grasp = action[:, -1]
+        grip_sep = torch.where(
+            (torch.sign(grasp) != torch.sign(self.last_grasp))
+            & (torch.abs(grasp) > self.grasp_margin),
+            torch.where(grasp < 0, self.max_gripper_width, torch.zeros_like(grasp)),
+            torch.where(
+                self.last_grasp < 0,
+                self.max_gripper_width,
+                torch.zeros_like(self.last_grasp),
+            ),
+        )
+        self.last_grasp = grasp
+        grip_action[:, -1] = grip_sep
+
+        ee_pos, ee_quat = self.get_ee_pose()
+        state_dict = {
+            "ee_pos": ee_pos,
+            "ee_quat": ee_quat,
+            "joint_positions": self.dof_pos[:, :7],
+            "jacobian_diffik": self.jacobian_eef,
+        }
+
+        gripper_action_mask = (grip_sep > 0).unsqueeze(1)
+
+        torque_action[:, 7:9] = torch.where(
+            gripper_action_mask,
+            sim_config["robot"]["gripper_torque"],
+            -sim_config["robot"]["gripper_torque"],
+        )
+
+        pos_action[:, :7] = self.step_ctrl(state_dict)["joint_positions"]
+        pos_action[:, 7:9] = torch.where(
+            gripper_action_mask,
+            self.max_gripper_width / 2,
+            torch.zeros_like(pos_action[:, 7:9]),
+        )
+        self.isaac_gym.set_dof_position_target_tensor(
+            self.sim, gymtorch.unwrap_tensor(pos_action)
+        )
+        self.isaac_gym.set_dof_actuation_force_tensor(
+            self.sim, gymtorch.unwrap_tensor(torque_action)
+        )
+
         for _ in range(self.sim_steps):
-            self.refresh()
+            self.isaac_gym.simulate(self.sim)
 
-            pos_action = torch.zeros_like(self.dof_pos)
-            torque_action = torch.zeros_like(self.dof_pos)
-            grip_action = torch.zeros((self.num_envs, 1))
+        self.isaac_gym.fetch_results(self.sim, True)
 
-            grasp = action[:, -1]
-            grip_sep = torch.where(
-                (torch.sign(grasp) != torch.sign(self.last_grasp))
-                & (torch.abs(grasp) > self.grasp_margin),
-                torch.where(grasp < 0, self.max_gripper_width, torch.zeros_like(grasp)),
-                torch.where(
-                    self.last_grasp < 0,
-                    self.max_gripper_width,
-                    torch.zeros_like(self.last_grasp),
-                ),
-            )
-            self.last_grasp = grasp
-            grip_action[:, -1] = grip_sep
+        if not self.headless or self.render_cameras:
+            self.isaac_gym.step_graphics(self.sim)
 
-            ee_pos, ee_quat = self.get_ee_pose()
-            state_dict = {
-                "ee_pos": ee_pos,
-                "ee_quat": ee_quat,
-                "joint_positions": self.dof_pos[:, :7],
-                "jacobian_diffik": self.jacobian_eef,
-            }
+        # Refresh tensors.
+        self.isaac_gym.refresh_dof_state_tensor(self.sim)
+        self.isaac_gym.refresh_dof_force_tensor(self.sim)
+        self.isaac_gym.refresh_rigid_body_state_tensor(self.sim)
+        self.isaac_gym.refresh_jacobian_tensors(self.sim)
 
-            gripper_action_mask = (grip_sep > 0).unsqueeze(1)
-
-            torque_action[:, 7:9] = torch.where(
-                gripper_action_mask,
-                sim_config["robot"]["gripper_torque"],
-                -sim_config["robot"]["gripper_torque"],
-            )
-
-            pos_action[:, :7] = self.step_ctrl(state_dict)["joint_positions"]
-            pos_action[:, 7:9] = torch.where(
-                gripper_action_mask,
-                self.max_gripper_width / 2,
-                torch.zeros_like(pos_action[:, 7:9]),
-            )
-            self.isaac_gym.set_dof_position_target_tensor(
-                self.sim, gymtorch.unwrap_tensor(pos_action)
-            )
-            self.isaac_gym.set_dof_actuation_force_tensor(
-                self.sim, gymtorch.unwrap_tensor(torque_action)
-            )
-
-            # Update viewer
-            if not self.headless:
-                self.isaac_gym.draw_viewer(self.viewer, self.sim, False)
-                self.isaac_gym.sync_frame_time(self.sim)
-                self.isaac_gym.clear_lines(self.viewer)
-
-        if self.render_cameras:
-            self.isaac_gym.end_access_image_tensors(self.sim)
+        # Update viewer
+        if not self.headless:
+            self.isaac_gym.draw_viewer(self.viewer, self.sim, False)
+            self.isaac_gym.sync_frame_time(self.sim)
+            self.isaac_gym.clear_lines(self.viewer)
 
         obs = self._get_observation()
+
         reward = self._reward()
         self.env_steps += 1
 
@@ -1145,26 +1156,17 @@ class FurnitureSimEnv(gym.Env):
     def _get_observation(self):
         robot_state = self._read_robot_state()
         if self.render_cameras:
+            self.isaac_gym.render_all_camera_sensors(self.sim)
+            self.isaac_gym.start_access_image_tensors(self.sim)
             color_obs = {
                 k: self._get_color_obs(v)
                 for k, v in self.camera_obs.items()
                 if "color" in k
             }
+            self.isaac_gym.end_access_image_tensors(self.sim)
 
         if robot_state and self.concat_robot_state:
             robot_state = torch.cat(list(robot_state.values()), -1)
-
-        # if self.record:
-        #     record_images = []
-        #     for k in sorted(color_obs.keys()):
-        #         img = color_obs[k][0]
-        #         if not self.np_step_out:
-        #             img = img.cpu().numpy().copy()
-        #         if self.channel_first:
-        #             img = img.transpose(0, 2, 3, 1)
-        #         record_images.append(img.squeeze())
-        #     stacked_img = np.hstack(record_images)
-        #     self.video_writer.write(cv2.cvtColor(stacked_img, cv2.COLOR_RGB2BGR))
 
         obs = {}
         if (
@@ -1183,13 +1185,6 @@ class FurnitureSimEnv(gym.Env):
             elif k.startswith("color"):
                 obs[k] = color_obs[k]
 
-        # if self.squeeze_batch_dim:
-        #     for k, v in obs.items():
-        #         if isinstance(v, dict):
-        #             for kk, vv in v.items():
-        #                 obs[k][kk] = vv.squeeze(0)
-        #         else:
-        #             obs[k] = v.squeeze(0)
         return obs
 
     def get_observation(self):
