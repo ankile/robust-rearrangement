@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 import torchvision
 
-torchvision.disable_beta_transforms_warning()
+# torchvision.disable_beta_transforms_warning()
 
-from torchvision.transforms import v2 as transforms
+from torchvision import transforms
+
+# from torchvision.transforms import v2 as transforms
 from ipdb import set_trace as bp  # noqa
 
 
@@ -24,6 +26,7 @@ class FrontCameraTransform(nn.Module):
                 transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
                 transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
                 transforms.RandomCrop(crop_size),
+                transforms.RandomErasing(value="random"),
             ]
         )
         self.transform_eval = transforms.CenterCrop(crop_size)

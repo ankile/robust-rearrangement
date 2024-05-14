@@ -1,0 +1,9 @@
+mamba install -c pytorch -c fair-robotics -c aihabitat -c nvidia -c conda-forge polymetis pytorch-cuda=11.7 cudatoolkit-dev=11.7
+pip install fvcore
+pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py38_cu117_pyt1131/download.html
+
+pip install cython pynput opencv-python zarr ipdb wandb diffusers gym transformers timm
+pip install rdt
+pip install lcm-python
+pip install torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+# pip install furniture_bench

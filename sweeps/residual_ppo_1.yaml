@@ -1,0 +1,94 @@
+program: src/train/residual_ppo.py
+entity: ankile
+project: residual-ppo-1
+
+method: bayes
+metric:
+  goal: maximize
+  name: eval/success_rate
+parameters:
+  learning_rate:
+    min: 1e-5
+    max: 1e-3
+    q: 1e-5
+    distribution: q_log_uniform_values
+  gamma:
+    min: 0.9
+    max: 0.999
+    q: 0.001
+    distribution: q_log_uniform_values
+  gae_lambda:
+    min: 0.9
+    max: 0.99
+    q: 0.01
+    distribution: q_log_uniform_values
+  clip_coef:
+    min: 0.1
+    max: 0.4
+    q: 0.1
+    distribution: q_uniform
+  ent_coef:
+    values: [0.0, 0.01, 0.1]
+  vf_coef:
+    min: 0.1
+    max: 1.0
+    q: 0.1
+    distribution: q_uniform
+  max_grad_norm:
+    min: 0.1
+    max: 1.0
+    q: 0.1
+    distribution: q_uniform
+  target_kl:
+    min: 0.01
+    max: 0.3
+    q: 0.01
+    distribution: q_log_uniform_values
+  residual_regularization:
+    min: 0.01
+    max: 1.0
+    q: 0.01
+    distribution: q_log_uniform_values
+  residual_policy.actor_hidden_size:
+    values: [256, 512, 1024]
+  residual_policy.actor_num_layers:
+    values: [1, 2, 3]
+  residual_policy.critic_hidden_size:
+    values: [256, 512, 1024]
+  residual_policy.critic_num_layers:
+    values: [1, 2, 3]
+  num_envs:
+    values: [256, 512, 1024]
+  num_minibatches:
+    values: [2, 4, 8]
+  residual_policy.action_head_std:
+    min: 0.01
+    max: 1
+    q: 0.01
+    distribution: q_log_uniform_values
+  residual_policy.init_logstd:
+    min: -5
+    max: -1
+    q: 0.5
+    distribution: q_uniform
+  residual_policy.action_scale:
+    values: [0.01, 0.05, 0.1, 0.5]
+  n_iterations_train_only_value:
+    min: 2
+    max: 5
+    distribution: int_uniform
+  residual_policy.actor_activation:
+    values: [ReLU, SiLU, Tanh]
+early_terminate:
+  type: hyperband
+  max_iter: 25
+  min_iter: 3
+  s: 2
+  eta: 3
+
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}
+  - ${args_with_hyphens}

@@ -16,7 +16,6 @@ except ImportError as e:
     raise ImportError(e)
 
 
-import time
 from typing import Union
 from datetime import datetime
 from pathlib import Path

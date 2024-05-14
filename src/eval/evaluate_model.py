@@ -354,6 +354,9 @@ if __name__ == "__main__":
                 if "predict_past_actions" not in config.actor:
                     config.actor.predict_past_actions = True
 
+                if "confusion_loss_beta" not in config.actor:
+                    config.actor.confusion_loss_beta = 0.0
+
                 # Check that we didn't set the wrong action type above
                 assert config.control.control_mode == args.action_type, (
                     f"Control mode in the config: {config.control.control_mode} "
