@@ -48,13 +48,27 @@ def pytorch3d_quat_to_isaac_quat(quat):
     return torch.cat([quat[..., 1:], quat[..., :1]], dim=-1)
 
 
-def isaac_quat_to_rot_6d(quat: torch.Tensor) -> torch.Tensor:
+def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     """Converts IsaacGym quaternion to rotation 6D."""
     # Move the real part from the back to the front
-    quat = isaac_quat_to_pytorch3d_quat(quat)
+    quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
-    rot_mats = pt.quaternion_to_matrix(quat)
+    rot_mats = pt.quaternion_to_matrix(quat_wxyz)
+
+    # Extract the first two columns of each rotation matrix
+    rot_6d = pt.matrix_to_rotation_6d(rot_mats)
+
+    return rot_6d
+
+
+def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
+    """Converts IsaacGym quaternion to rotation 6D."""
+    # Move the real part from the back to the front
+    quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
+
+    # Convert each quaternion to a rotation matrix
+    rot_mats = pt.quaternion_to_matrix(quat_wxyz)
 
     # Extract the first two columns of each rotation matrix
     rot_6d = pt.matrix_to_rotation_6d(rot_mats)

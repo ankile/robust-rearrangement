@@ -105,7 +105,7 @@ class SmallMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,
@@ -219,7 +219,7 @@ class ResidualMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-h100,vision-pulkitag-3090,vision-pulkitag-v100
+#SBATCH -p vision-pulkitag-h100,vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-v100
 #SBATCH -q vision-pulkitag-main
-#SBATCH --job-name=real_olci_r3m
+#SBATCH --job-name=real_olci_diff_trans_cotrain
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
@@ -19,11 +19,13 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.wrist_camera_dropout=0.0 \
     regularization.proprioception_dropout=0.0 \
     regularization.vib_front_feature_beta=0.0 \
+    actor.confusion_loss_beta=0.0 \
     furniture=one_leg_corner_insert \
-    wandb.project=real-image-speed-compare-channels-first \
     environment=real \
-    randomness='[low,med]' \
+    actor/diffusion_model=transformer \
     wandb.project=real-one_leg_corner_insert-1 \
+    randomness='[low,med]' \
     dryrun=false
-    # wandb.project=real-one_leg_corner_insert-1 \
     # actor.loss_fn=L1Loss \
+    # furniture='[one_leg_corner_insert,one_leg]' \
+    # environment='[sim,real]' \

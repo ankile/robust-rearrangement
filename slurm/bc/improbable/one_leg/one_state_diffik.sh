@@ -1,19 +1,20 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-v100,vision-pulkitag-h100
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090
 #SBATCH -q vision-pulkitag-free-cycles
-#SBATCH --job-name=oneleg_state_diffik
-#SBATCH --output=output_%j.log
-#SBATCH --error=error_%j.log
+#SBATCH --job-name=ol_state_diff
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=08:00:00
+#SBATCH --time=00-08:00
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/diffusion furniture=one_leg dryrun=false \
-    rollout=rollout rollout.every=5 rollout.max_steps=1000 rollout.num_envs=256 \
-    pred_horizon=16 action_horizon=8 control.controller=diffik \
-    demo_source='[teleop,rollout]'
+python -m src.train.bc +experiment=state/diffusion furniture=one_leg \
+    rollout=rollout rollout.every=10 rollout.max_steps=1000 rollout.num_envs=256 \
+    pred_horizon=32 action_horizon=4 obs_horizon=1 control.controller=diffik \
+    actor.diffusion_model.down_dims='[128,256,512]' \
+    demo_source='[teleop,rollout]' randomness='[low,med]' \
+    training.batch_size=2048 training.actor_lr=1e-4 training.num_epochs=2000 \
+    dryrun=false

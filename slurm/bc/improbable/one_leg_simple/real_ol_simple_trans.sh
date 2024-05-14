@@ -1,16 +1,15 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-h100,vision-pulkitag-3090,vision-pulkitag-v100
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-a6000,vision-pulkitag-3090,vision-pulkitag-v100
 #SBATCH -q vision-pulkitag-main
-#SBATCH --job-name=real_olci_r3m
+#SBATCH --job-name=real_ol_simple_trans
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=0-16:00
+#SBATCH --time=1-00:00
 #SBATCH --gres=gpu:1
 
-# Run your command with the provided arguments
 python -m src.train.bc +experiment=image/real_one_leg_insert \
     vision_encoder=r3m vision_encoder.model=r3m_18 \
     vision_encoder.pretrained=true vision_encoder.freeze=false \
@@ -19,11 +18,13 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.wrist_camera_dropout=0.0 \
     regularization.proprioception_dropout=0.0 \
     regularization.vib_front_feature_beta=0.0 \
-    furniture=one_leg_corner_insert \
-    wandb.project=real-image-speed-compare-channels-first \
+    actor/diffusion_model=transformer \
+    actor.loss_fn=MSELoss \
+    training.actor_lr=1e-4 training.encoder_lr=1e-5 \
+    training.num_epochs=5000 \
+    early_stopper.patience=inf \
+    furniture=one_leg_simple \
     environment=real \
-    randomness='[low,med]' \
-    wandb.project=real-one_leg_corner_insert-1 \
+    wandb.project=real-one_leg_simple-1 \
+    wandb.mode=online \
     dryrun=false
-    # wandb.project=real-one_leg_corner_insert-1 \
-    # actor.loss_fn=L1Loss \
