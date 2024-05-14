@@ -58,6 +58,8 @@ def sample_sequence(
     sample_end_idx: int,
 ) -> Dict[str, torch.Tensor]:
     result = dict()
+    # TODO: Implement the performance improvement (particularly for image-based training):
+    # https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/common/sampler.py#L130-L138
     for key, input_arr in train_data.items():
         sample = input_arr[buffer_start_idx:buffer_end_idx]
         data = sample
@@ -81,9 +83,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        augment_image: bool = False,
         data_subset: int = None,
-        first_action_idx: int = 0,
+        predict_past_actions: bool = False,
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
@@ -134,30 +135,24 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         # Add the color images to the train_data (it's not supposed to be normalized)
+        # and move the channels to the front
         self.train_data["color_image1"] = torch.from_numpy(
             combined_data["color_image1"]
-        )
+        ).permute(0, 3, 1, 2)
         self.train_data["color_image2"] = torch.from_numpy(
             combined_data["color_image2"]
-        )
+        ).permute(0, 3, 1, 2)
 
         # compute start and end of each state-action sequence
         # also handles padding
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
         self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
-            sequence_length=pred_horizon,
+            sequence_length=self.sequence_length,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1 if pad_after else 0,
-        )
-
-        # Add image augmentation
-        self.augment_image = augment_image
-        # NOTE: Should this be only in the actor class?
-        self.image1_transform = WristCameraTransform(
-            mode="train" if augment_image else "eval"
-        )
-        self.image2_transform = FrontCameraTransform(
-            mode="train" if augment_image else "eval"
         )
 
         self.task_idxs = np.array(
@@ -166,23 +161,16 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         self.successes = combined_data["success"].astype(np.uint8)
         self.skills = combined_data["skill"].astype(np.uint8)
         self.failure_idx = combined_data["failure_idx"]
+        self.domain = combined_data["domain"]
 
         # Add action and observation dimensions to the dataset
         self.action_dim = self.train_data["action"].shape[-1]
         self.robot_state_dim = self.train_data["robot_state"].shape[-1]
 
-        # Take into account possibility of predicting an action that doesn't align with the first observation
-        # TODO: Verify this works with the BC_RNN baseline
-        self.first_action_idx = first_action_idx
-        if first_action_idx < 0:
-            self.first_action_idx = self.obs_horizon + first_action_idx
-
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
-
-        if self.augment_image:
-            self.train()
-        else:
-            self.eval()
 
     def __len__(self):
         return len(self.indices)
@@ -200,7 +188,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # get normalized data using these indices
         nsample = sample_sequence(
             train_data=self.train_data,
-            sequence_length=self.pred_horizon,
+            sequence_length=self.sequence_length,
             buffer_start_idx=buffer_start_idx,
             buffer_end_idx=buffer_end_idx,
             sample_start_idx=sample_start_idx,
@@ -208,6 +196,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         )
 
         # Discard unused observations
+        # TODO: This is where a performance improvement can be made, i.e., don't load
+        # the full image sequence if we're only going to use a subset of it
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
@@ -217,36 +207,18 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        # Apply the image augmentation
-        nsample["color_image1"] = torch.stack(
-            [
-                self.image1_transform(img)
-                for img in nsample["color_image1"].permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
-        nsample["color_image2"] = torch.stack(
-            [
-                self.image2_transform(img)
-                for img in nsample["color_image2"].permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
-
         # Add the task index and success flag to the sample
         nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
         nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
+        nsample["domain"] = torch.IntTensor([self.domain[demo_idx]])
 
         return nsample
 
     def train(self):
-        if self.augment_image:
-            self.image1_transform.train()
-            self.image2_transform.train()
-        else:
-            self.eval()
+        pass
 
     def eval(self):
-        self.image1_transform.eval()
-        self.image2_transform.eval()
+        pass
 
 
 class FurnitureStateDataset(torch.utils.data.Dataset):
@@ -257,16 +229,18 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         obs_horizon: int,
         action_horizon: int,
         data_subset: int = None,
-        first_action_idx: int = 0,
+        predict_past_actions: bool = False,
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
         task: str = None,
         add_relative_pose: bool = False,
+        normalizer: LinearNormalizer = None,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
+        self.predict_past_actions = predict_past_actions
         self.control_mode = control_mode
 
         # Read from zarr dataset
@@ -306,7 +280,11 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # Fit the normalizer to the data
         self.normalizer = LinearNormalizer()
-        self.normalizer.fit(self.train_data)
+        if normalizer is None:
+            self.normalizer.fit(self.train_data)
+        else:
+            self.normalizer.load_state_dict(normalizer.state_dict())
+            self.normalizer.cpu()
 
         if task == "place-tabletop":
             self._make_tabletop_goal()
@@ -376,9 +354,13 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # compute start and end of each state-action sequence
         # also handles padding
+        # If we only predict the future, we need to make sure we have enough actions to predict
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
         self.indices = create_sample_indices(
             episode_ends=self.episode_ends,
-            sequence_length=pred_horizon,
+            sequence_length=self.sequence_length,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1 if pad_after else 0,
         )
@@ -396,18 +378,78 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.parts_poses_dim = self.train_data["parts_poses"].shape[-1]
         self.obs_dim = (self.robot_state_dim + self.parts_poses_dim) * self.obs_horizon
 
-        # Take into account possibility of predicting an action that doesn't align with the first observation
-        # TODO: Verify this works with the BC_RNN baseline, or maybe just rip it out?
-        self.first_action_idx = first_action_idx
-        if first_action_idx < 0:
-            self.first_action_idx = self.obs_horizon + first_action_idx
-
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
 
         del self.train_data["robot_state"]
         del self.train_data["parts_poses"]
         if add_relative_pose:
             del self.train_data["rel_poses"]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        # get the start/end indices for this datapoint
+        (
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+            demo_idx,
+        ) = self.indices[idx]
+
+        # get normalized data using these indices
+        nsample = sample_sequence(
+            train_data=self.train_data,
+            sequence_length=self.sequence_length,
+            buffer_start_idx=buffer_start_idx,
+            buffer_end_idx=buffer_end_idx,
+            sample_start_idx=sample_start_idx,
+            sample_end_idx=sample_end_idx,
+        )
+
+        # From the diffusion_policy code:
+        # E.g., obs=2, pred=16, act=8:
+        # |o|o|                             observations:       2
+        # | |a|a|a|a|a|a|a|a|               actions executed:   8
+        # |p|p|p|p|p|p|p|p|p|p|p|p|p|p|p|p| actions predicted: 16
+
+        # This is the logic for the indices if we only predict future actions
+        # E.g., obs=2, pred=4, act=4:
+        # |o|o|                             observations:       2
+        # | |a|a|a|a|                       actions executed:   4
+        # | |p|p|p|p|                       actions predicted:  4
+
+        # This is the logic for the indices if we predict past actions
+        # E.g., obs=2, pred=4, act=3:
+        # |o|o|                             observations:       2
+        # | |a|a|a|                         actions executed:   3
+        # |p|p|p|p|                         actions predicted:  4
+
+        # Discard unused actions
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
+
+        # Discard unused observations
+        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
+
+        # Sum up the returns accrued during the action chunk
+        # Double check if this should be calculated only for executed actions
+        nsample["returns"] = nsample["returns"][
+            self.first_action_idx : self.final_action_idx
+        ].sum()
+
+        return nsample
+
+    def train(self):
+        pass
+
+    def eval(self):
+        pass
 
     def _make_tabletop_goal(self):
         ee = np.array([0] + self.episode_ends.tolist())
@@ -438,49 +480,3 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             self.train_data[key] = torch.cat(data_slices)
 
         self.episode_ends = torch.tensor(self.episode_ends)
-
-    def __len__(self):
-        return len(self.indices)
-
-    def __getitem__(self, idx):
-        # get the start/end indices for this datapoint
-        (
-            buffer_start_idx,
-            buffer_end_idx,
-            sample_start_idx,
-            sample_end_idx,
-            demo_idx,
-        ) = self.indices[idx]
-
-        # get normalized data using these indices
-        nsample = sample_sequence(
-            train_data=self.train_data,
-            sequence_length=self.pred_horizon,
-            buffer_start_idx=buffer_start_idx,
-            buffer_end_idx=buffer_end_idx,
-            sample_start_idx=sample_start_idx,
-            sample_end_idx=sample_end_idx,
-        )
-
-        # Discard unused actions
-        nsample["action"] = nsample["action"][
-            self.first_action_idx : self.final_action_idx, :
-        ]
-
-        # Discard unused observations
-        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
-
-        # Discard unused returns
-        nsample["returns"] = nsample["returns"][self.final_action_idx - 1]
-
-        # # Add the task index and success flag to the sample
-        # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
-        # nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
-
-        return nsample
-
-    def train(self):
-        pass
-
-    def eval(self):
-        pass

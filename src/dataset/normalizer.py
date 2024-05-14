@@ -62,6 +62,8 @@ class LinearNormalizer(nn.Module):
         self.stats = stats
         self._turn_off_gradients()
 
+        return f"<Added keys {self.stats.keys()} to the normalizer.>"
+
     def keys(self):
         return self.stats.keys()
 

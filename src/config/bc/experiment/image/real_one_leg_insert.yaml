@@ -19,7 +19,9 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 20
+  checkpoint_interval: 40
+  num_epochs: 2000
+  steps_per_epoch: -1
 
 regularization:
   feature_layernorm: true
@@ -33,7 +35,7 @@ demo_source: teleop
 environment: real
 
 early_stopper:
-  patience: 10
+  patience: 20
 
 wandb:
   project: real-one_leg_insert-1

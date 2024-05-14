@@ -16,7 +16,6 @@ except ImportError as e:
     raise ImportError(e)
 
 
-import time
 from typing import Union
 from datetime import datetime
 from pathlib import Path
@@ -111,8 +110,8 @@ class FurnitureSimEnv(gym.Env):
         ), "Only 'diffik' controller is supported for now (parallization)."
 
         # NOTE: This is solely for the grid search
-        self.pos_scalar = kwargs.get("pos_scalar", 4.0)
-        self.rot_scalar = kwargs.get("rot_scalar", 9.0)
+        self.pos_scalar = kwargs.get("pos_scalar", 1.0)
+        self.rot_scalar = kwargs.get("rot_scalar", 1.0)
         self.stiffness = kwargs.get("stiffness", 1000.0)
         self.damping = kwargs.get("damping", 200.0)
 

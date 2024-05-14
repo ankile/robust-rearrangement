@@ -46,7 +46,8 @@ import gym
 
 gym.logger.set_level(40)
 import wandb
-
+import copy
+from torch.distributions.normal import Normal
 
 from src.gym import turn_off_april_tags
 
@@ -162,6 +163,8 @@ class Args:
     """coefficient of the value function"""
     bc_coef: float = 0.0
     """coefficient of the behavior cloning loss"""
+    kl_coef: float = 1.0
+    """coefficient of the KL regularization loss"""
     max_grad_norm: float = 0.5
     """the maximum norm for the gradient clipping"""
     target_kl: float = None
@@ -184,11 +187,10 @@ def get_demo_data_loader(
     control_mode,
     n_batches,
     task,
-    act_rot_repr="quat",
     num_workers=4,
-    normalizer=None,
     action_horizon=1,
     add_relative_pose=False,
+    normalizer=None,
 ) -> DataLoader:
 
     paths = get_processed_paths(
@@ -205,15 +207,14 @@ def get_demo_data_loader(
         obs_horizon=1,
         pred_horizon=action_horizon,
         action_horizon=action_horizon,
-        normalizer=normalizer,
         data_subset=None,
         control_mode=control_mode,
-        act_rot_repr=act_rot_repr,
-        first_action_idx=0,
         pad_after=False,
+        predict_past_actions=True,
         max_episode_count=None,
         task=task,
         add_relative_pose=add_relative_pose,
+        normalizer=normalizer,
     )
 
     batch_size = len(demo_data) // n_batches
@@ -401,12 +402,19 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown agent type: {args.agent}")
 
+    if args.kl_coef > 0:
+        ref_agent = ResidualMLPAgentSeparate(
+                obs_shape=env.observation_space.shape,
+                action_shape=env.action_space.shape,
+                init_logstd=args.init_logstd,
+            )
+
     # normalizer = None
-    normalizer = LinearNormalizer(control_mode=action_type).to(device)
-    assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
-        f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
-        f"does not match env action shape {env.action_space.shape[-1]}"
-    )
+    normalizer = LinearNormalizer().to(device)
+    # assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
+    #     f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
+    #     f"does not match env action shape {env.action_space.shape[-1]}"
+    # )
 
     env.normalizer = normalizer
 
@@ -443,21 +451,6 @@ if __name__ == "__main__":
     dones = torch.zeros((args.num_steps, args.num_envs))
     values = torch.zeros((args.num_steps, args.num_envs))
 
-    # Get the dataloader for the demo data for the behavior cloning
-    demo_data_loader = get_demo_data_loader(
-        control_mode=action_type,
-        n_batches=args.num_minibatches,
-        task=args.exp_name,
-        act_rot_repr=act_rot_repr,
-        normalizer=normalizer,
-        action_horizon=agent.action_horizon,
-        num_workers=4 if not args.debug else 0,
-        add_relative_pose=args.add_relative_pose,
-    )
-
-    # Print the number of batches in the dataloader
-    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
-
     if args.load_checkpoint:
         wts = get_model_weights("one_leg-mlp-state-1/6bh9dn66")
 
@@ -473,6 +466,24 @@ if __name__ == "__main__":
             k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
         }
         print(normalizer.load_state_dict(normalizer_wts))
+
+    if args.kl_coef > 0:
+        ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
+        ref_agent = ref_agent.to(device)
+
+    # Get the dataloader for the demo data for the behavior cloning
+    demo_data_loader = get_demo_data_loader(
+        control_mode=action_type,
+        n_batches=args.num_minibatches,
+        task=args.exp_name,
+        normalizer=normalizer,
+        action_horizon=agent.action_horizon,
+        num_workers=4 if not args.debug else 0,
+        add_relative_pose=args.add_relative_pose,
+    )
+
+    # Print the number of batches in the dataloader
+    print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     agent = agent.to(device)
     global_step = 0
@@ -502,18 +513,15 @@ if __name__ == "__main__":
             dones[step] = next_done
 
             with torch.no_grad():
-                action, logprob, _, value = agent.get_action_and_value(next_obs)
+                naction, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten().cpu()
 
             # Clamp action to be [-5, 5], arbitrary value
-            action = torch.clamp(action, -5, 5)
+            naction = torch.clamp(naction, -5, 5)
 
-            naction = (
-                normalizer(action, "action", forward=False) if normalizer else action
-            )
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
-            actions[step] = action.cpu()
+            actions[step] = naction.cpu()
             logprobs[step] = logprob.cpu()
 
             rewards[step] = reward.view(-1).cpu()
@@ -683,6 +691,16 @@ if __name__ == "__main__":
                         1 - args.bc_coef
                     ) * policy_loss + args.bc_coef * bc_total_loss
 
+                # KL regularization loss
+                if args.kl_coef > 0:
+                    mb_new_actions, _, _, _ = agent.get_action_and_value(mb_obs)
+                    with torch.no_grad():
+                        action_mean = ref_agent.actor_mean(mb_obs)
+                        action_logstd = ref_agent.actor_logstd.expand_as(action_mean)
+                        action_std = torch.exp(action_logstd)
+                        ref_dist = Normal(action_mean, action_std)
+                    kl_loss = - ref_dist.log_prob(mb_new_actions).mean()
+                    policy_loss = policy_loss + args.kl_coef * kl_loss
                 # Total loss
                 loss = policy_loss + args.vf_coef * v_loss
 
