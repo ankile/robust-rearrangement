@@ -83,7 +83,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        augment_image: bool = False,
         data_subset: int = None,
         predict_past_actions: bool = False,
         control_mode: ControlMode = ControlMode.delta,
@@ -136,12 +135,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         # Add the color images to the train_data (it's not supposed to be normalized)
+        # and move the channels to the front
         self.train_data["color_image1"] = torch.from_numpy(
             combined_data["color_image1"]
-        )
+        ).permute(0, 3, 1, 2)
         self.train_data["color_image2"] = torch.from_numpy(
             combined_data["color_image2"]
-        )
+        ).permute(0, 3, 1, 2)
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -153,17 +153,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             sequence_length=self.sequence_length,
             pad_before=obs_horizon - 1,
             pad_after=action_horizon - 1 if pad_after else 0,
-        )
-
-        # Add image augmentation
-        self.augment_image = augment_image
-        # NOTE: Should this be only in the actor class?
-        print("[NB] Consider if the camera transforms should be in the dataset")
-        self.image1_transform = WristCameraTransform(
-            mode="train" if augment_image else "eval"
-        )
-        self.image2_transform = FrontCameraTransform(
-            mode="train" if augment_image else "eval"
         )
 
         self.task_idxs = np.array(
@@ -182,11 +171,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # First action refers to the first action we predict, not necessarily the first action executed
         self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
-
-        if self.augment_image:
-            self.train()
-        else:
-            self.eval()
 
     def __len__(self):
         return len(self.indices)
@@ -223,21 +207,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.first_action_idx : self.final_action_idx, :
         ]
 
-        # Apply the image augmentation
-        # TODO: Remove this changing back and forth of channels first and last
-        nsample["color_image1"] = torch.stack(
-            [
-                self.image1_transform(img)
-                for img in nsample["color_image1"].permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
-        nsample["color_image2"] = torch.stack(
-            [
-                self.image2_transform(img)
-                for img in nsample["color_image2"].permute(0, 3, 1, 2)
-            ]
-        ).permute(0, 2, 3, 1)
-
         # Add the task index and success flag to the sample
         nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
         nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
@@ -246,15 +215,10 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         return nsample
 
     def train(self):
-        if self.augment_image:
-            self.image1_transform.train()
-            self.image2_transform.train()
-        else:
-            self.eval()
+        pass
 
     def eval(self):
-        self.image1_transform.eval()
-        self.image2_transform.eval()
+        pass
 
 
 class FurnitureStateDataset(torch.utils.data.Dataset):

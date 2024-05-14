@@ -9,10 +9,9 @@ from ipdb import set_trace as bp  # noqa
 
 
 class FrontCameraTransform(nn.Module):
+
     def __init__(self, mode="train"):
         super().__init__()
-        self.mode = mode
-
         margin = 20
         crop_size = (224, 224)
         input_size = (240, 320)
@@ -25,32 +24,33 @@ class FrontCameraTransform(nn.Module):
                 transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
                 transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
                 transforms.RandomCrop(crop_size),
+                transforms.RandomErasing(value="random"),
             ]
         )
         self.transform_eval = transforms.CenterCrop(crop_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[1:3] == (240, 320), f"Invalid input shape: {x.shape}"
-        if self.mode == "train":
-            return self.transform_train(x)
-        elif self.mode == "eval":
-            return self.transform_eval(x)
+        self.transform = (
+            self.transform_train if mode == "train" else self.transform_eval
+        )
 
-        raise ValueError(f"Invalid mode: {self.mode}")
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-3:] == (3, 240, 320)
+        return self.transform(x)
 
     def train(self, mode=True):
         super().train(mode)
-        self.mode = "train" if mode else "eval"
+        self.transform = self.transform_train if mode else self.transform_eval
 
     def eval(self):
         super().eval()
-        self.mode = "eval"
+        self.transform = self.transform_eval
 
 
 class WristCameraTransform(nn.Module):
+    transform: nn.Module
+
     def __init__(self, mode="train"):
         super().__init__()
-        self.mode = mode
 
         self.transform_train = transforms.Compose(
             [
@@ -63,18 +63,19 @@ class WristCameraTransform(nn.Module):
         )
         self.transform_eval = transforms.Resize((224, 224), antialias=True)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.mode == "train":
-            return self.transform_train(x)
-        elif self.mode == "eval":
-            return self.transform_eval(x)
+        self.transform = (
+            self.transform_train if mode == "train" else self.transform_eval
+        )
 
-        raise ValueError(f"Invalid mode: {self.mode}")
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-3:] == (3, 240, 320)
+
+        return self.transform(x)
 
     def train(self, mode=True):
         super().train(mode)
-        self.mode = "train" if mode else "eval"
+        self.transform = self.transform_train if mode else self.transform_eval
 
     def eval(self):
         super().eval()
-        self.mode = "eval"
+        self.transform = self.transform_eval

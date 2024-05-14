@@ -6,7 +6,7 @@ data:
   obs_horizon: ${obs_horizon}
   action_horizon: ${action_horizon}
   predict_past_actions: ${predict_past_actions}
-  augment_image: false
+  augment_image: true
   environment: ${environment}
   furniture: ${furniture}
   demo_source: ${demo_source}
