@@ -312,7 +312,7 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                checkpoint_type = "best_success_rate"  # or "best_test_loss"
+                checkpoint_type = "best_test_loss"  #  best_test_loss, best_success_rate
                 model_file = [
                     f
                     for f in run.files()
@@ -349,6 +349,9 @@ if __name__ == "__main__":
                 )
                 if "predict_past_actions" not in config.actor:
                     config.actor.predict_past_actions = True
+
+                if "confusion_loss_beta" not in config.actor:
+                    config.actor.confusion_loss_beta = 0.0
 
                 # Check that we didn't set the wrong action type above
                 assert config.control.control_mode == args.action_type, (

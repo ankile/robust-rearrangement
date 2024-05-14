@@ -100,6 +100,8 @@ def rollout(
 
         obs, reward, done, _ = env.step(action_pred)
 
+        print(f"EE xyz: {obs['robot_state'][0, :3].cpu().numpy().round(3)}")
+
         video_obs = obs.copy()
 
         # Resize the images in the observation if they exist

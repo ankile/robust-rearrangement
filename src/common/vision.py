@@ -24,6 +24,7 @@ class FrontCameraTransform(nn.Module):
                 transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
                 transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
                 transforms.RandomCrop(crop_size),
+                transforms.RandomErasing(value="random"),
             ]
         )
         self.transform_eval = transforms.CenterCrop(crop_size)
