@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from furniture_bench.furniture.furniture import Furniture
+from src.dataset.normalizer import LinearNormalizer
 import torch
 import cv2
 import gym
@@ -43,6 +44,7 @@ from furniture_bench.envs.observation import (
 )
 from furniture_bench.robot.robot_state import ROBOT_STATE_DIMS
 from furniture_bench.furniture.parts.part import Part
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 from ipdb import set_trace as bp
 
@@ -1807,6 +1809,60 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         )
 
         assert success, "Failed to set part state"
+
+
+class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Load in the normalizer weights
+        self.normalizer = LinearNormalizer()
+        self.normalizer.load_state_dict(
+            torch.load(
+                "/data/scratch/ankile/diffusion-adapt/data/furniture/one_leg_low_dim_normalizer.pth"
+            )
+        )
+        self.normalizer.to(self.device)
+
+    def reset_arg(self, options_list=None):
+        obs = self.reset()
+
+        # Concat together the robot_state and parts_poses
+        robot_state = obs["robot_state"]
+
+        # Convert the robot state to have 6D pose
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
+        parts_poses = obs["parts_poses"]
+
+        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        nobs = self.normalizer(obs, "observations", forward=True)
+
+        return nobs.cpu().numpy()
+
+    def step(self, action):
+        action = torch.tensor(action, device=self.device)
+
+        # Denormalize the action
+        action = self.normalizer(action, "actions", forward=False)
+
+        obs, reward, done, info = super().step(action)
+        robot_state = obs["robot_state"]
+
+        # Convert the robot state to have 6D pose
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
+        parts_poses = obs["parts_poses"]
+
+        obs = torch.cat([robot_state, parts_poses], dim=-1)
+        nobs = self.normalizer(obs, "observations", forward=True)
+
+        return (
+            nobs.cpu().numpy(),
+            reward.squeeze().cpu().numpy(),
+            done.squeeze().cpu().numpy(),
+            info,
+        )
 
 
 class FurnitureRLSimEnvPlaceTabletop(FurnitureRLSimEnv):
