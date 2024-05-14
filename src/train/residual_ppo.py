@@ -205,7 +205,7 @@ def main(cfg: DictConfig):
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
         print(f"Run name: {run_name}")
 
-        if (iteration - 1) % cfg.eval_interval == 0:
+        if iteration % cfg.eval_interval == 0:
             eval_mode = True
             # Also reset the env to have more consistent results
             next_obs = env.reset()

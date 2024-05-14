@@ -1,7 +1,6 @@
 seed: null
 torch_deterministic: true
 headless: true
-normalize_reward: false
 reset_on_failure: false
 eval_interval: 5
 checkpoint_interval: 10
@@ -32,6 +31,7 @@ gamma: 0.998
 gae_lambda: 0.95
 update_epochs: 5
 norm_adv: true
+normalize_reward: true
 clip_coef: 0.2
 clip_vloss: true
 ent_coef: 0.0
