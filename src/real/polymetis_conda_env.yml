@@ -1,0 +1,80 @@
+name: furniture-rdt
+channels:
+  - pytorch
+  - fair-robotics
+  - aihabitat
+  - conda-forge
+  - defaults
+  - nvidia
+dependencies:
+    # Build dependencies
+    - assimp=5.0.1=hdca8b6f_4
+    - cmake
+    - cudatoolkit-dev=11.7
+    # - cpuonly
+    - doxygen
+    - eigen=3.3.9
+    - grpc-cpp=1.41.1
+    - hpp-fcl=1.6.0=py38h75fc22a_1
+    - libprotobuf=3.18.1
+    - mkl-include ==2022.0.1
+    - openmpi=2.1.2
+    - pinocchio ==2.5.2
+    - poco ==1.9.0 # needed by libfranka
+    - python ==3.8
+    - pytorch-cuda=11.7  # ours
+    - pytorch=1.13.1
+    - torchvision=0.14.1
+    - torchaudio=0.13.1
+    - urdfdom=2.3.3=hc9558a2_0
+    - urdfdom_headers=1.0.5=hc9558a2_2
+    - yaml-cpp ==0.6.3
+    - polymetis  # ours
+
+    # Run dependencies
+    - asv
+    - black
+    - boost ==1.72.0
+    - boost-cpp ==1.72.0
+    - breathe
+    - dash
+    - grpcio ==1.46.0
+    - habitat-sim=0.2.1=py3.8_bullet_linux_fc7fb11ccec407753a73ab810d1dbb5f57d0f9b9
+    - mujoco
+    - hydra-core ==1.0.6
+    - importlib-resources ==5.7.1
+    - myst-parser
+    - numpy ==1.23.5
+    - pandas
+    - plotly
+    - pip
+    - protobuf
+    - pybullet ==3.17
+    - pymodbus ==2.5.3
+    - pyserial
+    - pytest
+    - pytest-benchmark=4.0.0
+    # - opencv>=4.6, <5.0
+    - scipy
+    - spdlog=1.10.0=h924138e_0
+    - sphinx
+    - sphinx-copybutton
+    - sphinx-book-theme
+    - tqdm
+    - withbullet
+    # - opencv
+    - pip:
+        - meshcat
+        - pyrealsense2
+        - yacs
+        # # other useful ones for 3D and 2D image processing
+        # - trimesh
+        # - open3d
+        # - segment-anything
+        # - detectron2
+        # # others for spacemouse
+        # - git+https://github.com/cheng-chi/spnav
+        # - termcolor
+        # - atomics
+        # # others for teleop interfacing
+        # - pynput

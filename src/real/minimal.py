@@ -308,6 +308,7 @@ class SimpleDiffIKFrankaEnv:
         state_only: bool = False,
         proprioceptive_state_dim: int = 10,
         control_mode: str = "pos",
+        action_horizon: int = 10,
     ):
 
         self.device = device
@@ -333,6 +334,9 @@ class SimpleDiffIKFrankaEnv:
         self.state_only = state_only
         self.proprioceptive_state_dim = proprioceptive_state_dim
         self.control_mode = control_mode
+
+        self.action_horizon = action_horizon
+        self.act_step = 0
 
     def set_timing(
         self, iter_idx: int = 0, dt: float = 0.1, command_latency: float = 0.01
@@ -442,11 +446,16 @@ class SimpleDiffIKFrankaEnv:
         if rgbd_list is None:
             raise ValueError("Could not get list of RGB-D images!")
         # Quaternions follow the convention of <x, y, z, w>
-        pos, quat_xyzw = self.robot.get_ee_pose()
+        # pos, quat_xyzw = self.robot.get_ee_pose()
+
+        # convert to tip
+        current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
+        current_ee_tip_pose_mat = convert_wrist2tip(current_ee_wrist_pose_mat)
+        pos, quat_xyzw = poly_util.mat2polypose(current_ee_tip_pose_mat)
 
         # rot_6d = quat_xyzw_to_rot_6d(quat_xyzw)
         # robot_state = torch.cat([pos, rot_6d], dim=-1)
-        robot_state = torch.cat([pos, quat_xyzw], dim=-1)
+        robot_state = torch.cat([pos, quat_xyzw], dim=-1).float()
 
         # If current policy also expects EE velocities
         if self.proprioceptive_state_dim == 16:
@@ -516,24 +525,38 @@ class SimpleDiffIKFrankaEnv:
             self.last_grasp = grasp
 
         if self.execute:
+            # self.robot.update_desired_ee_pose(
+            #     new_target_pose_mat, dt=self.dt
+            # )  # , scalar=0.5)
             self.robot.update_desired_ee_pose(
-                new_target_pose_mat, dt=self.dt
-            )  # , scalar=0.5)
+                convert_tip2wrist(new_target_pose_mat), dt=self.dt
+            )
 
         # Draw the current target pose (in meshcat)
         mc_util.meshcat_frame_show(
-            self.mc_vis, f"scene/target_pose", new_target_pose_mat.cpu().numpy()
+            self.mc_vis,
+            f"scene/target_pose_wrist",
+            convert_tip2wrist(new_target_pose_mat.cpu().numpy()),
+        )
+        mc_util.meshcat_frame_show(
+            self.mc_vis, f"scene/target_pose_tip", new_target_pose_mat.cpu().numpy()
         )
         mc_util.meshcat_frame_show(
             self.mc_vis,
-            f"scene/current_pose",
-            poly_util.polypose2mat(self.robot.get_ee_pose()),
+            f"scene/current_pose_tip",
+            convert_wrist2tip(poly_util.polypose2mat(self.robot.get_ee_pose())),
         )
 
         # calculate timing
         # precise_wait(t_cycle_end)
         self.iter_idx += 1
-        time.sleep(0.01)
+
+        self.act_step += 1
+        if self.act_step < self.action_horizon:
+            # time.sleep(0.01)
+            time.sleep(0.025)
+        else:
+            self.act_step = 0
 
         # get new obs
         new_obs = self.get_obs()
@@ -553,7 +576,18 @@ def main():
 
     # manual home, open gripper first
     gripper.goto(0.08, 0.05, 0.1, blocking=False)
-    robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    # robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    robot_home = torch.Tensor(
+        [
+            -0.02630888,
+            0.3758795,
+            0.12485036,
+            -2.1383357,
+            -0.09431414,
+            2.49649072,
+            0.01921718,
+        ]
+    )
     robot.move_to_joint_positions(robot_home)
 
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
@@ -592,14 +626,16 @@ def main():
     print(f"Model path: {model_path}")
 
     # Create the config object with the project name and make it read-only
+    inference_steps = 8
+    action_horizon = 12
     config: DictConfig = OmegaConf.create(
         {
             **run.config,
             "project_name": run.project,
             "actor": {
                 **run.config["actor"],
-                "inference_steps": 16,
-                "action_horizon": 12,
+                "inference_steps": inference_steps,
+                "action_horizon": action_horizon,
             },
         },
         # flags={"readonly": True},

@@ -354,9 +354,22 @@ def main():
     franka_ip = "173.16.0.1"
     # robot = RobotInterface(ip_address=franka_ip)
     robot = DiffIKWrapper(ip_address=franka_ip)
+    gripper = GripperInterface(ip_address=franka_ip)
 
     # manual home
-    robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    gripper.goto(0.08, 0.05, 0.1, blocking=False)
+    # robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
+    robot_home = torch.Tensor(
+        [
+            -0.02630888,
+            0.3758795,
+            0.12485036,
+            -2.1383357,
+            -0.09431414,
+            2.49649072,
+            0.01921718,
+        ]
+    )
     robot.move_to_joint_positions(robot_home)
 
     # sm_dpos_scalar = np.array([1.5] * 3)
@@ -368,9 +381,6 @@ def main():
     Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
 
     robot.start_joint_impedance(Kq=Kq_new, Kqd=Kqd_new, adaptive=True)
-
-    gripper = GripperInterface(ip_address=franka_ip)
-    gripper.goto(0.08, 0.05, 0.1, blocking=False)
 
     # setup visuals
     zmq_url = f"tcp://127.0.0.1:{args.port_vis}"
