@@ -44,6 +44,7 @@ from furniture_bench.envs.observation import (
 )
 from furniture_bench.robot.robot_state import ROBOT_STATE_DIMS
 from furniture_bench.furniture.parts.part import Part
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 from ipdb import set_trace as bp
 
@@ -1808,9 +1809,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         )
 
         assert success, "Failed to set part state"
-
-
-from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
