@@ -134,12 +134,10 @@ def main(cfg: DictConfig):
     env.set_normalizer(bc_actor.normalizer)
 
     # Residual policy setup
-    residual_cls: ResidualPolicy = hydra.utils.get_class(cfg.residual_policy._target_)
-    residual_policy: ResidualPolicy = residual_cls(
+    residual_policy: ResidualPolicy = hydra.utils.instantiate(
+        cfg.residual_policy,
         obs_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
-        init_logstd=cfg.residual_policy.init_logstd,
-        action_head_std=cfg.residual_policy.action_head_std,
     )
 
     residual_policy.to(device)
@@ -277,7 +275,7 @@ def main(cfg: DictConfig):
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = model_save_dir / f"{run_name}.pt"
+                model_path = str(model_save_dir / f"eval_best.pt")
                 torch.save(
                     {
                         "model_state_dict": residual_policy.state_dict(),
@@ -286,7 +284,7 @@ def main(cfg: DictConfig):
                         "success_rate": success_rate,
                         "iteration": iteration,
                     },
-                    str(model_path),
+                    model_path,
                 )
 
                 wandb.save(model_path)
@@ -452,6 +450,23 @@ def main(cfg: DictConfig):
             },
             step=global_step,
         )
+
+        # Checkpoint every cfg.checkpoint_interval steps
+        if iteration % cfg.checkpoint_interval == 0:
+            model_path = str(model_save_dir / f"iter_{iteration}.pt")
+            torch.save(
+                {
+                    "model_state_dict": residual_policy.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "config": OmegaConf.to_container(cfg, resolve=True),
+                    "success_rate": success_rate,
+                    "iteration": iteration,
+                },
+                model_path,
+            )
+
+            wandb.save(model_path)
+            print(f"Model saved to {model_path}")
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 

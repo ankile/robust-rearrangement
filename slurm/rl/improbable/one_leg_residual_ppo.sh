@@ -11,11 +11,11 @@
 #SBATCH --gres=gpu:1
 
 python -m src.train.residual_ppo \
-    learning_rate=1e-4 \
+    learning_rate=3e-4 \
     residual_regularization=0.1 \
-    n_iterations_train_only_value=2 \
+    n_iterations_train_only_value=3 \
     residual_policy.init_logstd=-3.5 \
     residual_policy.action_head_std=0.1 \
-    gamma=0.997 \
-    num_envs=512 \
+    gamma=0.998 \
+    num_envs=1024 \
     debug=false

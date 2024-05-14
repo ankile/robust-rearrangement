@@ -13,7 +13,9 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/diffusion furniture=one_leg dryrun=false \
-    rollout=rollout rollout.every=5 rollout.max_steps=1000 rollout.num_envs=256 \
-    pred_horizon=16 action_horizon=8 control.controller=diffik \
-    demo_source='[teleop,rollout]'
+python -m src.train.bc +experiment=state/diffusion furniture=one_leg \
+    rollout=rollout rollout.every=20 rollout.max_steps=1000 rollout.num_envs=256 \
+    pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
+    demo_source='[teleop,rollout]' randomness='[low,med]' \
+    training.batch_size=4096 training.actor_lr=5e-4 training.num_epochs=2000 \
+    dryrun=false

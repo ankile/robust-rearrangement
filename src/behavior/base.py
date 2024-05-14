@@ -2,6 +2,7 @@ from typing import Tuple, Union
 from collections import deque
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
+from src.models.utils import PrintParamCountMixin
 from src.models.vib import VIB
 from src.models.vision import VisionEncoder
 import torch
@@ -29,7 +30,7 @@ class PostInitCaller(type(torch.nn.Module)):
         return obj
 
 
-class Actor(torch.nn.Module, metaclass=PostInitCaller):
+class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
 
@@ -152,14 +153,6 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         # Load the rest of the state dict
         super().load_state_dict(state_dict)
-
-    def print_model_params(self: torch.nn.Module):
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"Total parameters: {total_params / 1_000_000:.2f}M")
-
-        for name, submodule in self.named_children():
-            params = sum(p.numel() for p in submodule.parameters())
-            print(f"{name}: {params / 1_000_000:.2f}M parameters")
 
     def _initiate_image_encoder(self, config):
         # === Encoder ===
