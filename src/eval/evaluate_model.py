@@ -312,7 +312,9 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                checkpoint_type = "best_test_loss"  #  best_test_loss, best_success_rate
+                checkpoint_type = (
+                    "best_test_loss"  # or best_test_loss / best_success_rate
+                )
                 model_file = [
                     f
                     for f in run.files()
