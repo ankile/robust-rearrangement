@@ -12,6 +12,9 @@ from src.models import get_diffusion_backbone
 from ipdb import set_trace as bp  # noqa
 from typing import Union
 
+# our real/debug imports
+import pytorch3d.transforms as pt
+
 import wandb
 
 
