@@ -10,6 +10,8 @@ import furniture_bench.controllers.control_utils as C
 import torch
 import pytorch3d.transforms as pt
 
+from ipdb import set_trace as bp
+
 
 def diffik_factory(real_robot=True, *args, **kwargs):
     if real_robot:
@@ -76,7 +78,8 @@ def diffik_factory(real_robot=True, *args, **kwargs):
             # Convert the matrix error to axis-angle representation
             ee_delta_axis_angle = pt.matrix_to_axis_angle(mat_error)
 
-            dt = 1.0
+            dt = 0.1
+
             ee_pos_vel = position_error * self.pos_scalar / dt
             ee_rot_vel = ee_delta_axis_angle * self.rot_scalar / dt
 
