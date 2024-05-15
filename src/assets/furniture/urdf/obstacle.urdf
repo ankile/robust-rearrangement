@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<robot name="obstacle">
+  <link name="base_link"/>
+
+  <link name="obstacle_front">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_front.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_front.obj"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_front" type="fixed">
+    <parent link="base_link"/>
+    <child link="obstacle_front"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="obstacle_right">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_side.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_side.obj"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="front_to_right" type="fixed">
+    <parent link="obstacle_front"/>
+    <child link="obstacle_right"/>
+    <origin xyz="0.175 0.075 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="obstacle_left">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_side.obj"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="../mesh/obstacle_side.obj"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="front_to_left" type="fixed">
+    <parent link="obstacle_front"/>
+    <child link="obstacle_left"/>
+    <origin xyz="-0.175 0.075 0" rpy="0 0 0"/>
+  </joint>
+</robot>
