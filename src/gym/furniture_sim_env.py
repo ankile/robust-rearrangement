@@ -1705,7 +1705,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.max_torque_magnitude = kwargs.get("max_torque_magnitude", 0.005)
 
         # Randomize plus/minus 2 cm
-        self.obstacle_range = 0.0
+        self.obstacle_range = 0.02
 
         print(
             f"Max force magnitude: {self.max_force_magnitude}, Max torque magnitude: {self.max_torque_magnitude}"
@@ -1782,13 +1782,13 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Find the position we want to place the obstacle at here
         # We randomize the obstacle here because we want it fixed and don't apply forces to it later
         # Sample x and y values in [-2, 2] that we want to add to the initial position
-        # obstacle_pos_offsets = (
-        #     torch.rand((env_idxs.numel(), 1, 3), device=self.device) * 2 - 1
-        # ) * self.obstacle_range
-        # obstacle_pos_offsets[..., 2] = 0.1  # Don't move the obstacle in the z direction
-        # self.root_pos[env_idxs.unsqueeze(1), self.obstacle_handle] = (
-        #     self.obstacle_initial_pos.clone() + obstacle_pos_offsets
-        # )
+        obstacle_pos_offsets = (
+            torch.rand((env_idxs.numel(), 1, 3), device=self.device) * 2 - 1
+        ) * self.obstacle_range
+        obstacle_pos_offsets[..., 2] = 0.0  # Don't move the obstacle in the z direction
+        self.root_pos[env_idxs.unsqueeze(1), self.obstacle_handle] = (
+            self.obstacle_initial_pos.clone() + obstacle_pos_offsets
+        )
 
         # # Get the actor and rigid body indices for the parts in question
         part_actor_idxs = self.part_actor_idx_all[env_idxs].view(-1)
