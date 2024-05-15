@@ -267,14 +267,7 @@ class FurnitureSimEnv(gym.Env):
         franka_link_dict = self.isaac_gym.get_asset_rigid_body_dict(self.franka_asset)
         self.franka_ee_index = franka_link_dict["k_ee_link"]
         self.franka_base_index = franka_link_dict["panda_link0"]
-        # Parts assets.
-        # Create assets.
-        self.part_assets = {}
-        for part in self.furniture.parts:
-            asset_option = sim_config["asset"][part.name]
-            self.part_assets[part.name] = self.isaac_gym.load_asset(
-                self.sim, ASSET_ROOT, part.asset_file, asset_option
-            )
+
         # Create envs.
         num_per_row = int(np.sqrt(self.num_envs))
         spacing = 1.0
@@ -299,7 +292,7 @@ class FurnitureSimEnv(gym.Env):
             table_pose.p = gymapi.Vec3(0.0, 0.0, table_pos.z)
 
             table_handle = self.isaac_gym.create_actor(
-                env, self.table_asset, table_pose, "table", i, 0
+                env, self.table_asset, table_pose, "table", i, 0b01
             )
             table_props = self.isaac_gym.get_actor_rigid_shape_properties(
                 env, table_handle
@@ -329,8 +322,8 @@ class FurnitureSimEnv(gym.Env):
             obstacle_pose.p = gymapi.Vec3(
                 self.base_tag_pose.p.x + 0.37 + 0.01,
                 0.0,
-                # table_surface_z + 0.015,
-                table_surface_z + 0.03,
+                table_surface_z + 0.015,
+                # table_surface_z + 0.025,
             )
             obstacle_pose.r = gymapi.Quat.from_axis_angle(
                 gymapi.Vec3(0, 0, 1), 0.5 * np.pi
@@ -339,7 +332,7 @@ class FurnitureSimEnv(gym.Env):
             self.obstacle_reset_pose = obstacle_pose
 
             self.obstacle_handle = self.isaac_gym.create_actor(
-                env, self.obstacle_asset, obstacle_pose, f"obstacle", i, 0
+                env, self.obstacle_asset, obstacle_pose, f"obstacle", i, 0b01
             )
 
             part_idx = self.isaac_gym.get_actor_rigid_body_index(
@@ -637,6 +630,7 @@ class FurnitureSimEnv(gym.Env):
         self.base_tag_asset = self._import_base_tag_asset()
         self.background_asset = self._import_background_asset()
         self.table_asset = self._import_table_asset()
+        self.part_assets = self._import_part_assets()
         # self.obstacle_front_asset = self._import_obstacle_front_asset()
         # self.obstacle_side_asset = self._import_obstacle_side_asset()
         self.obstacle_asset = self._import_obstacle_asset()
@@ -1432,6 +1426,16 @@ class FurnitureSimEnv(gym.Env):
         return self.isaac_gym.load_asset(
             self.sim, ASSET_ROOT, base_asset_file, asset_options
         )
+
+    def _import_part_assets(self):
+        part_assets = {}
+        for part in self.furniture.parts:
+            asset_option = sim_config["asset"][part.name]
+            part_assets[part.name] = self.isaac_gym.load_asset(
+                self.sim, ASSET_ROOT, part.asset_file, asset_option
+            )
+
+        return part_assets
 
     def _import_obstacle_asset(self):
         asset_options = gymapi.AssetOptions()

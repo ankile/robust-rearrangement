@@ -14,7 +14,7 @@
       <geometry>
         <mesh filename="../mesh/obstacle_front.obj"/>
       </geometry>
-      <sdf resolution="512"/>
+      <!-- <sdf resolution="512"/> -->
     </collision>
   </link>
 
@@ -36,7 +36,7 @@
       <geometry>
         <mesh filename="../mesh/obstacle_side.obj"/>
       </geometry>
-      <sdf resolution="512"/>
+      <!-- <sdf resolution="512"/> -->
     </collision>
   </link>
 
@@ -58,7 +58,7 @@
       <geometry>
         <mesh filename="../mesh/obstacle_side.obj"/>
       </geometry>
-      <sdf resolution="512"/>
+      <!-- <sdf resolution="512"/> -->
     </collision>
   </link>
 
