@@ -7,27 +7,27 @@ checkpoint_interval: 10
 
 
 total_timesteps: 100_000_000
-num_envs: 1024
+num_envs: 2048
 num_minibatches: 4
-num_env_steps: 800
+num_env_steps: 850
 data_collection_steps: ${num_env_steps}
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: -3.0
+  init_logstd: -4.0
   action_head_std: 0.01
   action_scale: 0.1
   actor_hidden_size: 512
   actor_num_layers: 2
   critic_hidden_size: 512
   critic_num_layers: 2
-  actor_activation: SiLU
+  actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
 
 # Algorithm specific arguments
 learning_rate: 1e-4
 anneal_lr: true
-gamma: 0.998
+gamma: 0.999
 gae_lambda: 0.95
 update_epochs: 5
 norm_adv: true
@@ -38,7 +38,7 @@ ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: 0.03
-residual_regularization: 0.0
+residual_regularization: 0.01
 n_iterations_train_only_value: 5
 
 # Calculate the batch size as the data collection steps times the number of environments
