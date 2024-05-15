@@ -49,6 +49,7 @@ def calculate_advantage(
     next_value: torch.Tensor,
     rewards: torch.Tensor,
     dones: torch.Tensor,
+    next_done: torch.Tensor,
     steps_per_iteration: int,
     gamma: float,
     gae_lambda: float,
@@ -57,7 +58,7 @@ def calculate_advantage(
     lastgaelam = 0
     for t in reversed(range(steps_per_iteration)):
         if t == steps_per_iteration - 1:
-            nextnonterminal = 1.0 - dones[-1].to(torch.float)
+            nextnonterminal = 1.0 - next_done
             nextvalues = next_value
         else:
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
@@ -306,6 +307,7 @@ def main(cfg: DictConfig):
             next_value,
             rewards,
             dones,
+            next_done,
             steps_per_iteration,
             cfg.gamma,
             cfg.gae_lambda,
