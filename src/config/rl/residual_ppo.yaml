@@ -26,7 +26,8 @@ residual_policy:
 
 # Algorithm specific arguments
 learning_rate: 1e-4
-anneal_lr: true
+anneal_lr: false
+adaptive_lr: true
 gamma: 0.999
 gae_lambda: 0.95
 update_epochs: 5
@@ -38,7 +39,7 @@ ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: 0.03
-residual_regularization: 0.01
+residual_regularization: 0.05
 n_iterations_train_only_value: 5
 
 # Calculate the batch size as the data collection steps times the number of environments

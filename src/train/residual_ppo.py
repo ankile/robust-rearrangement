@@ -78,6 +78,8 @@ def main(cfg: DictConfig):
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
 
+    assert not (cfg.anneal_lr and cfg.adaptive_lr)
+
     run_name = f"{int(time.time())}__residual_ppo__{cfg.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
     run_directory = f"runs/debug-residual_ppo-residual-8"
@@ -212,12 +214,6 @@ def main(cfg: DictConfig):
         else:
             eval_mode = False
         print(f"Eval mode: {eval_mode}")
-
-        # Annealing the learning rate if instructed to do so.
-        if cfg.anneal_lr:
-            frac = 1.0 - (global_step - 1) / cfg.total_timesteps
-            lrnow = frac * cfg.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, steps_per_iteration):
             if not eval_mode:
@@ -450,6 +446,20 @@ def main(cfg: DictConfig):
             },
             step=global_step,
         )
+
+        # Anneal or adapt the learning rate if instructed to do so.
+        if cfg.anneal_lr:
+            frac = 1.0 - (global_step - 1) / cfg.total_timesteps
+            lrnow = frac * cfg.learning_rate
+            optimizer.param_groups[0]["lr"] = lrnow
+
+        if cfg.adaptive_lr:
+            if approx_kl > 1.5 * cfg.target_kl:
+                cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
+                optimizer.param_groups[0]["lr"] = cfg.learning_rate
+            elif approx_kl < 0.5 * cfg.target_kl:
+                cfg.learning_rate = min(cfg.learning_rate * 1.5, 1e-2)
+                optimizer.param_groups[0]["lr"] = cfg.learning_rate
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
