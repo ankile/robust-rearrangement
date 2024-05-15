@@ -289,7 +289,7 @@ class FurnitureSimEnv(gym.Env):
 
         self.base_idxs = []
         self.part_idxs = {}
-        self.obstacle_handles = []
+        self.obstacle_actor_idxs = []
         self.franka_handles = []
         for i in range(self.num_envs):
             env = self.isaac_gym.create_env(self.sim, env_lower, env_upper, num_per_row)
@@ -327,8 +327,7 @@ class FurnitureSimEnv(gym.Env):
             # TODO: Make config
             obstacle_pose = gymapi.Transform()
             obstacle_pose.p = gymapi.Vec3(
-                # self.base_tag_pose.p.x + 0.37 + 0.01, 0.0, table_surface_z + 0.015
-                self.base_tag_pose.p.x + 0.37 + 0.05,
+                self.base_tag_pose.p.x + 0.37 + 0.01,
                 0.0,
                 table_surface_z + 0.015,
             )
@@ -336,19 +335,25 @@ class FurnitureSimEnv(gym.Env):
                 gymapi.Vec3(0, 0, 1), 0.5 * np.pi
             )
 
-            obstacle_handle = self.isaac_gym.create_actor(
+            self.obstacle_reset_pose = obstacle_pose
+
+            self.obstacle_handle = self.isaac_gym.create_actor(
                 env, self.obstacle_asset, obstacle_pose, f"obstacle", i, 0
             )
 
-            self.obstacle_handles.append(obstacle_handle)
-
             part_idx = self.isaac_gym.get_actor_rigid_body_index(
-                env, obstacle_handle, 0, gymapi.DOMAIN_SIM
+                env, self.obstacle_handle, 0, gymapi.DOMAIN_SIM
             )
             if self.part_idxs.get("obstacle") is None:
                 self.part_idxs["obstacle"] = [part_idx]
             else:
                 self.part_idxs[f"obstacle"].append(part_idx)
+
+            # Get the obstacle actor index
+            obstacle_actor_idx = self.isaac_gym.find_actor_index(
+                env, "obstacle", gymapi.DOMAIN_SIM
+            )
+            self.obstacle_actor_idxs.append(obstacle_actor_idx)
 
             # Add robot.
             franka_handle = self.isaac_gym.create_actor(
@@ -447,11 +452,12 @@ class FurnitureSimEnv(gym.Env):
                 else:
                     self.part_idxs[part.name].append(part_idx)
 
-            self.parts_handles = {}
-            for part in self.furniture.parts:
-                self.parts_handles[part.name] = self.isaac_gym.find_actor_index(
-                    env, part.name, gymapi.DOMAIN_ENV
-                )
+        # This only needs to happen once
+        self.parts_handles = {}
+        for part in self.furniture.parts:
+            self.parts_handles[part.name] = self.isaac_gym.find_actor_index(
+                self.envs[0], part.name, gymapi.DOMAIN_ENV
+            )
 
         # print(f'Getting the separate actor indices for the frankas and the furniture parts (not the handles)')
         self.franka_actor_idx_all = []
@@ -473,13 +479,16 @@ class FurnitureSimEnv(gym.Env):
                 self.part_actor_idx_all.append(part_actor_idx)
                 self.part_actor_idx_by_env[env_idx].append(part_actor_idx)
 
+        self.obstacle_actor_idxs_by_env = torch.tensor(
+            self.obstacle_actor_idxs, device=self.device, dtype=torch.int32
+        ).unsqueeze(1)
+
         self.franka_actor_idxs_all_t = torch.tensor(
             self.franka_actor_idx_all, device=self.device, dtype=torch.int32
         )
         self.part_actor_idxs_all_t = torch.tensor(
             self.part_actor_idx_all, device=self.device, dtype=torch.int32
         )
-        bp()
 
     def _get_reset_pose(self, part: Part):
         """Get the reset pose of the part.
@@ -1431,22 +1440,6 @@ class FurnitureSimEnv(gym.Env):
             self.sim, ASSET_ROOT, obstacle_asset_file, asset_options
         )
 
-    # def _import_obstacle_front_asset(self):
-    #     asset_options = gymapi.AssetOptions()
-    #     asset_options.fix_base_link = True
-    #     obstacle_asset_file = "furniture/urdf/obstacle_front.urdf"
-    #     return self.isaac_gym.load_asset(
-    #         self.sim, ASSET_ROOT, obstacle_asset_file, asset_options
-    #     )
-
-    # def _import_obstacle_side_asset(self):
-    #     asset_options = gymapi.AssetOptions()
-    #     asset_options.fix_base_link = True
-    #     obstacle_asset_file = "furniture/urdf/obstacle_side.urdf"
-    #     return self.isaac_gym.load_asset(
-    #         self.sim, ASSET_ROOT, obstacle_asset_file, asset_options
-    #     )
-
     def _import_background_asset(self):
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
@@ -1623,21 +1616,30 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        ## Need these indices to reset position of the actors/parts
         # Store the default initialization pose for the parts in a convenient tensor
         self.parts_idx_list = torch.tensor(
             [self.parts_handles[part.name] for part in self.furniture.parts],
             device=self.device,
             dtype=torch.int32,
         )
-        bp()
         self.part_actor_idx_all = torch.tensor(
             [self.part_actor_idx_by_env[i] for i in range(self.num_envs)],
             device=self.device,
             dtype=torch.int32,
         )
 
-        self.initial_pos = torch.zeros((len(self.parts_handles), 3), device=self.device)
-        self.initial_ori = torch.zeros((len(self.parts_handles), 4), device=self.device)
+        # Concat on the obstacle actor indices
+        self.part_actor_idx_all = torch.cat(
+            [self.part_actor_idx_all, self.obstacle_actor_idxs_by_env], dim=1
+        )
+
+        self.parts_initial_pos = torch.zeros(
+            (len(self.parts_handles), 3), device=self.device
+        )
+        self.parts_initial_ori = torch.zeros(
+            (len(self.parts_handles), 4), device=self.device
+        )
 
         for i, part in enumerate(self.furniture.parts):
             pos, ori = self._get_reset_pose(part)
@@ -1651,17 +1653,30 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             idxs = self.parts_handles[part.name]
             idxs = torch.tensor(idxs, device=self.device, dtype=torch.int32)
 
-            self.initial_pos[i] = torch.tensor(
+            self.parts_initial_pos[i] = torch.tensor(
                 [part_pose.p.x, part_pose.p.y, part_pose.p.z], device=self.device
             )
-            self.initial_ori[i] = torch.tensor(
+            self.parts_initial_ori[i] = torch.tensor(
                 [part_pose.r.x, part_pose.r.y, part_pose.r.z, part_pose.r.w],
                 device=self.device,
             )
 
-        self.initial_pos = self.initial_pos.unsqueeze(0)
-        self.initial_ori = self.initial_ori.unsqueeze(0)
+        self.parts_initial_pos = self.parts_initial_pos.unsqueeze(0)
+        self.parts_initial_ori = self.parts_initial_ori.unsqueeze(0)
 
+        # Get the same for the obstacle actor
+        self.obstacle_initial_pos = torch.tensor(
+            [
+                [
+                    self.obstacle_reset_pose.p.x,
+                    self.obstacle_reset_pose.p.y,
+                    self.obstacle_reset_pose.p.z,
+                ]
+            ],
+            device=self.device,
+        ).unsqueeze(0)
+
+        ## Need these indices to apply forces to the rigid bodies/parts
         self.rigid_body_count = self.isaac_gym.get_sim_rigid_body_count(self.sim)
         self.rigid_body_index_by_env = torch.zeros(
             (self.num_envs, len(self.furniture.parts)),
@@ -1683,6 +1698,16 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         self.max_force_magnitude = kwargs.get("max_force_magnitude", 0.2)
         self.max_torque_magnitude = kwargs.get("max_torque_magnitude", 0.005)
+
+        # Randomize plus/minus 2 cm
+        obstacle_range = 2
+
+        self.obstacle_range_a = torch.tensor(
+            [2 * obstacle_range, 2 * obstacle_range, 0], device=self.device
+        )
+        self.obstacle_range_b = torch.tensor(
+            [obstacle_range, obstacle_range, 0], device=self.device
+        )
 
         print(
             f"Max force magnitude: {self.max_force_magnitude}, Max torque magnitude: {self.max_torque_magnitude}"
@@ -1747,21 +1772,43 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
     def _reset_parts_multiple(self, env_idxs):
         """Resets furniture parts to the initial pose."""
-
+        ## Reset
         # Reset the parts to the initial pose
         self.root_pos[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.initial_pos.clone()
+            self.parts_initial_pos.clone()
         )
         self.root_quat[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.initial_ori.clone()
+            self.parts_initial_ori.clone()
+        )
+
+        # Find the position we want to place the obstacle at here
+        # We randomize the obstacle here because we want it fixed and don't apply forces to it later
+        # Sample x and y values in [-2, 2] that we want to add to the initial position
+        obstacle_pos_offsets = (
+            torch.rand((env_idxs.numel(), 1, 3), device=self.device)
+            * self.obstacle_range_a
+            + self.obstacle_range_b
+        )
+        self.root_pos[env_idxs.unsqueeze(1), self.obstacle_handle] = (
+            self.obstacle_initial_pos.clone() + obstacle_pos_offsets
         )
 
         # Get the actor and rigid body indices for the parts in question
-        part_rigid_body_idxs = self.rigid_body_index_by_env[env_idxs]
         part_actor_idxs = self.part_actor_idx_all[env_idxs].view(-1)
+
+        # Update the sim state tensors
+        success = self.isaac_gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.root_tensor),
+            gymtorch.unwrap_tensor(part_actor_idxs),
+            len(part_actor_idxs),
+        )
+
+        assert success, "Failed to set part state"
 
         ## Random forces
         # Generate random forces in the xy plane for all parts across all environments
+        part_rigid_body_idxs = self.rigid_body_index_by_env[env_idxs]
         force_theta = (
             torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device)
             * 2
@@ -1814,16 +1861,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         )
 
         assert success, "Failed to apply forces to parts"
-
-        # Update the sim state tensors
-        success = self.isaac_gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.root_tensor),
-            gymtorch.unwrap_tensor(part_actor_idxs),
-            len(part_actor_idxs),
-        )
-
-        assert success, "Failed to set part state"
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):

@@ -92,12 +92,13 @@ class DataCollectorSpaceMouse:
         if not draw_marker:
             turn_off_april_tags()
 
+        print("[NB] Creating 4 envs for debugging purposes")
         self.env = FurnitureRLSimEnv(
             furniture=furniture,
             obs_keys=FULL_OBS,
             headless=False,
             max_env_steps=3_000,  # Arbitrary number
-            num_envs=1,
+            num_envs=4,
             act_rot_repr="quat",
             action_type="delta",
             manual_done=True,
