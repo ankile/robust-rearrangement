@@ -98,7 +98,7 @@ class DataCollectorSpaceMouse:
             obs_keys=FULL_OBS,
             headless=False,
             max_env_steps=3_000,  # Arbitrary number
-            num_envs=4,
+            num_envs=1,
             act_rot_repr="quat",
             action_type="delta",
             manual_done=True,
@@ -513,9 +513,7 @@ class DataCollectorSpaceMouse:
         rotvec = st.Rotation.from_quat(quat_xyzw).as_rotvec()
         target_pose_rv = np.array([*translation, *rotvec])
         gripper_open = gripper_width >= 0.05
-        grasp_flag = torch.from_numpy(np.array([-1 if gripper_open else 1])).to(
-            self.env.device
-        )
+        grasp_flag = torch.where(gripper_open, -1, 1).view(-1).to(self.env.device)
 
         return target_pose_rv, gripper_width, gripper_open, grasp_flag
 

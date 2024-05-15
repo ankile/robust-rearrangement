@@ -329,7 +329,8 @@ class FurnitureSimEnv(gym.Env):
             obstacle_pose.p = gymapi.Vec3(
                 self.base_tag_pose.p.x + 0.37 + 0.01,
                 0.0,
-                table_surface_z + 0.015,
+                # table_surface_z + 0.015,
+                table_surface_z + 0.03,
             )
             obstacle_pose.r = gymapi.Quat.from_axis_angle(
                 gymapi.Vec3(0, 0, 1), 0.5 * np.pi
@@ -1631,7 +1632,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         # Concat on the obstacle actor indices
         self.part_actor_idx_all = torch.cat(
-            [self.part_actor_idx_all, self.obstacle_actor_idxs_by_env], dim=1
+            [self.obstacle_actor_idxs_by_env, self.part_actor_idx_all], dim=1
         )
 
         self.parts_initial_pos = torch.zeros(
@@ -1700,14 +1701,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.max_torque_magnitude = kwargs.get("max_torque_magnitude", 0.005)
 
         # Randomize plus/minus 2 cm
-        obstacle_range = 2
-
-        self.obstacle_range_a = torch.tensor(
-            [2 * obstacle_range, 2 * obstacle_range, 0], device=self.device
-        )
-        self.obstacle_range_b = torch.tensor(
-            [obstacle_range, obstacle_range, 0], device=self.device
-        )
+        self.obstacle_range = 0.0
 
         print(
             f"Max force magnitude: {self.max_force_magnitude}, Max torque magnitude: {self.max_torque_magnitude}"
@@ -1784,16 +1778,15 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Find the position we want to place the obstacle at here
         # We randomize the obstacle here because we want it fixed and don't apply forces to it later
         # Sample x and y values in [-2, 2] that we want to add to the initial position
-        obstacle_pos_offsets = (
-            torch.rand((env_idxs.numel(), 1, 3), device=self.device)
-            * self.obstacle_range_a
-            + self.obstacle_range_b
-        )
-        self.root_pos[env_idxs.unsqueeze(1), self.obstacle_handle] = (
-            self.obstacle_initial_pos.clone() + obstacle_pos_offsets
-        )
+        # obstacle_pos_offsets = (
+        #     torch.rand((env_idxs.numel(), 1, 3), device=self.device) * 2 - 1
+        # ) * self.obstacle_range
+        # obstacle_pos_offsets[..., 2] = 0.1  # Don't move the obstacle in the z direction
+        # self.root_pos[env_idxs.unsqueeze(1), self.obstacle_handle] = (
+        #     self.obstacle_initial_pos.clone() + obstacle_pos_offsets
+        # )
 
-        # Get the actor and rigid body indices for the parts in question
+        # # Get the actor and rigid body indices for the parts in question
         part_actor_idxs = self.part_actor_idx_all[env_idxs].view(-1)
 
         # Update the sim state tensors
@@ -1806,59 +1799,59 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         assert success, "Failed to set part state"
 
-        ## Random forces
-        # Generate random forces in the xy plane for all parts across all environments
-        part_rigid_body_idxs = self.rigid_body_index_by_env[env_idxs]
-        force_theta = (
-            torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device)
-            * 2
-            * np.pi
-        )
-        force_magnitude = (
-            torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device)
-            * self.max_force_magnitude
-        )
-        forces = torch.cat(
-            [
-                force_magnitude * torch.cos(force_theta),
-                force_magnitude * torch.sin(force_theta),
-                torch.zeros_like(force_magnitude),
-            ],
-            dim=-1,
-        )
-        # Scale the forces by the mass of the parts
-        forces = (forces * self.force_multiplier).view(-1, 3)
+        # ## Random forces
+        # # Generate random forces in the xy plane for all parts across all environments
+        # part_rigid_body_idxs = self.rigid_body_index_by_env[env_idxs]
+        # force_theta = (
+        #     torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device)
+        #     * 2
+        #     * np.pi
+        # )
+        # force_magnitude = (
+        #     torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device)
+        #     * self.max_force_magnitude
+        # )
+        # forces = torch.cat(
+        #     [
+        #         force_magnitude * torch.cos(force_theta),
+        #         force_magnitude * torch.sin(force_theta),
+        #         torch.zeros_like(force_magnitude),
+        #     ],
+        #     dim=-1,
+        # )
+        # # Scale the forces by the mass of the parts
+        # forces = (forces * self.force_multiplier).view(-1, 3)
 
-        ## Random torques
+        # ## Random torques
 
-        # Generate random torques for all parts across all environments in the z direction
-        z_torques = self.max_torque_magnitude * (
-            torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device) * 2 - 1
-        )
-        torques = torch.cat(
-            [
-                torch.zeros_like(z_torques),
-                torch.zeros_like(z_torques),
-                z_torques,
-            ],
-            dim=-1,
-        )
+        # # Generate random torques for all parts across all environments in the z direction
+        # z_torques = self.max_torque_magnitude * (
+        #     torch.rand(part_rigid_body_idxs.shape + (1,), device=self.device) * 2 - 1
+        # )
+        # torques = torch.cat(
+        #     [
+        #         torch.zeros_like(z_torques),
+        #         torch.zeros_like(z_torques),
+        #         z_torques,
+        #     ],
+        #     dim=-1,
+        # )
 
-        # Create a tensor to hold forces for all rigid bodies
-        all_forces = torch.zeros((self.rigid_body_count, 3), device=self.device)
-        all_torques = torch.zeros((self.rigid_body_count, 3), device=self.device)
-        part_rigid_body_idxs = part_rigid_body_idxs.view(-1)
-        all_torques[part_rigid_body_idxs] = torques.view(-1, 3)
-        all_forces[part_rigid_body_idxs] = forces.view(-1, 3)
+        # # Create a tensor to hold forces for all rigid bodies
+        # all_forces = torch.zeros((self.rigid_body_count, 3), device=self.device)
+        # all_torques = torch.zeros((self.rigid_body_count, 3), device=self.device)
+        # part_rigid_body_idxs = part_rigid_body_idxs.view(-1)
+        # all_torques[part_rigid_body_idxs] = torques.view(-1, 3)
+        # all_forces[part_rigid_body_idxs] = forces.view(-1, 3)
 
-        # Fill the appropriate indices with the generated forces
-        # Apply the forces to the rigid bodies
-        success = self.isaac_gym.apply_rigid_body_force_tensors(
-            self.sim,
-            gymtorch.unwrap_tensor(all_forces),
-            gymtorch.unwrap_tensor(all_torques),
-            gymapi.GLOBAL_SPACE,  # Apply forces in the world space
-        )
+        # # Fill the appropriate indices with the generated forces
+        # # Apply the forces to the rigid bodies
+        # success = self.isaac_gym.apply_rigid_body_force_tensors(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(all_forces),
+        #     gymtorch.unwrap_tensor(all_torques),
+        #     gymapi.GLOBAL_SPACE,  # Apply forces in the world space
+        # )
 
         assert success, "Failed to apply forces to parts"
 
