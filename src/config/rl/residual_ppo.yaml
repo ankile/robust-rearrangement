@@ -9,7 +9,7 @@ checkpoint_interval: 10
 total_timesteps: 100_000_000
 num_envs: 1024
 num_minibatches: 4
-num_env_steps: 750
+num_env_steps: 850
 data_collection_steps: ${num_env_steps}
 
 residual_policy:
@@ -21,15 +21,15 @@ residual_policy:
   actor_num_layers: 2
   critic_hidden_size: 512
   critic_num_layers: 2
-  actor_activation: SiLU
+  actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
 
 # Algorithm specific arguments
 learning_rate: 3e-4
 anneal_lr: true
-gamma: 0.998
+gamma: 0.999
 gae_lambda: 0.95
-update_epochs: 10
+update_epochs: 5
 norm_adv: true
 normalize_reward: true
 clip_coef: 0.2

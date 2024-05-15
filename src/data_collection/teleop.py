@@ -79,15 +79,11 @@ def main():
         pickle_paths = None
 
     data_collector = DataCollectorSpaceMouse(
-        is_sim=True,
         data_path=data_path,
         device_interface=keyboard_device_interface,
         furniture=args.furniture,
-        headless=False,
         draw_marker=args.draw_marker,
-        manual_label=True,
         resize_sim_img=False,
-        scripted=False,
         randomness=args.randomness,
         compute_device_id=args.gpu_id,
         graphics_device_id=args.gpu_id,

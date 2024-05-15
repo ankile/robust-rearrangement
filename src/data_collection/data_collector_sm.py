@@ -5,8 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
 
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+# from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from furniture_bench.envs.observation import FULL_OBS
+from src.gym.furniture_sim_env import FurnitureSimEnv, FurnitureRLSimEnv
 import gym
+from src.gym import turn_off_april_tags
 import torch
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
@@ -50,14 +53,10 @@ class DataCollectorSpaceMouse:
 
     def __init__(
         self,
-        is_sim: bool,
         data_path: str,
         device_interface: DeviceInterface,
         furniture: str,
-        headless: bool,
         draw_marker: bool,
-        manual_label: bool,
-        scripted: bool,
         randomness: Randomness.LOW,
         compute_device_id: int,
         graphics_device_id: int,
@@ -66,7 +65,7 @@ class DataCollectorSpaceMouse:
         resize_sim_img: bool = True,
         verbose: bool = True,
         show_pbar: bool = False,
-        ctrl_mode: str = "osc",
+        ctrl_mode: str = "diffik",
         ee_laser: bool = True,
         right_multiply_rot: bool = True,
         compress_pickles: bool = False,
@@ -74,11 +73,9 @@ class DataCollectorSpaceMouse:
     ):
         """
         Args:
-            is_sim (bool): Whether to use simulator or real world environment.
             data_path (str): Path to save data.
             device_interface (DeviceInterface): Keyboard and/or Oculus interface.
             furniture (str): Name of the furniture.
-            headless (bool): Whether to use headless mode.
             draw_marker (bool): Whether to draw AprilTag marker.
             manual_label (bool): Whether to manually label the reward.
             scripted (bool): Whether to use scripted function for getting action.
@@ -90,56 +87,36 @@ class DataCollectorSpaceMouse:
             ee_laser (bool): If True, show a line coming from the end-effector in the viewer
             right_multiply_rot (bool): If True, convert rotation actions (delta rot) assuming they're applied as RIGHT multiplys (local rotations)
         """
+        assert ctrl_mode == "diffik", "Highly suspicious that this is not 'diffik'"
+
         if not draw_marker:
-            from furniture_bench.envs import furniture_sim_env
+            turn_off_april_tags()
 
-            furniture_sim_env.ASSET_ROOT = str(
-                Path(__file__).parent.parent.absolute() / "assets"
-            )
-
-        if is_sim:
-            self.env = gym.make(
-                "FurnitureSimFull-v0",
-                furniture=furniture,
-                max_env_steps=(
-                    sim_config["scripted_timeout"][furniture] if scripted else 3000
-                ),
-                headless=headless,
-                num_envs=1,  # Only support 1 for now.
-                manual_done=False if scripted else True,
-                resize_img=resize_sim_img,
-                np_step_out=False,  # Always output Tensor in this setting. Will change to numpy in this code.
-                channel_first=False,
-                randomness=randomness,
-                compute_device_id=compute_device_id,
-                graphics_device_id=graphics_device_id,
-                ctrl_mode=ctrl_mode,
-                ee_laser=ee_laser,
-                high_random_idx=-1,
-            )
-        else:
-            if randomness == "med":
-                randomness = Randomness.MEDIUM_COLLECT
-            elif randomness == "high":
-                randomness = Randomness.HIGH_COLLECT
-
-            self.env = gym.make(
-                "FurnitureBench-v0",
-                furniture=furniture,
-                resize_img=False,
-                manual_done=True,
-                with_display=not headless,
-                draw_marker=draw_marker,
-                randomness=randomness,
-            )
+        self.env = FurnitureRLSimEnv(
+            furniture=furniture,
+            obs_keys=FULL_OBS,
+            headless=False,
+            max_env_steps=3_000,  # Arbitrary number
+            num_envs=1,
+            act_rot_repr="quat",
+            action_type="delta",
+            manual_done=True,
+            resize_img=resize_sim_img,
+            np_step_out=False,
+            channel_first=False,
+            randomness=randomness,
+            compute_device_id=compute_device_id,
+            graphics_device_id=graphics_device_id,
+            ctrl_mode=ctrl_mode,
+            ee_laser=ee_laser,
+            max_force_magnitude=0.5,
+            max_torque_magnitude=0.01,
+        )
 
         self.data_path = Path(data_path)
         self.device_interface = device_interface
-        self.headless = headless
-        self.manual_label = manual_label
         self.furniture = furniture
         self.num_demos = num_demos
-        self.scripted = scripted
 
         self.traj_counter = 0
         self.num_success = 0
@@ -157,10 +134,10 @@ class DataCollectorSpaceMouse:
 
         # Set the number of timesteps we will continue to record actions after a gripper action is taken
         # This is taken up from 10 because we saw some "teleportation" of the gripper when we were recording
-        self.record_latency_when_grasping = 12
+        self.record_latency_when_grasping = 8
 
         # Parameters for controlling the time it takes for the robot to settle at the start of a trajectory
-        self.start_delay = 1  # seconds
+        self.start_delay = 2  # seconds
         self.robot_settled = False
         self.starttime = datetime.now()
 
@@ -285,14 +262,12 @@ class DataCollectorSpaceMouse:
                 prev_keyboard_gripper = -1
                 global_start_time = time.time()
                 while self.num_success < self.num_demos:
-                    if self.scripted:
-                        raise ValueError("Not using scripted with spacemouse")
 
                     # calculate timing
                     t_cycle_end = t_start + (self.iter_idx + 1) * dt
                     t_sample = t_cycle_end - command_latency
-                    # t_command_target = t_cycle_end + dt
-                    # precise_wait(t_sample)
+                    t_command_target = t_cycle_end + dt
+                    precise_wait(t_sample)
 
                     # get teleop command
                     sm_state = sm.get_motion_state_transformed()
@@ -409,12 +384,12 @@ class DataCollectorSpaceMouse:
                         action_taken = True
                         target_pose_last_action_rv = None
 
-                    # action = scale_scripted_action(
-                    #     action.detach().cpu().clone(),
-                    #     pos_bounds_m=pos_bounds_m,
-                    #     ori_bounds_deg=ori_bounds_deg,
-                    #     device=self.env.device,
-                    # )
+                    action = scale_scripted_action(
+                        action.detach().cpu().clone(),
+                        pos_bounds_m=pos_bounds_m,
+                        ori_bounds_deg=ori_bounds_deg,
+                        device=self.env.device,
+                    )
 
                     skill_complete = int(collect_enum == CollectEnum.SKILL)
                     if skill_complete == 1:
@@ -514,7 +489,7 @@ class DataCollectorSpaceMouse:
                     target_pose_rv = np.array([*translation, *rotvec])
 
                     # SM wait
-                    # precise_wait(t_cycle_end)
+                    precise_wait(t_cycle_end)
                     self.iter_idx += 1
 
                     if (not self.robot_settled) and (
@@ -629,12 +604,11 @@ class DataCollectorSpaceMouse:
             obs = self.load_state()
 
         self.verbose_print("Start collecting the data!")
-        if not self.scripted:
-            self.verbose_print("Press enter to start")
-            while True:
-                if input() == "":
-                    break
-            time.sleep(0.2)
+        self.verbose_print("Press enter to start")
+        while True:
+            if input() == "":
+                break
+        time.sleep(0.2)
 
         self.starttime = datetime.now()
         self.robot_settled = False

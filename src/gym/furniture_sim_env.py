@@ -75,7 +75,7 @@ class FurnitureSimEnv(gym.Env):
         save_camera_input: bool = False,
         record: bool = False,
         max_env_steps: int = 3000,
-        act_rot_repr: str = "quat",
+        act_rot_repr: str = "rot_6d",
         action_type: str = "delta",  # "delta" or "pos"
         ctrl_mode: str = "diffik",
         ee_laser: bool = False,
@@ -326,7 +326,10 @@ class FurnitureSimEnv(gym.Env):
             # TODO: Make config
             obstacle_pose = gymapi.Transform()
             obstacle_pose.p = gymapi.Vec3(
-                self.base_tag_pose.p.x + 0.37 + 0.01, 0.0, table_surface_z + 0.015
+                # self.base_tag_pose.p.x + 0.37 + 0.01, 0.0, table_surface_z + 0.015
+                self.base_tag_pose.p.x + 0.37 + 0.05,
+                0.0,
+                table_surface_z + 0.015,
             )
             obstacle_pose.r = gymapi.Quat.from_axis_angle(
                 gymapi.Vec3(0, 0, 1), 0.5 * np.pi
@@ -347,7 +350,8 @@ class FurnitureSimEnv(gym.Env):
                 y = -0.175 if j == 0 else 0.175
                 obstacle_pose = gymapi.Transform()
                 obstacle_pose.p = gymapi.Vec3(
-                    self.base_tag_pose.p.x + 0.37 + 0.01 - 0.075,
+                    # self.base_tag_pose.p.x + 0.37 + 0.01 - 0.075,
+                    self.base_tag_pose.p.x + 0.37 + 0.05 - 0.075,
                     y,
                     table_surface_z + 0.015,
                 )
@@ -883,6 +887,25 @@ class FurnitureSimEnv(gym.Env):
 
         # Update viewer
         if not self.headless:
+            if self.ee_laser:
+                # draw lines
+                for _ in range(3):
+                    noise = (np.random.random(3) - 0.5).astype(np.float32).reshape(
+                        1, 3
+                    ) * 0.001
+                    offset = self.franka_from_origin_mat[:-1, -1].reshape(1, 3)
+                    ee_z_axis = C.quat2mat(ee_quat[0]).cpu().numpy()[:, 2].reshape(1, 3)
+                    line_start = ee_pos[0].cpu().numpy().reshape(1, 3) + offset + noise
+
+                    # Move the start point higher
+                    line_start = line_start - ee_z_axis * 0.019
+
+                    line_end = line_start + ee_z_axis
+                    lines = np.concatenate([line_start, line_end], axis=0)
+                    colors = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+                    self.isaac_gym.add_lines(
+                        self.viewer, self.envs[0], 1, lines, colors
+                    )
             self.isaac_gym.draw_viewer(self.viewer, self.sim, False)
             self.isaac_gym.sync_frame_time(self.sim)
             self.isaac_gym.clear_lines(self.viewer)
