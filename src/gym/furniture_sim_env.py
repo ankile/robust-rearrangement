@@ -317,37 +317,49 @@ class FurnitureSimEnv(gym.Env):
             bg_handle = self.isaac_gym.create_actor(
                 env, self.background_asset, bg_pose, "background", i, 0
             )
+
             # TODO: Make config
             obstacle_pose = gymapi.Transform()
             obstacle_pose.p = gymapi.Vec3(
-                self.base_tag_pose.p.x + 0.37 + 0.01,
-                0.0,
-                table_surface_z + 0.015,
-                # table_surface_z + 0.025,
+                self.base_tag_pose.p.x + 0.37 + 0.01, 0.0, table_surface_z + 0.015
             )
             obstacle_pose.r = gymapi.Quat.from_axis_angle(
                 gymapi.Vec3(0, 0, 1), 0.5 * np.pi
             )
 
-            self.obstacle_reset_pose = obstacle_pose
-
-            self.obstacle_handle = self.isaac_gym.create_actor(
-                env, self.obstacle_asset, obstacle_pose, f"obstacle", i, 0b01
+            obstacle_handle = self.isaac_gym.create_actor(
+                env, self.obstacle_front_asset, obstacle_pose, f"obstacle_front", i, 0
             )
-
             part_idx = self.isaac_gym.get_actor_rigid_body_index(
-                env, self.obstacle_handle, 0, gymapi.DOMAIN_SIM
+                env, obstacle_handle, 0, gymapi.DOMAIN_SIM
             )
-            if self.part_idxs.get("obstacle") is None:
-                self.part_idxs["obstacle"] = [part_idx]
+            if self.part_idxs.get("obstacle_front") is None:
+                self.part_idxs["obstacle_front"] = [part_idx]
             else:
-                self.part_idxs[f"obstacle"].append(part_idx)
+                self.part_idxs[f"obstacle_front"].append(part_idx)
 
-            # Get the obstacle actor index
-            obstacle_actor_idx = self.isaac_gym.find_actor_index(
-                env, "obstacle", gymapi.DOMAIN_SIM
-            )
-            self.obstacle_actor_idxs.append(obstacle_actor_idx)
+            for j, name in enumerate(["obstacle_right", "obstacle_left"]):
+                y = -0.175 if j == 0 else 0.175
+                obstacle_pose = gymapi.Transform()
+                obstacle_pose.p = gymapi.Vec3(
+                    self.base_tag_pose.p.x + 0.37 + 0.01 - 0.075,
+                    y,
+                    table_surface_z + 0.015,
+                )
+                obstacle_pose.r = gymapi.Quat.from_axis_angle(
+                    gymapi.Vec3(0, 0, 1), 0.5 * np.pi
+                )
+
+                obstacle_handle = self.isaac_gym.create_actor(
+                    env, self.obstacle_side_asset, obstacle_pose, name, i, 0
+                )
+                part_idx = self.isaac_gym.get_actor_rigid_body_index(
+                    env, obstacle_handle, 0, gymapi.DOMAIN_SIM
+                )
+                if self.part_idxs.get(name) is None:
+                    self.part_idxs[name] = [part_idx]
+                else:
+                    self.part_idxs[name].append(part_idx)
 
             # Add robot.
             franka_handle = self.isaac_gym.create_actor(
@@ -630,10 +642,8 @@ class FurnitureSimEnv(gym.Env):
         self.base_tag_asset = self._import_base_tag_asset()
         self.background_asset = self._import_background_asset()
         self.table_asset = self._import_table_asset()
-        self.part_assets = self._import_part_assets()
-        # self.obstacle_front_asset = self._import_obstacle_front_asset()
-        # self.obstacle_side_asset = self._import_obstacle_side_asset()
-        self.obstacle_asset = self._import_obstacle_asset()
+        self.obstacle_front_asset = self._import_obstacle_front_asset()
+        self.obstacle_side_asset = self._import_obstacle_side_asset()
         self.franka_asset = self._import_franka_asset()
 
     def acquire_base_tensors(self):
@@ -1459,6 +1469,22 @@ class FurnitureSimEnv(gym.Env):
         table_asset_file = "furniture/urdf/table.urdf"
         return self.isaac_gym.load_asset(
             self.sim, ASSET_ROOT, table_asset_file, asset_options
+        )
+
+    def _import_obstacle_front_asset(self):
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
+        obstacle_asset_file = "furniture/urdf/obstacle_front.urdf"
+        return self.isaac_gym.load_asset(
+            self.sim, ASSET_ROOT, obstacle_asset_file, asset_options
+        )
+
+    def _import_obstacle_side_asset(self):
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
+        obstacle_asset_file = "furniture/urdf/obstacle_side.urdf"
+        return self.isaac_gym.load_asset(
+            self.sim, ASSET_ROOT, obstacle_asset_file, asset_options
         )
 
     def _import_franka_asset(self):
