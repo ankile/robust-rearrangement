@@ -232,6 +232,9 @@ def main(cfg: DictConfig):
             naction = base_naction + residual_naction * cfg.residual_policy.action_scale
             next_obs, reward, next_done, truncated, infos = env.step(naction)
 
+            if cfg.truncation_as_done:
+                next_done = next_done | truncated
+
             # Add the observation to the deque
             base_observation_deque.append(next_obs)
 
@@ -437,6 +440,9 @@ def main(cfg: DictConfig):
                 "charts/success_rate": success_rate,
                 "charts/action_norm_mean": action_norms.mean(),
                 "charts/action_norm_std": action_norms.std(),
+                "values/advantages": b_advantages.mean().item(),
+                "values/returns": b_returns.mean().item(),
+                "values/values": b_values.mean().item(),
                 "histograms/values": wandb.Histogram(values),
                 "histograms/returns": wandb.Histogram(b_returns),
                 "histograms/advantages": wandb.Histogram(b_advantages),

@@ -26,8 +26,8 @@ residual_policy:
 
 # Algorithm specific arguments
 learning_rate: 1e-4
-anneal_lr: false
-adaptive_lr: true
+anneal_lr: true
+adaptive_lr: false
 gamma: 0.999
 gae_lambda: 0.95
 update_epochs: 5
@@ -39,8 +39,9 @@ ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: 0.03
-residual_regularization: 0.05
-n_iterations_train_only_value: 5
+residual_regularization: 0.01
+n_iterations_train_only_value: 2
+truncation_as_done: true
 
 # Calculate the batch size as the data collection steps times the number of environments
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}

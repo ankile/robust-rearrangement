@@ -104,7 +104,7 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             hidden_sizes=[critic_hidden_size] * critic_num_layers,
             output_dim=1,
             activation=critic_activation,
-            output_std=1.0,
+            output_std=0.01,
             bias_on_last_layer=True,
         )
 
