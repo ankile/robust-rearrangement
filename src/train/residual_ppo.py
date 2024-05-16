@@ -32,7 +32,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import trange
-from torch.distributions.normal import Normal
 
 import wandb
 
@@ -43,6 +42,7 @@ from src.gym import turn_off_april_tags
 OmegaConf.register_new_resolver("eval", eval)
 
 
+@torch.no_grad()
 def calculate_advantage(
     values: torch.Tensor,
     next_value: torch.Tensor,
@@ -460,7 +460,7 @@ def main(cfg: DictConfig):
             lrnow = frac * cfg.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
-        if cfg.adaptive_lr:
+        if cfg.adaptive_lr and iteration > cfg.n_iterations_train_only_value:
             if approx_kl > 1.5 * cfg.target_kl:
                 cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
                 optimizer.param_groups[0]["lr"] = cfg.learning_rate

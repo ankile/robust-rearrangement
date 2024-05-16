@@ -53,6 +53,6 @@ act_rot_repr: rot_6d
 
 wandb:
   entity: ankile
-  project: residual-ppo-1
+  project: residual-ppo-2
 
 debug: false
