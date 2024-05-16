@@ -92,6 +92,18 @@ class DataCollectorSpaceMouse:
         if not draw_marker:
             turn_off_april_tags()
 
+        if randomness == Randomness.LOW:
+            self.max_force_magnitude = 0.2
+            self.max_torque_magnitude = 0.005
+        elif randomness == Randomness.MEDIUM:
+            self.max_force_magnitude = 0.5
+            self.max_torque_magnitude = 0.01
+        elif randomness == Randomness.HIGH:
+            self.max_force_magnitude = 1.0
+            self.max_torque_magnitude = 0.02
+        else:
+            raise ValueError("Invalid randomness level")
+
         print("[NB] Creating 4 envs for debugging purposes")
         self.env = FurnitureRLSimEnv(
             furniture=furniture,
@@ -110,8 +122,8 @@ class DataCollectorSpaceMouse:
             graphics_device_id=graphics_device_id,
             ctrl_mode=ctrl_mode,
             ee_laser=ee_laser,
-            max_force_magnitude=0.5,
-            max_torque_magnitude=0.01,
+            max_force_magnitude=self.max_force_magnitude,
+            max_torque_magnitude=self.max_torque_magnitude,
         )
 
         self.data_path = Path(data_path)
@@ -129,6 +141,9 @@ class DataCollectorSpaceMouse:
         self.resume_trajectory_paths = resume_trajectory_paths
 
         self.iter_idx = 0
+
+        self.pos_bounds_m = 0.025
+        self.ori_bounds_deg = 20
 
         self.verbose = verbose
         self.pbar = None if not show_pbar else tqdm(total=self.num_demos)
@@ -149,6 +164,17 @@ class DataCollectorSpaceMouse:
         self.right_multiply_rot = right_multiply_rot
 
         self._reset_collector_buffer()
+
+        self.metadata = {
+            "max_force_magnitude": self.max_force_magnitude,
+            "max_torque_magnitude": self.max_torque_magnitude,
+            "ctrl_mode": ctrl_mode,
+            "pos_bounds_m": self.pos_bounds_m,
+            "ori_bounds_deg": self.ori_bounds_deg,
+            "record_latency_when_grasping": self.record_latency_when_grasping,
+            "start_delay": self.start_delay,
+            "right_multiply_rot": self.right_multiply_rot,
+        }
 
     def _squeeze_and_numpy(
         self, d: Dict[str, Union[torch.Tensor, np.ndarray, float, int, None]]
@@ -210,6 +236,18 @@ class DataCollectorSpaceMouse:
         dt = 1 / frequency
         command_latency = args.command_latency
 
+        self.sm_dpos_scalar = np.array([1.8] * 3)
+        self.sm_drot_scalar = np.array([4] * 3)
+
+        # Add these to the metadata
+        self.metadata["frequency"] = frequency
+        self.metadata["command_latency"] = command_latency
+        self.metadata["deadzone"] = args.deadzone
+        self.metadata["max_pos_speed"] = args.max_pos_speed
+        self.metadata["max_rot_speed"] = args.max_rot_speed
+        self.metadata["sm_dpos_scalar"] = self.sm_dpos_scalar.tolist()
+        self.metadata["sm_drot_scalar"] = self.sm_drot_scalar.tolist()
+
         obs = self.reset()
         done = False
 
@@ -253,9 +291,6 @@ class DataCollectorSpaceMouse:
         ready_to_grasp = True
         steps_since_grasp = 0
 
-        sm_dpos_scalar = np.array([1.8] * 3)
-        sm_drot_scalar = np.array([4] * 3)
-
         with SharedMemoryManager() as shm_manager:
             with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
                 t_start = time.monotonic()
@@ -277,13 +312,15 @@ class DataCollectorSpaceMouse:
                     # drot = st.Rotation.from_euler("xyz", drot_xyz)
                     # scale pos command
                     dpos = (
-                        sm_state[:3] * (args.max_pos_speed / frequency) * sm_dpos_scalar
+                        sm_state[:3]
+                        * (args.max_pos_speed / frequency)
+                        * self.sm_dpos_scalar
                     )
 
                     # convert and scale rot command
                     drot_xyz = sm_state[3:] * (args.max_rot_speed / frequency)
                     drot_rotvec = st.Rotation.from_euler("xyz", drot_xyz).as_rotvec()
-                    drot_rotvec *= sm_drot_scalar
+                    drot_rotvec *= self.sm_drot_scalar
                     drot = st.Rotation.from_rotvec(drot_rotvec)
 
                     (
@@ -370,9 +407,6 @@ class DataCollectorSpaceMouse:
                         rm=self.right_multiply_rot,
                     )
 
-                    pos_bounds_m = 0.025
-                    ori_bounds_deg = 20
-
                     if not (np.allclose(keyboard_action[:6], 0.0)):
                         action[0, :7] = (
                             torch.from_numpy(keyboard_action[:7])
@@ -384,8 +418,8 @@ class DataCollectorSpaceMouse:
 
                     action = scale_scripted_action(
                         action.detach().cpu().clone(),
-                        pos_bounds_m=pos_bounds_m,
-                        ori_bounds_deg=ori_bounds_deg,
+                        pos_bounds_m=self.pos_bounds_m,
+                        ori_bounds_deg=self.ori_bounds_deg,
                         device=self.env.device,
                     )
 
@@ -662,6 +696,7 @@ class DataCollectorSpaceMouse:
         data["skills"] = [t["skills"] for t in self.transitions][:-1]
         data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
         data["furniture"] = self.furniture
+        data["metadata"] = self.metadata
 
         if "error" in info:
             data["error_description"] = info["error"].value

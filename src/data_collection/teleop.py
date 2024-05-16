@@ -5,10 +5,16 @@ import furniture_bench
 from furniture_bench.device import make_device
 from furniture_bench.config import config
 
+from pathlib import Path
+
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
 from src.data_collection.keyboard_interface import KeyboardInterface
+from furniture_bench.envs.initialization_mode import Randomness
+
 from src.common.files import trajectory_save_dir
 from src.gym import turn_off_april_tags
+
+from ipdb import set_trace as bp
 
 
 def main():
@@ -60,6 +66,9 @@ def main():
     keyboard_device_interface = KeyboardInterface()
     keyboard_device_interface.print_usage()
 
+    # Ensure valid randomness
+    randomness = Randomness.str_to_enum(args.randomness)
+
     data_path = trajectory_save_dir(
         controller=args.ctrl_mode,
         domain="sim",
@@ -67,8 +76,6 @@ def main():
         demo_source="teleop",
         randomness=args.randomness,
     )
-
-    from pathlib import Path
 
     if args.resume_dir is not None:
         pickle_paths = list(Path(args.resume_dir).rglob("*.pkl*"))
@@ -84,7 +91,7 @@ def main():
         furniture=args.furniture,
         draw_marker=args.draw_marker,
         resize_sim_img=False,
-        randomness=args.randomness,
+        randomness=randomness,
         compute_device_id=args.gpu_id,
         graphics_device_id=args.gpu_id,
         save_failure=args.save_failure,
