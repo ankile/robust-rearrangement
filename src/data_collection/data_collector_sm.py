@@ -446,6 +446,7 @@ class DataCollectorSpaceMouse:
                         continue
 
                     # Execute action.
+                    # if action_taken: # We can do this if we want to apply random perturbations when demonstrating
                     next_obs, rew, done, info = self.env.step(action)
 
                     if rew == 1:
