@@ -45,7 +45,7 @@ from furniture_bench.envs.observation import (
 )
 from furniture_bench.robot.robot_state import ROBOT_STATE_DIMS
 from furniture_bench.furniture.parts.part import Part
-from src.common.geometry import proprioceptive_quat_to_6d_rotation
+from src.common.geometry import proprioceptive_quat_to_6d_rotation, euler_to_quat_xyzw
 
 from ipdb import set_trace as bp
 
@@ -1650,11 +1650,15 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             [70, 1, 1, 1, 1], device=self.device
         ).unsqueeze(-1)
 
-        self.max_force_magnitude = kwargs.get("max_force_magnitude", 0.2)
-        self.max_torque_magnitude = kwargs.get("max_torque_magnitude", 0.005)
+        self.max_force_magnitude: float = kwargs.get("max_force_magnitude", 0.2)
+        self.max_torque_magnitude: float = kwargs.get("max_torque_magnitude", 0.005)
 
         # Randomize plus/minus this number of meter in x and y directions
         self.obstacle_range = kwargs.get("max_obstacle_randomization", 0.03)
+
+        # Set parameters for Franka randomization
+        self.pos_range = 0.05
+        self.rot_range = np.radians(10)
 
         print(
             f"Max force magnitude: {self.max_force_magnitude}, Max torque magnitude: {self.max_torque_magnitude}"
@@ -1712,13 +1716,26 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         return obs, reward, done, info
 
     def _reset_frankas(self, env_idxs: torch.Tensor):
-        dof_pos = self.default_dof_pos
+        # Define the range of random values for joint positions
+        joint_range = np.radians(10)  # Random joint positions within +/- 10 degrees
+
+        # Generate random offsets for joint positions
+        joint_offsets = (
+            torch.rand((len(env_idxs), 7), device=self.device) * 2 * joint_range
+            - joint_range
+        )
+
+        # Get the default joint positions
+        dof_pos = (
+            torch.from_numpy(self.default_dof_pos).unsqueeze(0).repeat(len(env_idxs), 1)
+        ).to(self.device)
+
+        # Apply the random offsets to the default joint positions
+        dof_pos[:, :7] += joint_offsets
 
         # Views for self.dof_states (used with set_dof_state_tensor* function)
-        self.dof_pos[:, 0 : self.franka_num_dofs] = torch.tensor(
-            dof_pos, device=self.device, dtype=torch.float32
-        )
-        self.dof_vel[:, 0 : self.franka_num_dofs] = torch.tensor(
+        self.dof_pos[env_idxs, 0 : self.franka_num_dofs] = dof_pos
+        self.dof_vel[env_idxs, 0 : self.franka_num_dofs] = torch.tensor(
             [0] * len(self.default_dof_pos), device=self.device, dtype=torch.float32
         )
 

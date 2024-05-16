@@ -284,3 +284,21 @@ def np_apply_quat(state_quat: np.ndarray, action_quat: np.ndarray) -> np.ndarray
     new_state_rot = state_rot * action_rot
 
     return new_state_rot.as_quat()
+
+
+def euler_to_quat_xyzw(euler: torch.Tensor) -> torch.Tensor:
+    """
+    Converts Euler angles to quaternion (x, y, z, w).
+
+    Accepts any number of leading dimensions.
+    """
+    # Convert Euler angles to rotation matrix
+    rot_mats = pt.euler_angles_to_matrix(euler, "XYZ")
+
+    # Convert rotation matrix to quaternion wxyz
+    quat_wxyz = pt.matrix_to_quaternion(rot_mats)
+
+    # Convert quaternion wxyz to quaternion xyzw
+    quat_xyzw = C.quat_wxyz_to_xyzw(quat_wxyz)
+
+    return quat_xyzw
