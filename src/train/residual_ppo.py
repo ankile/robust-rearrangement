@@ -43,7 +43,6 @@ from src.gym import turn_off_april_tags
 OmegaConf.register_new_resolver("eval", eval)
 
 
-@torch.no_grad()
 def calculate_advantage(
     values: torch.Tensor,
     next_value: torch.Tensor,
@@ -58,7 +57,7 @@ def calculate_advantage(
     lastgaelam = 0
     for t in reversed(range(steps_per_iteration)):
         if t == steps_per_iteration - 1:
-            nextnonterminal = 1.0 - next_done
+            nextnonterminal = 1.0 - next_done.to(torch.float)
             nextvalues = next_value
         else:
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
