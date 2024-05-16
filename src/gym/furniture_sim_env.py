@@ -1292,7 +1292,12 @@ class FurnitureSimEnv(gym.Env):
         dof_pos = np.concatenate(
             [
                 state["robot_state"]["joint_positions"],
-                np.array([state["robot_state"]["gripper_width"] / 2] * 2),
+                np.array(
+                    [
+                        state["robot_state"]["gripper_finger_1_pos"],
+                        state["robot_state"]["gripper_finger_2_pos"],
+                    ]
+                ),
             ],
         )
         self._reset_franka(env_idx, dof_pos)
@@ -1358,12 +1363,7 @@ class FurnitureSimEnv(gym.Env):
         )
 
     def _reset_parts(self, env_idx, parts_poses=None, skip_set_state=False):
-        """Resets furniture parts to the initial pose.
-
-        Args:
-            env_idx (int): The index of the environment.
-            parts_poses (np.ndarray): The poses of the parts. If None, the parts will be reset to the initial pose.
-        """
+        """Resets furniture parts to the initial pose."""
         for part_idx, part in enumerate(self.furnitures[env_idx].parts):
             # Use the given pose.
             if parts_poses is not None:
@@ -1394,38 +1394,74 @@ class FurnitureSimEnv(gym.Env):
                 device=self.device,
             )
 
+        # Get the obstacle poses, last 7 numbers in the parts_poses tensor
+        if parts_poses is not None:
+            obstacle_pose = parts_poses[-7:]
+            pos = obstacle_pose[:3]
+            ori = T.to_homogeneous([0, 0, 0], T.quat2mat(obstacle_pose[3:]))
+        else:
+            pos = [
+                self.obstacle_front_pose.p.x,
+                self.obstacle_front_pose.p.y,
+                self.obstacle_front_pose.p.z,
+            ]
+            ori = self.obstacle_front_pose.r
+
+        # Convert the obstacle pose from AprilTag to simulator coordinate system
+        obstacle_pose_mat = self.april_coord_to_sim_coord(get_mat(pos, [0, 0, 0]))
+        obstacle_pose = gymapi.Transform()
+        obstacle_pose.p = gymapi.Vec3(
+            obstacle_pose_mat[0, 3], obstacle_pose_mat[1, 3], obstacle_pose_mat[2, 3]
+        )
+        reset_ori = self.april_coord_to_sim_coord(ori)
+        obstacle_pose.r = gymapi.Quat(*T.mat2quat(reset_ori[:3, :3]))
+
+        # Calculate the offsets for the front and side obstacles
+        obstacle_right_offset = gymapi.Vec3(-0.075, -0.175, 0)
+        obstacle_left_offset = gymapi.Vec3(-0.075, 0.175, 0)
+
+        # Write the obstacle poses to the root_pos and root_quat tensors
+        self.root_pos[env_idx, self.part_idxs["obstacle_front"]] = torch.tensor(
+            [obstacle_pose.p.x, obstacle_pose.p.y, obstacle_pose.p.z],
+            device=self.device,
+            dtype=torch.float32,
+        )
+
+        self.root_pos[env_idx, self.part_idxs["obstacle_right"]] = torch.tensor(
+            [
+                obstacle_pose.p.x + obstacle_right_offset.x,
+                obstacle_pose.p.y + obstacle_right_offset.y,
+                obstacle_pose.p.z,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
+
+        self.root_pos[env_idx, self.part_idxs["obstacle_left"]] = torch.tensor(
+            [
+                obstacle_pose.p.x + obstacle_left_offset.x,
+                obstacle_pose.p.y + obstacle_left_offset.y,
+                obstacle_pose.p.z,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
+
         if skip_set_state:
-            # Set the value for the root state tensor, but don't call isaac gym function yet (useful when resetting all at once)
-            # If skip_set_state == True, then must self.refresh() to register the isaac set_actor_root_state* function
             return
 
         # Reset root state for actors in a single env
         part_actor_idxs = torch.tensor(
-            self.part_actor_idx_by_env[env_idx], device=self.device, dtype=torch.int32
+            self.part_actor_idx_by_env[env_idx]
+            + self.obstacle_actor_idxs_by_env[env_idx],
+            device=self.device,
+            dtype=torch.int32,
         )
         self.isaac_gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.root_tensor),
             gymtorch.unwrap_tensor(part_actor_idxs),
             len(part_actor_idxs),
-        )
-
-    def _reset_parts_all(self, parts_poses=None):
-        """Resets ALL furniture parts to the initial pose.
-
-        Args:
-            parts_poses (np.ndarray): The poses of the parts. If None, the parts will be reset to the initial pose.
-        """
-        for env_idx in range(self.num_envs):
-            self._reset_parts(env_idx, parts_poses=parts_poses, skip_set_state=True)
-
-        # Reset root state for actors across all envs
-        self.isaac_gym.get_sim_actor_count(self.sim)
-        self.isaac_gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.root_tensor),
-            gymtorch.unwrap_tensor(self.part_actor_idxs_all_t),
-            len(self.part_actor_idxs_all_t),
         )
 
     def _import_base_tag_asset(self):
