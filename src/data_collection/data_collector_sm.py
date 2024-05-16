@@ -362,7 +362,6 @@ class DataCollectorSpaceMouse:
                         new_target_pose_mat = pose_rv2mat(new_target_pose_rv)
 
                     # convert this into the furniture bench info we need
-                    # action, collect_enum = to_isaac_pose(new_target_pose), CollectEnum.DONE_FALSE  # TODO
                     action = to_isaac_dpose_from_abs(
                         current_pose_mat=target_pose_mat,
                         goal_pose_mat=new_target_pose_mat,
@@ -371,10 +370,8 @@ class DataCollectorSpaceMouse:
                         rm=self.right_multiply_rot,
                     )
 
-                    pos_bounds_m = (
-                        0.025  # 0.02 if self.env.ctrl_mode == "diffik" else 0.025
-                    )
-                    ori_bounds_deg = 25  # 15 if self.env.ctrl_mode == "diffik" else 20
+                    pos_bounds_m = 0.025
+                    ori_bounds_deg = 20
 
                     if not (np.allclose(keyboard_action[:6], 0.0)):
                         action[0, :7] = (
@@ -438,7 +435,7 @@ class DataCollectorSpaceMouse:
                         ready_to_grasp = True
                         target_pose_last_action_rv = None
 
-                        gripper_open = gripper_width >= 0.95
+                        gripper_open = gripper_width >= 0.06
                         grasp_flag = torch.from_numpy(
                             np.array([-1 if gripper_open else 1])
                         ).to(self.env.device)
