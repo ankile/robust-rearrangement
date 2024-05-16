@@ -2,6 +2,7 @@ seed: null
 torch_deterministic: true
 headless: true
 reset_on_failure: false
+reset_every_iteration: true
 eval_interval: 5
 checkpoint_interval: 10
 

@@ -213,6 +213,10 @@ def main(cfg: DictConfig):
             next_obs = env.reset()
         else:
             eval_mode = False
+
+            if cfg.reset_every_iteration:
+                next_obs = env.reset()
+
         print(f"Eval mode: {eval_mode}")
 
         for step in range(0, steps_per_iteration):
