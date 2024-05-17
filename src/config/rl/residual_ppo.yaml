@@ -2,13 +2,15 @@ seed: null
 torch_deterministic: true
 headless: true
 reset_on_failure: false
+reset_every_iteration: true
 eval_interval: 5
 checkpoint_interval: 10
 
 
 total_timesteps: 100_000_000
-num_envs: 1024
-num_minibatches: 4
+num_envs: 2048
+num_minibatches: 2
+update_epochs: 4
 num_env_steps: 850
 data_collection_steps: ${num_env_steps}
 
@@ -29,7 +31,6 @@ learning_rate: 3e-4
 anneal_lr: true
 gamma: 0.999
 gae_lambda: 0.95
-update_epochs: 5
 norm_adv: true
 normalize_reward: true
 clip_coef: 0.2
@@ -40,6 +41,7 @@ max_grad_norm: 0.5
 target_kl: 0.03
 residual_regularization: 0.01
 n_iterations_train_only_value: 5
+truncation_as_done: true
 
 # Calculate the batch size as the data collection steps times the number of environments
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
@@ -51,6 +53,6 @@ act_rot_repr: rot_6d
 
 wandb:
   entity: ankile
-  project: residual-ppo-1
+  project: residual-ppo-2
 
 debug: false

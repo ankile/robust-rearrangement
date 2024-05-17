@@ -132,6 +132,7 @@ class FurnitureSimEnv(gym.Env):
         else:
             self.furniture = furniture_factory(furniture)
 
+        self.max_env_steps = max_env_steps
         self.furniture.max_env_steps = max_env_steps
         for furn in self.furnitures:
             furn.max_env_steps = max_env_steps
@@ -1955,6 +1956,10 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
         action = self.normalizer(action, "actions", forward=False)
 
         obs, reward, done, info = super().step(action)
+
+        # Only mark the environment as done if it times out
+        done = self.env_steps >= self.max_env_steps
+
         robot_state = obs["robot_state"]
 
         # Convert the robot state to have 6D pose

@@ -32,7 +32,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import trange
-from torch.distributions.normal import Normal
 
 import wandb
 
@@ -49,6 +48,7 @@ def calculate_advantage(
     next_value: torch.Tensor,
     rewards: torch.Tensor,
     dones: torch.Tensor,
+    next_done: torch.Tensor,
     steps_per_iteration: int,
     gamma: float,
     gae_lambda: float,
@@ -57,7 +57,7 @@ def calculate_advantage(
     lastgaelam = 0
     for t in reversed(range(steps_per_iteration)):
         if t == steps_per_iteration - 1:
-            nextnonterminal = 1.0 - dones[-1].to(torch.float)
+            nextnonterminal = 1.0 - next_done.to(torch.float)
             nextvalues = next_value
         else:
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
@@ -77,6 +77,8 @@ def main(cfg: DictConfig):
     # TRY NOT TO MODIFY: seeding
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
+
+    assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
     run_name = f"{int(time.time())}__residual_ppo__{cfg.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
@@ -211,13 +213,11 @@ def main(cfg: DictConfig):
             next_obs = env.reset()
         else:
             eval_mode = False
-        print(f"Eval mode: {eval_mode}")
 
-        # Annealing the learning rate if instructed to do so.
-        if cfg.anneal_lr:
-            frac = 1.0 - (global_step - 1) / cfg.total_timesteps
-            lrnow = frac * cfg.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
+            if cfg.reset_every_iteration:
+                next_obs = env.reset()
+
+        print(f"Eval mode: {eval_mode}")
 
         for step in range(0, steps_per_iteration):
             if not eval_mode:
@@ -235,6 +235,9 @@ def main(cfg: DictConfig):
             residual_naction = residual_naction_samp if not eval_mode else action_mean
             naction = base_naction + residual_naction * cfg.residual_policy.action_scale
             next_obs, reward, next_done, truncated, infos = env.step(naction)
+
+            if cfg.truncation_as_done:
+                next_done = next_done | truncated
 
             # Add the observation to the deque
             base_observation_deque.append(next_obs)
@@ -307,6 +310,7 @@ def main(cfg: DictConfig):
             next_value,
             rewards,
             dones,
+            next_done,
             steps_per_iteration,
             cfg.gamma,
             cfg.gae_lambda,
@@ -441,6 +445,9 @@ def main(cfg: DictConfig):
                 "charts/success_rate": success_rate,
                 "charts/action_norm_mean": action_norms.mean(),
                 "charts/action_norm_std": action_norms.std(),
+                "values/advantages": b_advantages.mean().item(),
+                "values/returns": b_returns.mean().item(),
+                "values/values": b_values.mean().item(),
                 "histograms/values": wandb.Histogram(values),
                 "histograms/returns": wandb.Histogram(b_returns),
                 "histograms/advantages": wandb.Histogram(b_advantages),
@@ -450,6 +457,20 @@ def main(cfg: DictConfig):
             },
             step=global_step,
         )
+
+        # Anneal or adapt the learning rate if instructed to do so.
+        if cfg.anneal_lr:
+            frac = 1.0 - (global_step - 1) / cfg.total_timesteps
+            lrnow = frac * cfg.learning_rate
+            optimizer.param_groups[0]["lr"] = lrnow
+
+        if cfg.adaptive_lr and iteration > cfg.n_iterations_train_only_value:
+            if approx_kl > 1.5 * cfg.target_kl:
+                cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
+                optimizer.param_groups[0]["lr"] = cfg.learning_rate
+            elif approx_kl < 0.5 * cfg.target_kl:
+                cfg.learning_rate = min(cfg.learning_rate * 1.5, 1e-2)
+                optimizer.param_groups[0]["lr"] = cfg.learning_rate
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
