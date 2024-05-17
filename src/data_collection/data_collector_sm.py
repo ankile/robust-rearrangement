@@ -70,6 +70,7 @@ class DataCollectorSpaceMouse:
         right_multiply_rot: bool = True,
         compress_pickles: bool = False,
         resume_trajectory_paths: Union[List[str], None] = None,
+        sample_perturbations: bool = False,
     ):
         """
         Args:
@@ -95,12 +96,15 @@ class DataCollectorSpaceMouse:
         if randomness == Randomness.LOW:
             self.max_force_magnitude = 0.2
             self.max_torque_magnitude = 0.005
+            self.max_obstacle_offset = 0.02
         elif randomness == Randomness.MEDIUM:
             self.max_force_magnitude = 0.5
             self.max_torque_magnitude = 0.01
+            self.max_obstacle_offset = 0.04
         elif randomness == Randomness.HIGH:
             self.max_force_magnitude = 1.0
             self.max_torque_magnitude = 0.02
+            self.max_obstacle_offset = 0.06
         else:
             raise ValueError("Invalid randomness level")
 
@@ -124,6 +128,8 @@ class DataCollectorSpaceMouse:
             ee_laser=ee_laser,
             max_force_magnitude=self.max_force_magnitude,
             max_torque_magnitude=self.max_torque_magnitude,
+            sample_perturbations=sample_perturbations,
+            max_obstacle_offset=self.max_obstacle_offset,
         )
 
         self.data_path = Path(data_path)
@@ -139,6 +145,7 @@ class DataCollectorSpaceMouse:
         self.resize_sim_img = resize_sim_img
         self.compress_pickles = compress_pickles
         self.resume_trajectory_paths = resume_trajectory_paths
+        self.sample_perturbations = sample_perturbations
 
         self.iter_idx = 0
 
@@ -168,12 +175,14 @@ class DataCollectorSpaceMouse:
         self.metadata = {
             "max_force_magnitude": self.max_force_magnitude,
             "max_torque_magnitude": self.max_torque_magnitude,
+            "max_obstacle_offset": self.max_obstacle_offset,
             "ctrl_mode": ctrl_mode,
             "pos_bounds_m": self.pos_bounds_m,
             "ori_bounds_deg": self.ori_bounds_deg,
             "record_latency_when_grasping": self.record_latency_when_grasping,
             "start_delay": self.start_delay,
             "right_multiply_rot": self.right_multiply_rot,
+            "sample_perturbations": self.sample_perturbations,
         }
 
     def _squeeze_and_numpy(
@@ -478,7 +487,10 @@ class DataCollectorSpaceMouse:
 
                     # Execute action.
                     # if action_taken: # We can do this if we want to apply random perturbations when demonstrating
-                    next_obs, rew, done, info = self.env.step(action)
+                    next_obs, rew, done, info = self.env.step(
+                        action,
+                        sample_perturbations=action_taken and self.sample_perturbations,
+                    )
 
                     if rew == 1:
                         self.last_reward_idx = len(self.transitions)

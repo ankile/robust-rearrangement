@@ -57,6 +57,10 @@ def main():
         help="Directory to resume trajectories from",
         default=None,
     )
+    parser.add_argument(
+        "--sample-perturbations",
+        action="store_true",
+    )
 
     args = parser.parse_args()
 
@@ -69,12 +73,12 @@ def main():
     # Ensure valid randomness
     randomness = Randomness.str_to_enum(args.randomness)
 
-    data_path = trajectory_save_dir(
+    data_path: Path = trajectory_save_dir(
         controller=args.ctrl_mode,
         domain="sim",
         task=args.furniture,
         demo_source="teleop",
-        randomness=args.randomness,
+        randomness=args.randomness + ("_perturb" if args.sample_perturbations else ""),
     )
 
     if args.resume_dir is not None:
@@ -100,6 +104,7 @@ def main():
         ee_laser=args.ee_laser,
         compress_pickles=False,
         resume_trajectory_paths=pickle_paths,
+        sample_perturbations=args.sample_perturbations,
     )
     data_collector.collect()
 

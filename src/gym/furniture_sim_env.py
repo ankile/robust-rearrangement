@@ -1654,12 +1654,15 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.max_torque_magnitude: float = kwargs.get("max_torque_magnitude", 0.005)
 
         # Randomize plus/minus this number of meter in x and y directions
-        self.obstacle_range = kwargs.get("max_obstacle_randomization", 0.04)
+        self.obstacle_range = kwargs.get("max_obstacle_offset", 0.04)
 
         # Set parameters for Franka randomization
         self.franka_joint_rand_lim_deg = np.radians(
             kwargs.get("franka_joint_rand_lim_deg", 10)
         )
+
+        # Set whether to sample perturbations at each step
+        # self.sample_perturbations = kwargs.get("sample_perturbations", False)
 
         print(
             f"Max force magnitude: {self.max_force_magnitude} "
@@ -1704,18 +1707,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             f"T->{self.max_torque_magnitude:.4f}"
         )
 
-    def step(self, action: torch.Tensor):
+    def step(self, action: torch.Tensor, sample_perturbations: bool = False):
         obs, reward, done, info = super().step(action)
-        # Apply random forces to the parts with 10% probability for each environment
 
-        # perturb_env_idxs = torch.nonzero(
-        #     torch.rand((self.num_envs,), device=self.device) < 0.01
-        # )
-
-        # if perturb_env_idxs.numel() > 0:
-        #     self._apply_forces_to_parts(
-        #         perturb_env_idxs, max_force_magnitude=0.1, max_torque_magnitude=0.005
-        #     )
+        if sample_perturbations:
+            self._random_perturbation_of_parts(
+                self.max_force_magnitude,
+                self.max_torque_magnitude,
+            )
 
         return obs, reward, done, info
 
@@ -1837,6 +1836,71 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         # Fill the appropriate indices with the generated forces
         # Apply the forces to the rigid bodies
+        self.isaac_gym.apply_rigid_body_force_tensors(
+            self.sim,
+            gymtorch.unwrap_tensor(all_forces),
+            gymtorch.unwrap_tensor(all_torques),
+            gymapi.GLOBAL_SPACE,  # Apply forces in the world space
+        )
+
+    def _random_perturbation_of_parts(
+        self,
+        max_force_magnitude,
+        max_torque_magnitude,
+    ):
+        part_rigid_body_idxs = self.rigid_body_index_by_env.view(-1)
+        total_parts = part_rigid_body_idxs.numel()
+
+        # Generate a random mask to select parts with a 1% probability
+        selected_part_mask = torch.rand(total_parts, device=self.device) < 0.01
+
+        # Generate random forces in the xy plane for the selected parts
+        force_theta = torch.rand(total_parts, 1, device=self.device) * 2 * np.pi
+        force_magnitude = (
+            torch.rand(total_parts, 1, device=self.device) * max_force_magnitude
+        )
+        forces = torch.cat(
+            [
+                force_magnitude * torch.cos(force_theta),
+                force_magnitude * torch.sin(force_theta),
+                torch.zeros_like(force_magnitude),
+            ],
+            dim=-1,
+        )
+        # Scale the forces by the mass of the parts
+        forces = (forces * self.force_multiplier).view(-1, 3)
+
+        # Random torques
+        # Generate random torques for the selected parts in the z direction
+        z_torques = max_torque_magnitude * (
+            torch.rand(total_parts, 1, device=self.device) * 2 - 1
+        )
+
+        # Apply the torque multiplier
+        z_torques = z_torques * self.torque_multiplier
+
+        torques = torch.cat(
+            [
+                torch.zeros_like(z_torques),
+                torch.zeros_like(z_torques),
+                z_torques,
+            ],
+            dim=-1,
+        )
+
+        # Create tensors to hold forces and torques for all rigid bodies
+        all_forces = torch.zeros((self.rigid_body_count, 3), device=self.device)
+        all_torques = torch.zeros((self.rigid_body_count, 3), device=self.device)
+
+        # Fill the appropriate indices with the generated forces and torques based on the selected part mask
+        all_forces[part_rigid_body_idxs[selected_part_mask]] = forces[
+            selected_part_mask
+        ]
+        all_torques[part_rigid_body_idxs[selected_part_mask]] = torques[
+            selected_part_mask
+        ]
+
+        # Apply the forces and torques to the rigid bodies
         self.isaac_gym.apply_rigid_body_force_tensors(
             self.sim,
             gymtorch.unwrap_tensor(all_forces),

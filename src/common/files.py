@@ -196,9 +196,11 @@ def trajectory_save_dir(
     task: TaskName,
     demo_source: DemoSources,
     randomness: Randomness,
+    perturb: bool = False,
     create: bool = True,
     suffix: str = "",
 ) -> Path:
+
     # Make the path to the directory
     path = (
         Path(os.environ["DATA_DIR_RAW"])
