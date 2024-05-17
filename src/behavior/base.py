@@ -1,4 +1,4 @@
-from typing import Tuple, Union
+from typing import Dict, Tuple, Union
 from collections import deque
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
@@ -78,6 +78,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         self.predict_past_actions = actor_cfg.predict_past_actions
 
         # A queue of the next actions to be executed in the current horizon
+        self.observations = deque(maxlen=self.obs_horizon)
         self.actions = deque(maxlen=self.action_horizon)
 
         self.observation_type = config.observation_type
@@ -329,7 +330,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         return action
 
     @torch.no_grad()
-    def action(self, obs: deque):
+    def action(self, obs: Dict[str, torch.Tensor]):
         """
         Given a deque of observations, predict the action
 
@@ -338,8 +339,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         This function must account for if we predict the past actions or not
         """
 
+        # Append the new observation to the queue and ensure we fill it up to the horizon
+        self.observations.append(obs)
+        while len(self.observations) < self.obs_horizon:
+            self.observations.append(obs)
+
         # Normalize observations
-        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
+        nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
@@ -348,7 +354,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # Return the first action in the queue
         return self.actions.popleft()
 
-    def action_normalized(self, obs: deque):
+    def action_normalized(self, obs: Dict[str, torch.Tensor]):
         action = self.action(obs)
         return self.normalizer(action, "action", forward=True)
 
@@ -525,6 +531,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         loss = differences1.mean(dim=(0, 1)) + differences2.mean(dim=(0, 1))
 
         return loss
+
+    def reset(self):
+        """
+        Reset the actor
+        """
+        self.actions.clear()
+        self.observations.clear()
 
     # === Mode Toggle ===
     def train(self, mode=True):

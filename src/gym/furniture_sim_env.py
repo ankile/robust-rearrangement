@@ -1825,7 +1825,13 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
         self.normalizer.to(self.device)
 
     def reset_arg(self, options_list=None):
-        obs = self.reset()
+        return self.reset_one_arg(options=options_list)
+
+    def reset_one_arg(self, env_ind=None, options=None):
+        if env_ind is not None:
+            env_ind = torch.tensor([env_ind], device=self.device)
+
+        obs = self.reset(env_idxs=env_ind)
 
         # Concat together the robot_state and parts_poses
         robot_state = obs["robot_state"]

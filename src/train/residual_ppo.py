@@ -16,6 +16,8 @@ from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor
 
 from src.eval.load_model import load_bc_actor
+from diffusers.optimization import get_scheduler
+
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 
@@ -78,7 +80,7 @@ def main(cfg: DictConfig):
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
 
-    assert not (cfg.anneal_lr and cfg.adaptive_lr)
+    # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
     run_name = f"{int(time.time())}__residual_ppo__{cfg.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
@@ -123,7 +125,7 @@ def main(cfg: DictConfig):
     env.max_torque_magnitude = 0.0025
 
     # Load the behavior cloning actor
-    # TODO: The actor should keep tack of its own deque of observations
+    # TODO: The actor should keep track of its own deque of observations
     # Similar to how it keeps track of a deque of actions
     # bc_actor: Actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
     bc_actor: Actor = load_bc_actor("ankile/one_leg-diffusion-state-1/runs/7623y5vn")
@@ -131,6 +133,7 @@ def main(cfg: DictConfig):
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
+        reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
     )
     env.set_normalizer(bc_actor.normalizer)
@@ -149,6 +152,13 @@ def main(cfg: DictConfig):
         lr=cfg.learning_rate,
         eps=1e-5,
         weight_decay=1e-6,
+    )
+
+    lr_scheduler = get_scheduler(
+        name=cfg.lr_scheduler.name,
+        optimizer=optimizer,
+        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_training_steps=cfg.num_iterations,
     )
 
     steps_per_iteration = cfg.data_collection_steps
@@ -186,17 +196,14 @@ def main(cfg: DictConfig):
     # bp()
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
-    base_observation_deque = deque(
-        [next_obs for _ in range(bc_actor.obs_horizon)],
-        maxlen=bc_actor.obs_horizon,
-    )
+    bc_actor.reset()
 
-    # First get the base normalized action
-    base_naction = bc_actor.action_normalized(base_observation_deque)
+    # # First get the base normalized action
+    # base_naction = bc_actor.action_normalized(base_observation_deque)
 
-    # Make the observation for the residual policy by concatenating the state and the base action
-    next_obs = env.process_obs(next_obs)
-    next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
+    # # Make the observation for the residual policy by concatenating the state and the base action
+    # next_obs = env.process_obs(next_obs)
+    # next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
 
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
@@ -207,15 +214,12 @@ def main(cfg: DictConfig):
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
         print(f"Run name: {run_name}")
 
-        if iteration % cfg.eval_interval == 0:
-            eval_mode = True
-            # Also reset the env to have more consistent results
-            next_obs = env.reset()
-        else:
-            eval_mode = False
+        eval_mode = iteration % cfg.eval_interval == 0
 
-            if cfg.reset_every_iteration:
-                next_obs = env.reset()
+        # Also reset the env to have more consistent results
+        if eval_mode or cfg.reset_every_iteration:
+            next_obs = env.reset()
+            bc_actor.reset()
 
         print(f"Eval mode: {eval_mode}")
 
@@ -224,30 +228,28 @@ def main(cfg: DictConfig):
                 # Only count environment steps during training
                 global_step += cfg.num_envs
 
-            dones[step] = next_done
-            obs[step] = next_residual_obs
-
-            with torch.no_grad():
-                residual_naction_samp, logprob, _, value, action_mean = (
-                    residual_policy.get_action_and_value(next_residual_obs)
-                )
-
-            residual_naction = residual_naction_samp if not eval_mode else action_mean
-            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
-            next_obs, reward, next_done, truncated, infos = env.step(naction)
-
-            if cfg.truncation_as_done:
-                next_done = next_done | truncated
-
-            # Add the observation to the deque
-            base_observation_deque.append(next_obs)
-
             # Get the base normalized action
-            base_naction = bc_actor.action_normalized(base_observation_deque)
+            base_naction = bc_actor.action_normalized(next_obs)
 
             # Process the obs for the residual policy
             next_obs = env.process_obs(next_obs)
             next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
+
+            dones[step] = next_done
+            obs[step] = next_residual_obs
+
+            with torch.no_grad():
+                residual_naction_samp, logprob, _, value, naction_mean = (
+                    residual_policy.get_action_and_value(next_residual_obs)
+                )
+
+            residual_naction = residual_naction_samp if not eval_mode else naction_mean
+            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
+
+            next_obs, reward, next_done, truncated, infos = env.step(naction)
+
+            if cfg.truncation_as_done:
+                next_done = next_done | truncated
 
             values[step] = value.flatten().cpu()
             actions[step] = residual_naction.cpu()
@@ -294,7 +296,7 @@ def main(cfg: DictConfig):
                 print(f"Evaluation success rate improved. Model saved to {model_path}")
 
             # Also reset the env before the next iteration
-            next_obs = env.reset()
+            # next_obs = env.reset()
             continue
 
         b_obs = obs.reshape((-1, residual_policy.obs_dim))
@@ -393,8 +395,16 @@ def main(cfg: DictConfig):
                 # Normalize the losses so that each term has the same scale
                 if iteration > cfg.n_iterations_train_only_value:
                     # Calculate the scaling factors based on the magnitudes of the losses
-                    ppo_loss_scale = 1.0 / (torch.abs(ppo_loss.detach()) + 1e-8)
-                    aux_loss_scale = 1.0 / (torch.abs(aux_loss.detach()) + 1e-8)
+                    ppo_loss_scale = (
+                        1.0 / (torch.abs(ppo_loss.detach()) + 1e-8)
+                        if cfg.norm_grads
+                        else 1.0
+                    )
+                    aux_loss_scale = (
+                        1.0 / (torch.abs(aux_loss.detach()) + 1e-8)
+                        if cfg.norm_grads
+                        else 1.0
+                    )
 
                     # Scale the losses using the calculated scaling factors
                     policy_loss += ppo_loss * ppo_loss_scale
@@ -403,7 +413,9 @@ def main(cfg: DictConfig):
                     )
 
                 # Scale the value loss
-                v_loss_scale = 1.0 / (torch.abs(v_loss.detach()) + 1e-8)
+                v_loss_scale = (
+                    1.0 / (torch.abs(v_loss.detach()) + 1e-8) if cfg.norm_grads else 1.0
+                )
                 scaled_v_loss = cfg.vf_coef * v_loss * v_loss_scale
 
                 # Total loss
@@ -458,19 +470,16 @@ def main(cfg: DictConfig):
             step=global_step,
         )
 
-        # Anneal or adapt the learning rate if instructed to do so.
-        if cfg.anneal_lr:
-            frac = 1.0 - (global_step - 1) / cfg.total_timesteps
-            lrnow = frac * cfg.learning_rate
-            optimizer.param_groups[0]["lr"] = lrnow
+        # Step the learning rate scheduler
+        lr_scheduler.step()
 
-        if cfg.adaptive_lr and iteration > cfg.n_iterations_train_only_value:
-            if approx_kl > 1.5 * cfg.target_kl:
-                cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
-                optimizer.param_groups[0]["lr"] = cfg.learning_rate
-            elif approx_kl < 0.5 * cfg.target_kl:
-                cfg.learning_rate = min(cfg.learning_rate * 1.5, 1e-2)
-                optimizer.param_groups[0]["lr"] = cfg.learning_rate
+        # if cfg.adaptive_lr and iteration > cfg.n_iterations_train_only_value:
+        #     if approx_kl > 1.5 * cfg.target_kl:
+        #         cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
+        #         optimizer.param_groups[0]["lr"] = cfg.learning_rate
+        #     elif approx_kl < 0.5 * cfg.target_kl:
+        #         cfg.learning_rate = min(cfg.learning_rate * 1.5, 1e-2)
+        #         optimizer.param_groups[0]["lr"] = cfg.learning_rate
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
