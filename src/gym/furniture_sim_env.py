@@ -45,7 +45,7 @@ from furniture_bench.envs.observation import (
 )
 from furniture_bench.robot.robot_state import ROBOT_STATE_DIMS
 from furniture_bench.furniture.parts.part import Part
-from src.common.geometry import proprioceptive_quat_to_6d_rotation, euler_to_quat_xyzw
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 from ipdb import set_trace as bp
 
@@ -1654,14 +1654,18 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.max_torque_magnitude: float = kwargs.get("max_torque_magnitude", 0.005)
 
         # Randomize plus/minus this number of meter in x and y directions
-        self.obstacle_range = kwargs.get("max_obstacle_randomization", 0.03)
+        self.obstacle_range = kwargs.get("max_obstacle_randomization", 0.04)
 
         # Set parameters for Franka randomization
-        self.pos_range = 0.05
-        self.rot_range = np.radians(10)
+        self.franka_joint_rand_lim_deg = np.radians(
+            kwargs.get("franka_joint_rand_lim_deg", 10)
+        )
 
         print(
-            f"Max force magnitude: {self.max_force_magnitude}, Max torque magnitude: {self.max_torque_magnitude}"
+            f"Max force magnitude: {self.max_force_magnitude} "
+            f"Max torque magnitude: {self.max_torque_magnitude} "
+            f"Obstacle range: {self.obstacle_range} "
+            f"Franka joint randomization limit: {self.franka_joint_rand_lim_deg}"
         )
 
     def reset(self, env_idxs: torch.Tensor = None):
@@ -1717,7 +1721,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
     def _reset_frankas(self, env_idxs: torch.Tensor):
         # Define the range of random values for joint positions
-        joint_range = np.radians(10)  # Random joint positions within +/- 10 degrees
+        joint_range = self.franka_joint_rand_lim_deg
 
         # Generate random offsets for joint positions
         joint_offsets = (
