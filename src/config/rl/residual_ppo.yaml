@@ -9,15 +9,15 @@ checkpoint_interval: 10
 
 
 total_timesteps: 500_000_000
-num_envs: 256
+num_envs: 512
 num_minibatches: 1
-update_epochs: 5
+update_epochs: 10
 num_env_steps: 850
 data_collection_steps: ${num_env_steps}
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: -1.5
+  init_logstd: -2
   action_head_std: 0.0
   action_scale: 0.1
   actor_hidden_size: 512
@@ -26,9 +26,10 @@ residual_policy:
   critic_num_layers: 2
   actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
+  critic_last_layer_bias_const: 0.5
 
 # Algorithm specific arguments
-learning_rate: 3e-4
+learning_rate: 1e-4
 lr_scheduler:
   name: cosine
   warmup_steps: 5
@@ -43,7 +44,7 @@ ent_coef: 0.0
 vf_coef: 0.5
 max_grad_norm: 0.5
 target_kl: 0.1
-residual_regularization: 0.0
+residual_regularization: 0.01
 n_iterations_train_only_value: 0
 truncation_as_done: true
 norm_grads: false
