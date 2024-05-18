@@ -142,6 +142,31 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             action_mean,
         )
 
+    def get_action(self, nobs: torch.Tensor) -> torch.Tensor:
+        return self.actor_mean(nobs) * self.action_scale
+
+    def bc_loss(
+        self, res_nobs: torch.Tensor, gt_res_action: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute the behavior cloning loss for the policy
+
+        Args:
+            res_nobs: the observation tensor, i.e., state + base action
+            gt_res_action: the action tensor, i.e., the ground truth residual
+
+        the gt_res_action needs to be scaled by self.action_scale before passing it in
+        """
+        action_mean: torch.Tensor = self.actor_mean(res_nobs)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        gt_res_action_scaled = gt_res_action / self.action_scale
+
+        # Sum over the action dimension (last dimension)
+        return -probs.log_prob(gt_res_action_scaled).sum(dim=-1).mean()
+
 
 class BiggerResidualPolicy(ResidualPolicy):
 

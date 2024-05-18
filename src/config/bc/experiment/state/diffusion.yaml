@@ -2,14 +2,10 @@
 defaults:
   - override /actor: diffusion
 
-actor:
-  hidden_dims: [1024, 1024, 1024, 1024, 1024]
-  residual: true
-
 observation_type: state
 
 action_horizon: 8
-pred_horizon: 16
+pred_horizon: 32
 obs_horizon: 1
   
 data:

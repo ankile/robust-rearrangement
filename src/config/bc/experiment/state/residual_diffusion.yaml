@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - state/diffusion
+  - override /actor: residual_diffusion
+
+randomness: med
+
+data:
+  include_future_obs: true
+
+
+wandb:
+  entity: ankile
+  project: residual-diffusion-bc-1

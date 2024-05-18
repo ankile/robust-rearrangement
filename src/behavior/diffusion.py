@@ -23,10 +23,10 @@ class DiffusionPolicy(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        config: DictConfig,
+        cfg: DictConfig,
     ) -> None:
-        super().__init__(device, config)
-        actor_cfg = config.actor
+        super().__init__(device, cfg)
+        actor_cfg = cfg.actor
 
         # Diffusion-specific parameters
         self.inference_steps = actor_cfg.inference_steps
@@ -130,13 +130,15 @@ class DiffusionPolicy(Actor):
         noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
         loss = self.loss_fn(noise_pred, noise)
 
+        losses = {"bc_loss": loss.item()}
+
         # Add the VIB loss
         if self.camera_2_vib is not None:
             mu, log_var = batch["mu"], batch["log_var"]
             vib_loss = self.camera_2_vib.kl_divergence(mu, log_var)
 
             # Clip the VIB loss to prevent it from dominating the total loss
-            wandb.log({"vib_loss": vib_loss.item()}, commit=False)
+            losses["vib_loss"] = vib_loss.item()
             vib_loss = torch.clamp(vib_loss, max=1)
 
             # Scale the VIB loss by the beta and add it to the total loss
@@ -145,15 +147,11 @@ class DiffusionPolicy(Actor):
         # Add the confusion loss
         if self.confusion_loss_beta > 0:
             confusion_loss = batch["confusion_loss"]
+            losses["confusion_loss"] = confusion_loss.item()
+
             loss += self.confusion_loss_beta * confusion_loss
 
-            # Log the confusion loss
-            wandb.log({"confusion_loss": confusion_loss.item()}, commit=False)
-
-        # Log the bc loss and commit the log
-        wandb.log({"bc_loss": loss.item()}, commit=True)
-
-        return loss
+        return loss, losses
 
 
 class MultiTaskDiffusionPolicy(DiffusionPolicy):
@@ -165,7 +163,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         encoder_name: str,
         freeze_encoder: bool,
         normalizer: LinearNormalizer,
-        config,
+        cfg,
     ) -> None:
         raise NotImplementedError(
             "Multitask diffusion actor is not supported at the moment."
@@ -175,11 +173,11 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
             normalizer=normalizer,
-            config=config,
+            cfg=cfg,
         )
 
-        multitask_cfg = config.multitask
-        actor_cfg = config.actor
+        multitask_cfg = cfg.multitask
+        actor_cfg = cfg.actor
 
         self.task_dim = multitask_cfg.task_dim
         self.task_encoder = nn.Embedding(
@@ -248,7 +246,7 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
         encoder_name: str,
         freeze_encoder: bool,
         normalizer: LinearNormalizer,
-        config,
+        cfg,
     ) -> None:
         raise NotImplementedError(
             "Guided diffusion actor is not supported at the moment."
@@ -258,9 +256,9 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
             normalizer=normalizer,
-            config=config,
+            cfg=cfg,
         )
-        actor_cfg = config.actor
+        actor_cfg = cfg.actor
 
         self.guidance_scale = actor_cfg.guidance_scale
         self.prob_blank_cond = actor_cfg.prob_blank_cond
