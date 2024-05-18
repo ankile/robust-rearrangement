@@ -216,13 +216,6 @@ def main(cfg: DictConfig):
     next_obs = env.reset()
     bc_actor.reset()
 
-    # # First get the base normalized action
-    # base_naction = bc_actor.action_normalized(base_observation_deque)
-
-    # # Make the observation for the residual policy by concatenating the state and the base action
-    # next_obs = env.process_obs(next_obs)
-    # next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
-
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -232,7 +225,8 @@ def main(cfg: DictConfig):
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
         print(f"Run name: {run_name}")
 
-        eval_mode = iteration % cfg.eval_interval == 0
+        # If eval first flag is set, we will evaluate the model before doing any training
+        eval_mode = (iteration - int(cfg.eval_first)) % cfg.eval_interval == 0
 
         # Also reset the env to have more consistent results
         if eval_mode or cfg.reset_every_iteration:
@@ -316,8 +310,9 @@ def main(cfg: DictConfig):
                 wandb.save(model_path)
                 print(f"Evaluation success rate improved. Model saved to {model_path}")
 
-            # Also reset the env before the next iteration
-            # next_obs = env.reset()
+            # Start the data collection again
+            # NOTE: We're not resetting here now, that happens before the next
+            # iteration only if the reset_every_iteration flag is set
             continue
 
         b_obs = obs.reshape((-1, residual_policy.obs_dim))

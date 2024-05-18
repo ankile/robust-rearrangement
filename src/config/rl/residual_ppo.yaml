@@ -5,10 +5,10 @@ reset_on_failure: false
 reset_every_iteration: true
 reset_on_success: false
 eval_interval: 5
+eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
 base_bc_poliy: ankile/one_leg-diffusion-state-1/runs/7623y5vn
-
 
 total_timesteps: 200_000_000
 num_envs: 1024
@@ -63,7 +63,7 @@ num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
 
 action_type: pos
 act_rot_repr: rot_6d
- 
+
 wandb:
   entity: ankile
   project: residual-ppo-2
