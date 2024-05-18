@@ -23,6 +23,8 @@ def load_bc_actor(run_id: str, wt_type="best_success_rate", device="cuda"):
         .name
     )
 
+    print(model_path)
+
     bc_actor.load_state_dict(torch.load(model_path))
     bc_actor.eval()
     bc_actor.to(device)
