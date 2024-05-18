@@ -125,10 +125,7 @@ def main(cfg: DictConfig):
     env.max_torque_magnitude = 0.0025
 
     # Load the behavior cloning actor
-    # TODO: The actor should keep track of its own deque of observations
-    # Similar to how it keeps track of a deque of actions
-    # bc_actor: Actor = load_bc_actor("ankile/one_leg-mlp-state-1/runs/1ghcw9lu")
-    bc_actor: Actor = load_bc_actor("ankile/one_leg-diffusion-state-1/runs/7623y5vn")
+    bc_actor: Actor = load_bc_actor(cfg.base_bc_poliy)
 
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
@@ -147,16 +144,37 @@ def main(cfg: DictConfig):
 
     residual_policy.to(device)
 
-    optimizer = optim.AdamW(
-        residual_policy.parameters(),
-        lr=cfg.learning_rate,
+    actor_parameters = [
+        p for n, p in residual_policy.named_parameters() if "critic" not in n
+    ]
+    critic_parameters = [
+        p for n, p in residual_policy.named_parameters() if "critic" in n
+    ]
+
+    optimizer_actor = optim.AdamW(
+        actor_parameters,
+        lr=cfg.learning_rate_actor,
         eps=1e-5,
         weight_decay=1e-6,
     )
 
-    lr_scheduler = get_scheduler(
+    lr_scheduler_actor = get_scheduler(
         name=cfg.lr_scheduler.name,
-        optimizer=optimizer,
+        optimizer=optimizer_actor,
+        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_training_steps=cfg.num_iterations,
+    )
+
+    optimizer_critic = optim.AdamW(
+        critic_parameters,
+        lr=cfg.learning_rate_critic,
+        eps=1e-5,
+        weight_decay=1e-6,
+    )
+
+    lr_scheduler_critic = get_scheduler(
+        name=cfg.lr_scheduler.name,
+        optimizer=optimizer_critic,
         num_warmup_steps=cfg.lr_scheduler.warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
@@ -284,7 +302,10 @@ def main(cfg: DictConfig):
                 torch.save(
                     {
                         "model_state_dict": residual_policy.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
+                        "optimizer_actor_state_dict": optimizer_actor.state_dict(),
+                        "optimizer_critic_state_dict": optimizer_critic.state_dict(),
+                        "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
+                        "scheduler_critic_state_dict": lr_scheduler_critic.state_dict(),
                         "config": OmegaConf.to_container(cfg, resolve=True),
                         "success_rate": success_rate,
                         "iteration": iteration,
@@ -419,14 +440,18 @@ def main(cfg: DictConfig):
                 scaled_v_loss = cfg.vf_coef * v_loss * v_loss_scale
 
                 # Total loss
-                loss = policy_loss + scaled_v_loss
+                loss: torch.Tensor = policy_loss + scaled_v_loss
 
-                optimizer.zero_grad()
+                optimizer_actor.zero_grad()
+                optimizer_critic.zero_grad()
+
                 loss.backward()
                 nn.utils.clip_grad_norm_(
                     residual_policy.parameters(), cfg.max_grad_norm
                 )
-                optimizer.step()
+
+                optimizer_actor.step()
+                optimizer_critic.step()
 
             if cfg.target_kl is not None and approx_kl > cfg.target_kl:
                 print(
@@ -439,10 +464,20 @@ def main(cfg: DictConfig):
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         action_norms = torch.norm(b_actions[:, :3], dim=-1).cpu()
+        sps = int(global_step / (time.time() - start_time))
 
         wandb.log(
             {
-                "charts/learning_rate": optimizer.param_groups[0]["lr"],
+                "charts/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
+                "charts/learning_rate_critic": optimizer_critic.param_groups[0]["lr"],
+                "charts/SPS": sps,
+                "charts/rewards": rewards.sum().item(),
+                "charts/success_rate": success_rate,
+                "charts/action_norm_mean": action_norms.mean(),
+                "charts/action_norm_std": action_norms.std(),
+                "values/advantages": b_advantages.mean().item(),
+                "values/returns": b_returns.mean().item(),
+                "values/values": b_values.mean().item(),
                 "losses/value_loss": v_loss.item(),
                 "losses/policy_loss": pg_loss.item(),
                 "losses/total_loss": loss.item(),
@@ -452,14 +487,6 @@ def main(cfg: DictConfig):
                 "losses/clipfrac": np.mean(clipfracs),
                 "losses/explained_variance": explained_var,
                 "losses/residual_l2": aux_loss.item(),
-                "charts/SPS": int(global_step / (time.time() - start_time)),
-                "charts/rewards": rewards.sum().item(),
-                "charts/success_rate": success_rate,
-                "charts/action_norm_mean": action_norms.mean(),
-                "charts/action_norm_std": action_norms.std(),
-                "values/advantages": b_advantages.mean().item(),
-                "values/returns": b_returns.mean().item(),
-                "values/values": b_values.mean().item(),
                 "histograms/values": wandb.Histogram(values),
                 "histograms/returns": wandb.Histogram(b_returns),
                 "histograms/advantages": wandb.Histogram(b_advantages),
@@ -471,15 +498,8 @@ def main(cfg: DictConfig):
         )
 
         # Step the learning rate scheduler
-        lr_scheduler.step()
-
-        # if cfg.adaptive_lr and iteration > cfg.n_iterations_train_only_value:
-        #     if approx_kl > 1.5 * cfg.target_kl:
-        #         cfg.learning_rate = max(cfg.learning_rate / 1.5, 1e-6)
-        #         optimizer.param_groups[0]["lr"] = cfg.learning_rate
-        #     elif approx_kl < 0.5 * cfg.target_kl:
-        #         cfg.learning_rate = min(cfg.learning_rate * 1.5, 1e-2)
-        #         optimizer.param_groups[0]["lr"] = cfg.learning_rate
+        lr_scheduler_actor.step()
+        lr_scheduler_critic.step()
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
@@ -487,7 +507,10 @@ def main(cfg: DictConfig):
             torch.save(
                 {
                     "model_state_dict": residual_policy.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
+                    "optimizer_actor_state_dict": optimizer_actor.state_dict(),
+                    "optimizer_critic_state_dict": optimizer_critic.state_dict(),
+                    "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
+                    "scheduler_critic_state_dict": lr_scheduler_critic.state_dict(),
                     "config": OmegaConf.to_container(cfg, resolve=True),
                     "success_rate": success_rate,
                     "iteration": iteration,
@@ -497,6 +520,11 @@ def main(cfg: DictConfig):
 
             wandb.save(model_path)
             print(f"Model saved to {model_path}")
+
+        # Print some stats at the end of the iteration
+        print(
+            f"Iteration {iteration}/{cfg.num_iterations}, global step {global_step}, SPS {sps}"
+        )
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 

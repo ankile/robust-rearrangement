@@ -905,6 +905,8 @@ class FurnitureSimEnv(gym.Env):
             (self.num_envs, 1), dtype=torch.float32, device=self.device
         )
 
+        # return rewards
+
         if self.manual_label:
             # Return zeros since the reward is manually labeled by data_collector.py.
             return rewards
