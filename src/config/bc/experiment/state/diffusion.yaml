@@ -25,4 +25,4 @@ randomness: low
 demo_source: teleop
 
 wandb:
-  project: ${furniture}-diffusion-state-1
+  project: ???
