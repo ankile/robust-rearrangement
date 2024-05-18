@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p xeon-g6-volta
-#SBATCH -t 1-12:00
+#SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH --job-name=real_ol_simple_trans_l1
 #SBATCH -c 20
@@ -16,7 +16,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     regularization.vib_front_feature_beta=0.0 \
     actor/diffusion_model=transformer \
     actor.loss_fn=L1Loss \
-    training.actor_lr=1e-5 training.encoder_lr=1e-5 \
+    training.actor_lr=5e-4 training.encoder_lr=1e-5 \
     training.num_epochs=5000 \
     early_stopper.patience=inf \
     furniture=one_leg_simple \
