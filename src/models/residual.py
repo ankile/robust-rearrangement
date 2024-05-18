@@ -78,6 +78,7 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         action_head_std=0.01,
         action_scale=0.1,
         critic_last_layer_bias_const=0.0,
+        critic_last_layer_std=1.0,
     ):
         """
         Args:
@@ -107,7 +108,7 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             hidden_sizes=[critic_hidden_size] * critic_num_layers,
             output_dim=1,
             activation=critic_activation,
-            output_std=0.01,
+            output_std=critic_last_layer_std,
             bias_on_last_layer=True,
             last_layer_bias_const=critic_last_layer_bias_const,
         )

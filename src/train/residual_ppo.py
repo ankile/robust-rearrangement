@@ -410,37 +410,21 @@ def main(cfg: DictConfig):
                 entropy_loss = entropy.mean() * cfg.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
+
                 # Add the auxiliary regularization loss
-                aux_loss = torch.mean(torch.square(action_mean))
+                residual_l1_loss = torch.mean(torch.abs(action_mean))
+                residual_l2_loss = torch.mean(torch.square(action_mean))
 
                 # Normalize the losses so that each term has the same scale
                 if iteration > cfg.n_iterations_train_only_value:
-                    # Calculate the scaling factors based on the magnitudes of the losses
-                    ppo_loss_scale = (
-                        1.0 / (torch.abs(ppo_loss.detach()) + 1e-8)
-                        if cfg.norm_grads
-                        else 1.0
-                    )
-                    aux_loss_scale = (
-                        1.0 / (torch.abs(aux_loss.detach()) + 1e-8)
-                        if cfg.norm_grads
-                        else 1.0
-                    )
 
                     # Scale the losses using the calculated scaling factors
-                    policy_loss += ppo_loss * ppo_loss_scale
-                    policy_loss += (
-                        cfg.residual_regularization * aux_loss * aux_loss_scale
-                    )
-
-                # Scale the value loss
-                v_loss_scale = (
-                    1.0 / (torch.abs(v_loss.detach()) + 1e-8) if cfg.norm_grads else 1.0
-                )
-                scaled_v_loss = cfg.vf_coef * v_loss * v_loss_scale
+                    policy_loss += ppo_loss
+                    policy_loss += cfg.residual_l1 * residual_l1_loss
+                    policy_loss += cfg.residual_l2 * residual_l2_loss
 
                 # Total loss
-                loss: torch.Tensor = policy_loss + scaled_v_loss
+                loss: torch.Tensor = policy_loss + v_loss * cfg.value_coef
 
                 optimizer_actor.zero_grad()
                 optimizer_critic.zero_grad()
@@ -486,7 +470,8 @@ def main(cfg: DictConfig):
                 "losses/approx_kl": approx_kl.item(),
                 "losses/clipfrac": np.mean(clipfracs),
                 "losses/explained_variance": explained_var,
-                "losses/residual_l2": aux_loss.item(),
+                "losses/residual_l1": residual_l1_loss.item(),
+                "losses/residual_l2": residual_l2_loss.item(),
                 "histograms/values": wandb.Histogram(values),
                 "histograms/returns": wandb.Histogram(b_returns),
                 "histograms/advantages": wandb.Histogram(b_advantages),
