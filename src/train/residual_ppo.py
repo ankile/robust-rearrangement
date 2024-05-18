@@ -346,8 +346,6 @@ def main(cfg: DictConfig):
         b_inds = np.arange(cfg.batch_size)
         clipfracs = []
         for epoch in trange(cfg.update_epochs, desc="Policy update"):
-            # if cfg.bc_coef > 0:
-            #     demo_data_iter = iter(demo_data_loader)
 
             np.random.shuffle(b_inds)
             for start in range(0, cfg.batch_size, cfg.minibatch_size):
@@ -424,7 +422,7 @@ def main(cfg: DictConfig):
                     policy_loss += cfg.residual_l2 * residual_l2_loss
 
                 # Total loss
-                loss: torch.Tensor = policy_loss + v_loss * cfg.value_coef
+                loss: torch.Tensor = policy_loss + v_loss * cfg.vf_coef
 
                 optimizer_actor.zero_grad()
                 optimizer_critic.zero_grad()
