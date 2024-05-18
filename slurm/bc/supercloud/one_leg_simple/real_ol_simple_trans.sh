@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p xeon-g6-volta
-#SBATCH -t 1-00:00
+#SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH --job-name=real_ol_simple_trans
 #SBATCH -c 20
@@ -18,6 +18,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     actor.loss_fn=MSELoss \
     training.actor_lr=1e-4 training.encoder_lr=1e-4 \
     training.num_epochs=5000 \
+    data.augment_image=false \
     early_stopper.patience=inf \
     furniture=one_leg_simple \
     environment=real \
