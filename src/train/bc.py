@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
@@ -117,6 +118,7 @@ def main(cfg: DictConfig):
             predict_past_actions=cfg.data.predict_past_actions,
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
+            include_future_obs=cfg.data.include_future_obs,
         )
     else:
         raise ValueError(f"Unknown observation type: {cfg.observation_type}")
@@ -289,7 +291,7 @@ def main(cfg: DictConfig):
             batch = dict_to_device(batch, device)
 
             # Get loss
-            loss = actor.compute_loss(batch)
+            loss, losses_log = actor.compute_loss(batch)
 
             # backward pass
             loss.backward()
@@ -309,6 +311,7 @@ def main(cfg: DictConfig):
                 {
                     "training/lr": lr,
                     "batch_loss": loss_cpu,
+                    **losses_log,
                 }
             )
 
@@ -324,6 +327,8 @@ def main(cfg: DictConfig):
         if cfg.training.ema.use:
             ema.apply_shadow()
 
+        eval_losses_log = defaultdict(list)
+
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -331,12 +336,16 @@ def main(cfg: DictConfig):
                 test_batch = dict_to_device(test_batch, device)
 
                 # Get test loss
-                test_loss_val = actor.compute_loss(test_batch)
+                test_loss_val, losses_log = actor.compute_loss(test_batch)
 
                 # logging
                 test_loss_cpu = test_loss_val.item()
                 test_loss.append(test_loss_cpu)
                 test_tepoch.set_postfix(loss=test_loss_cpu)
+
+                # Append the losses to the log
+                for k, v in losses_log.items():
+                    eval_losses_log[k].append(v)
 
         test_tepoch.close()
 
@@ -463,6 +472,10 @@ def main(cfg: DictConfig):
         epoch_log["early_stopper/counter"] = early_stopper.counter
         epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
         epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
+        # Update the epoch log with the mean of the evaluation losses
+        for k, v in eval_losses_log.items():
+            epoch_log[f"test_{k}"] = np.mean(v)
 
         # Log epoch stats
         wandb.log(epoch_log)

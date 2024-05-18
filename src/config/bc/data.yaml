@@ -15,3 +15,4 @@ data:
   demo_outcome: ${demo_outcome}
   pad_after: true
   suffix: null
+  include_future_obs: false

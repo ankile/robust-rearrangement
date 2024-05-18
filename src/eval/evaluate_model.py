@@ -320,6 +320,7 @@ if __name__ == "__main__":
                     for f in run.files()
                     if f.name.endswith(".pt") and checkpoint_type in f.name
                 ][0]
+                print(f"Loading checkpoint: {model_file.name}")
                 model_path = model_file.download(
                     root=f"./models/{run.name}", exist_ok=True, replace=True
                 ).name

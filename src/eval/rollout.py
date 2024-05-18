@@ -60,6 +60,7 @@ def rollout(
     # get first observation
     with suppress_all_output(False):
         obs = env.reset()
+        actor.reset()
 
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 5 second
@@ -71,14 +72,6 @@ def rollout(
     # Resize the images in the observation if they exist
     resize_image(obs, "color_image1")
     resize_crop_image(obs, "color_image2")
-
-    obs_horizon = actor.obs_horizon
-
-    # keep a queue of last 2 steps of observations
-    obs_deque = collections.deque(
-        [obs] * obs_horizon,
-        maxlen=obs_horizon,
-    )
 
     if resize_video:
         resize_image(video_obs, "color_image1")
@@ -96,7 +89,7 @@ def rollout(
     step_idx = 0
     while not done.all():
         # Get the next actions from the actor
-        action_pred = actor.action(obs_deque)
+        action_pred = actor.action(obs)
 
         obs, reward, done, _ = env.step(action_pred)
 
@@ -107,8 +100,6 @@ def rollout(
         resize_crop_image(obs, "color_image2")
 
         # Save observations for the policy
-        obs_deque.append(obs)
-
         if resize_video:
             resize_image(video_obs, "color_image1")
             resize_crop_image(video_obs, "color_image2")
