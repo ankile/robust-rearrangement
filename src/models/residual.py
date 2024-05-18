@@ -37,6 +37,7 @@ def build_mlp(
     activation,
     output_std=1.0,
     bias_on_last_layer=True,
+    last_layer_bias_const=0.0,
 ):
     act_func = getattr(nn, activation)
     layers = []
@@ -56,6 +57,7 @@ def build_mlp(
             nn.Linear(hidden_sizes[-1], output_dim, bias=bias_on_last_layer),
             std=output_std,
             nonlinearity="Tanh",
+            bias_const=last_layer_bias_const,
         )
     )
     return nn.Sequential(*layers)
@@ -75,6 +77,8 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         init_logstd=-3,
         action_head_std=0.01,
         action_scale=0.1,
+        critic_last_layer_bias_const=0.0,
+        critic_last_layer_std=1.0,
     ):
         """
         Args:
@@ -104,8 +108,9 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             hidden_sizes=[critic_hidden_size] * critic_num_layers,
             output_dim=1,
             activation=critic_activation,
-            output_std=0.01,
+            output_std=critic_last_layer_std,
             bias_on_last_layer=True,
+            last_layer_bias_const=critic_last_layer_bias_const,
         )
 
         self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)

@@ -47,6 +47,12 @@ class RunningMeanStd:
             self.mean, self.var, self.count, batch_mean, batch_var, batch_count
         )
 
+    def update_normalize(self, x):
+        """Normalizes the rewards with the running mean rewards and their variance."""
+        self.update(x)
+        self.update(self.returns)
+        return x / torch.sqrt(self.var + self.epsilon)
+
 
 class NormalizeObservation(gym.Wrapper):
     """This wrapper will normalize observations s.t. each coordinate is centered with unit variance.
@@ -89,7 +95,7 @@ class NormalizeObservation(gym.Wrapper):
         return (obs - self.obs_rms.mean) / torch.sqrt(self.obs_rms.var + self.epsilon)
 
 
-class NormalizeReward(gym.core.Wrapper):
+class NormalizeRewardWrapper(gym.core.Wrapper):
     r"""This wrapper will normalize immediate rewards s.t. their exponential moving average has a fixed variance.
 
     The exponential moving average will have variance :math:`(1 - \gamma)^2`.

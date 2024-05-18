@@ -13,8 +13,8 @@
 # cd /data/scratch/ankile/robust-rearrangement
 # git checkout diffusion-adapt
 
-# cd /data/scratch/ankile/diffusion-adapt
-# git checkout lars-furniture-tasks
+cd /data/scratch/ankile/diffusion-adapt
+git checkout lars-furniture-tasks
 
 # source env.sh
 

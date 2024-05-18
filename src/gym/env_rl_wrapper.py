@@ -167,6 +167,7 @@ class ResidualPolicyEnvWrapper:
         ee_dof=10,
         task="oneleg",
         add_relative_pose=False,
+        reset_on_success=True,
         reset_on_failure=False,
         device="cuda",
     ):
@@ -174,6 +175,7 @@ class ResidualPolicyEnvWrapper:
         self.env = env
         self.task = task
         self.add_relative_pose = add_relative_pose
+        self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
         self.device = device
         self.normalizer = LinearNormalizer()
@@ -278,7 +280,7 @@ class ResidualPolicyEnvWrapper:
         truncated = self.env.env_steps >= self.max_env_steps
 
         # Reset the envs that have reached the max number of steps or got reward
-        if torch.any(done := terminated | truncated):
+        if self.reset_on_success and torch.any(done := terminated | truncated):
             obs = self.env.reset(torch.nonzero(done).view(-1))
 
         return obs, reward, terminated, truncated, info
