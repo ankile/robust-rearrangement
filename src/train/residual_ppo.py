@@ -194,7 +194,7 @@ def main(cfg: DictConfig):
         config=OmegaConf.to_container(cfg, resolve=True),
         name=run_name,
         save_code=True,
-        mode="online" if not cfg.debug else "disabled",
+        mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
 
     # ALGO Logic: Storage setup
