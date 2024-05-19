@@ -112,7 +112,6 @@ class FurnitureSimEnv(gym.Env):
             ctrl_mode == "diffik"
         ), "Only 'diffik' controller is supported for now (parallization)."
 
-        # NOTE: This is solely for the grid search
         self.pos_scalar = kwargs.get("pos_scalar", 1.0)
         self.rot_scalar = kwargs.get("rot_scalar", 1.0)
         self.stiffness = kwargs.get("stiffness", 1000.0)
@@ -1551,8 +1550,35 @@ class FurnitureSimEnv(gym.Env):
 class FurnitureRLSimEnv(FurnitureSimEnv):
     """FurnitureSim environment for Reinforcement Learning."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, randomness, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.randomness = str_to_enum(randomness)
+
+        if self.randomness == Randomness.LOW:
+            self.max_force_magnitude = 0.2
+            self.max_torque_magnitude = 0.005
+            self.max_obstacle_offset = 0.02
+            self.franka_joint_rand_lim_deg = np.radians(5)
+        elif self.randomness == Randomness.MEDIUM:
+            self.max_force_magnitude = 0.5
+            self.max_torque_magnitude = 0.01
+            self.max_obstacle_offset = 0.04
+            self.franka_joint_rand_lim_deg = np.radians(10)
+        elif self.randomness == Randomness.HIGH:
+            self.max_force_magnitude = 1.0
+            self.max_torque_magnitude = 0.02
+            self.max_obstacle_offset = 0.06
+            self.franka_joint_rand_lim_deg = np.radians(15)
+        else:
+            raise ValueError("Invalid randomness level")
+
+        print(
+            f"Max force magnitude: {self.max_force_magnitude} "
+            f"Max torque magnitude: {self.max_torque_magnitude} "
+            f"Obstacle range: {self.max_obstacle_offset} "
+            f"Franka joint randomization limit: {self.franka_joint_rand_lim_deg}"
+        )
 
         ## Need these indices to reset position of the actors/parts
         # Store the default initialization pose for the parts in a convenient tensor
@@ -1653,27 +1679,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             [70, 1, 1, 1, 1], device=self.device
         ).unsqueeze(-1)
 
-        self.max_force_magnitude: float = kwargs.get("max_force_magnitude", 0.2)
-        self.max_torque_magnitude: float = kwargs.get("max_torque_magnitude", 0.005)
-
-        # Randomize plus/minus this number of meter in x and y directions
-        self.obstacle_range = kwargs.get("max_obstacle_offset", 0.04)
-
-        # Set parameters for Franka randomization
-        self.franka_joint_rand_lim_deg = np.radians(
-            kwargs.get("franka_joint_rand_lim_deg", 10)
-        )
-
-        # Set whether to sample perturbations at each step
-        # self.sample_perturbations = kwargs.get("sample_perturbations", False)
-
-        print(
-            f"Max force magnitude: {self.max_force_magnitude} "
-            f"Max torque magnitude: {self.max_torque_magnitude} "
-            f"Obstacle range: {self.obstacle_range} "
-            f"Franka joint randomization limit: {self.franka_joint_rand_lim_deg}"
-        )
-
     def reset(self, env_idxs: torch.Tensor = None):
         # return super().reset()
         # can also reset the full set of robots/parts, without applying torques and refreshing
@@ -1769,7 +1774,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Sample x and y values in [-2, 2] that we want to add to the initial position
         obstacle_pos_offsets = (
             torch.rand((env_idxs.numel(), 1, 3), device=self.device) * 2 - 1
-        ) * self.obstacle_range
+        ) * self.max_obstacle_offset
         obstacle_pos_offsets[..., 2] = 0.0  # Don't move the obstacle in the z direction
 
         self.root_pos[env_idxs.unsqueeze(1), self.obstacles_idx_list] = (

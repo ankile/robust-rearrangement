@@ -425,10 +425,10 @@ def main(cfg: DictConfig):
                     ctrl_mode=cfg.control.controller,
                     action_type=cfg.control.control_mode,
                     headless=True,
-                    pos_scalar=1,
-                    rot_scalar=1,
-                    stiffness=1_000,
-                    damping=200,
+                    # pos_scalar=1,
+                    # rot_scalar=1,
+                    # stiffness=1_000,
+                    # damping=200,
                 )
 
             best_success_rate = do_rollout_evaluation(

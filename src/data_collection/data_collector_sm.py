@@ -93,21 +93,6 @@ class DataCollectorSpaceMouse:
         if not draw_marker:
             turn_off_april_tags()
 
-        if randomness == Randomness.LOW:
-            self.max_force_magnitude = 0.2
-            self.max_torque_magnitude = 0.005
-            self.max_obstacle_offset = 0.02
-        elif randomness == Randomness.MEDIUM:
-            self.max_force_magnitude = 0.5
-            self.max_torque_magnitude = 0.01
-            self.max_obstacle_offset = 0.04
-        elif randomness == Randomness.HIGH:
-            self.max_force_magnitude = 1.0
-            self.max_torque_magnitude = 0.02
-            self.max_obstacle_offset = 0.06
-        else:
-            raise ValueError("Invalid randomness level")
-
         print("[NB] Creating 4 envs for debugging purposes")
         self.env = FurnitureRLSimEnv(
             furniture=furniture,
@@ -126,10 +111,6 @@ class DataCollectorSpaceMouse:
             graphics_device_id=graphics_device_id,
             ctrl_mode=ctrl_mode,
             ee_laser=ee_laser,
-            max_force_magnitude=self.max_force_magnitude,
-            max_torque_magnitude=self.max_torque_magnitude,
-            sample_perturbations=sample_perturbations,
-            max_obstacle_offset=self.max_obstacle_offset,
         )
 
         self.data_path = Path(data_path)
@@ -173,9 +154,10 @@ class DataCollectorSpaceMouse:
         self._reset_collector_buffer()
 
         self.metadata = {
-            "max_force_magnitude": self.max_force_magnitude,
-            "max_torque_magnitude": self.max_torque_magnitude,
-            "max_obstacle_offset": self.max_obstacle_offset,
+            "max_force_magnitude": self.env.max_force_magnitude,
+            "max_torque_magnitude": self.env.max_torque_magnitude,
+            "max_obstacle_offset": self.env.max_obstacle_offset,
+            "franka_joint_rand_lim_deg": self.env.franka_joint_rand_lim_deg,
             "ctrl_mode": ctrl_mode,
             "pos_bounds_m": self.pos_bounds_m,
             "ori_bounds_deg": self.ori_bounds_deg,
