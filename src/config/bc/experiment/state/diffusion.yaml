@@ -20,5 +20,12 @@ furniture: ???
 randomness: low
 demo_source: teleop
 
+rollout:
+  every: 5
+  max_steps: 850
+  num_envs: 256
+  loss_threshold: 0.1
+  randomness: low
+
 wandb:
   project: ???

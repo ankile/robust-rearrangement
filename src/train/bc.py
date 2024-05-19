@@ -414,17 +414,12 @@ def main(cfg: DictConfig):
         ):
             # Do not load the environment until we successfuly made it this far
             if env is None:
-                from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
-
-                # env: FurnitureSimEnv = get_env(
                 env: FurnitureRLSimEnv = get_rl_env(
                     cfg.training.gpu_id,
                     furniture=cfg.rollout.furniture,
                     num_envs=cfg.rollout.num_envs,
                     randomness=cfg.rollout.randomness,
                     observation_space=cfg.observation_type,
-                    # Now using full size images in sim and resizing to be consistent
-                    # observation_space=cfg.observation_type,
                     resize_img=False,
                     act_rot_repr=cfg.control.act_rot_repr,
                     ctrl_mode=cfg.control.controller,
