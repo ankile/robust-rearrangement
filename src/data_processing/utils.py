@@ -1,6 +1,7 @@
 import pickle
 import tarfile
-from typing import Union
+from typing import Dict, Union
+from furniture_bench.robot.robot_state import ROBOT_STATES
 import numpy as np
 import torch
 from torchvision.transforms import functional as F, InterpolationMode
@@ -114,3 +115,15 @@ def clip_quat_xyzw_magnitude(delta_quat_xyzw: np.ndarray, clip_mag=0.35) -> np.n
     delta_quat_xyzw = R.from_rotvec(delta_rotvec).as_quat()
 
     return delta_quat_xyzw
+
+
+def filter_and_concat_robot_state(robot_state: Dict[str, torch.Tensor]):
+    current_robot_state = []
+    for rs in ROBOT_STATES:
+        if rs not in robot_state:
+            continue
+
+        if rs == "gripper_width":
+            robot_state[rs] = torch.tensor([robot_state[rs]]).reshape(1)
+        current_robot_state.append(robot_state[rs])
+    return torch.cat(current_robot_state, dim=-1)

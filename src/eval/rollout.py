@@ -9,7 +9,7 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-from typing import Union
+from typing import Dict, Union
 
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
@@ -50,6 +50,30 @@ def resize_crop_image(obs, key):
         pass
 
 
+def squeeze_and_numpy(d: Dict[str, Union[torch.Tensor, np.ndarray, float, int, None]]):
+    """
+    Recursively squeeze and convert tensors to numpy arrays
+    Convert scalars to floats
+    Leave NoneTypes alone
+    """
+    for k, v in d.items():
+        if isinstance(v, dict):
+            d[k] = squeeze_and_numpy(v)
+
+        elif v is None:
+            continue
+
+        elif isinstance(v, (torch.Tensor, np.ndarray)):
+            if isinstance(v, torch.Tensor):
+                v = v.cpu().numpy()
+            d[k] = v.squeeze()
+
+        else:
+            raise ValueError(f"Unsupported type: {type(v)}")
+
+    return d
+
+
 def rollout(
     env: FurnitureSimEnv,
     actor: Actor,
@@ -78,7 +102,7 @@ def rollout(
         resize_crop_image(video_obs, "color_image2")
 
     # save visualization and rewards
-    robot_states = [video_obs["robot_state"].cpu()]
+    robot_states = [squeeze_and_numpy(video_obs["robot_state"])]
     imgs1 = [] if "color_image1" not in video_obs else [video_obs["color_image1"].cpu()]
     imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
@@ -105,7 +129,7 @@ def rollout(
             resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
-        robot_states.append(video_obs["robot_state"].cpu())
+        robot_states.append(squeeze_and_numpy(video_obs["robot_state"]))
         if "color_image1" in video_obs:
             imgs1.append(video_obs["color_image1"].cpu())
         if "color_image2" in video_obs:
@@ -127,7 +151,7 @@ def rollout(
             break
 
     return (
-        torch.stack(robot_states, dim=1),
+        robot_states,
         torch.stack(imgs1, dim=1) if imgs1 else [],
         torch.stack(imgs2, dim=1) if imgs2 else [],
         torch.stack(actions, dim=1),
