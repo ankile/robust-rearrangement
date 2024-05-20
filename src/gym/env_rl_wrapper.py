@@ -186,7 +186,7 @@ class ResidualPolicyEnvWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
+            -float("inf"), float("inf"), shape=(16 + 7 * (5 + 1),)
         )
 
         # Define the maximum number of steps in the environment

@@ -756,7 +756,8 @@ class FurnitureSimEnv(gym.Env):
     @property
     def observation_space(self):
         low, high = -np.inf, np.inf
-        parts_poses = self.furniture.num_parts * self.pose_dim
+        # Now we also include the obstacle in the pose list.
+        parts_poses = (self.furniture.num_parts + 1) * self.pose_dim
         img_size = reversed(self.img_size)
         img_shape = (3, *img_size) if self.channel_first else (*img_size, 3)
 
