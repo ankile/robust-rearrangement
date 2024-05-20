@@ -8,14 +8,18 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-base_bc_poliy: ankile/one_leg-diffusion-state-1/runs/7623y5vn
+# base_bc_poliy: ankile/one_leg-diffusion-state-1/runs/7623y5vn
+base_bc_poliy: ankile/ol-state-dr-1/runs/klnpg80g
 
-total_timesteps: 200_000_000
+total_timesteps: 300_000_000
 num_envs: 1024
 num_minibatches: 1
 update_epochs: 10
-num_env_steps: 850
+num_env_steps: 800
 data_collection_steps: ${num_env_steps}
+
+env:
+  randomness: med
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
@@ -66,7 +70,7 @@ act_rot_repr: rot_6d
 
 wandb:
   entity: ankile
-  project: residual-ppo-2
+  project: residual-ppo-dr-1
   mode: online
 
 debug: false
