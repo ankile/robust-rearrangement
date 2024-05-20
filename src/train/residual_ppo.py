@@ -112,7 +112,7 @@ def main(cfg: DictConfig):
             headless=cfg.headless,
             num_envs=cfg.num_envs,
             observation_space="state",
-            randomness="low",
+            randomness=cfg.env.randomness,
             max_env_steps=100_000_000,
             pos_scalar=1,
             rot_scalar=1,
@@ -194,7 +194,7 @@ def main(cfg: DictConfig):
         config=OmegaConf.to_container(cfg, resolve=True),
         name=run_name,
         save_code=True,
-        mode="online" if not cfg.debug else "disabled",
+        mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
 
     # ALGO Logic: Storage setup
