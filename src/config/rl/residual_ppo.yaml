@@ -43,8 +43,8 @@ lr_scheduler:
   warmup_steps: 5
 
 # Residual specific arguments
-residual_l1: 0.01
-residual_l2: 0.0
+residual_l1: 0.0
+residual_l2: 0.01
 
 # Algorithm specific arguments
 gamma: 0.999
