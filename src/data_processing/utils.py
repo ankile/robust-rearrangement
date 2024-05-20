@@ -5,9 +5,10 @@ from furniture_bench.robot.robot_state import ROBOT_STATES
 import numpy as np
 import torch
 from torchvision.transforms import functional as F, InterpolationMode
-from PIL import Image
 
 from scipy.spatial.transform import Rotation as R
+
+from ipdb import set_trace as bp
 
 
 def zipped_img_generator(filename, max_samples=1000):
@@ -123,7 +124,7 @@ def filter_and_concat_robot_state(robot_state: Dict[str, torch.Tensor]):
         if rs not in robot_state:
             continue
 
-        if rs == "gripper_width":
-            robot_state[rs] = torch.tensor([robot_state[rs]]).reshape(1)
+        # if rs == "gripper_width":
+        #     robot_state[rs] = robot_state[rs].reshape(-1, 1)
         current_robot_state.append(robot_state[rs])
     return torch.cat(current_robot_state, dim=-1)
