@@ -62,12 +62,14 @@ FILE = FILES[args_cli.demo_index]
 
 width, height = 640, 480
 pixel_size = 3.0 * 1e-3
-front_435_camera_matrix = np.array([[607.24603271,   0.        , 328.35696411],
-        [  0.        , 607.39056396, 244.84118652],
-        [  0.        ,   0.        ,   1.        ]])
-wrist_435_camera_matrix = np.array([[613.14752197,   0.        , 326.19647217],
-       [  0.        , 613.16229248, 244.59855652],
-       [  0.        ,   0.        ,   1.        ]])
+front_435_camera_matrix = np.array([
+    [607.24603271,   0.        , 328.35696411],
+    [  0.        , 607.39056396, 244.84118652],
+    [  0.        ,   0.        ,   1.        ]])
+wrist_435_camera_matrix = np.array([
+    [613.14752197,   0.        , 326.19647217],
+    [  0.        , 613.16229248, 244.59855652],
+    [  0.        ,   0.        ,   1.        ]])
 
 cam_params = {}
 
@@ -84,8 +86,8 @@ for name, mat in zip(['front', 'wrist'], [front_435_camera_matrix, wrist_435_cam
     params = dict(
         horizontal_aperture=horizontal_aperture,
         focal_length=(focal_length_x + focal_length_y) / 2,
-        f_stop=200.0,
-        focus_distance=0.6
+        f_stop=200.0 if name == 'front' else 0.0,
+        focus_distance=0.6 if name == 'front' else 0.0
     )
     cam_params[name] = params
 
@@ -178,8 +180,8 @@ def main():
             focal_length=cam_params['front']['focal_length'], 
             horizontal_aperture=cam_params['front']['horizontal_aperture'], 
             clipping_range=(0.1, 1.0e5), 
-            f_stop=200.0, 
-            focus_distance=0.6
+            f_stop=cam_params['front']['f_stop'], 
+            focus_distance=cam_params['front']['focus_distance']
         ),
     )
     camera = Camera(cfg=camera_cfg, device='cpu')
@@ -365,8 +367,8 @@ def main():
             focal_length=cam_params['wrist']['focal_length'], 
             horizontal_aperture=cam_params['wrist']['horizontal_aperture'], 
             clipping_range=(1.0e-5, 1.0e5), 
-            f_stop=0.0,
-            focus_distance=0.0
+            f_stop=cam_params['wrist']['f_stop'], 
+            focus_distance=cam_params['wrist']['focus_distance']
         ),
     )
     wrist_camera = Camera(cfg=wrist_camera_cfg, device='cpu')
@@ -484,10 +486,10 @@ def main():
         part_idx = obs_idx + part_idx_offset if obs_idx + part_idx_offset < len(
             data['observations']) else len(data['observations']) - 1
 
-        if obs_idx == 50:
-            run_until_quit(simulation_app=simulation_app, world=sim)
-            from IPython import embed; embed()
-            assert False
+        # if obs_idx == 50:
+        #     run_until_quit(simulation_app=simulation_app, world=sim)
+        #     from IPython import embed; embed()
+        #     assert False
 
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx
