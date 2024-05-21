@@ -931,12 +931,20 @@ class FurnitureSimEnv(gym.Env):
         obs = self._get_observation()
 
         reward = self._reward()
+        done = self._done()
+
+        # To benchmark how slow the reward and done calculations are, just return zeros.
+        # reward = torch.zeros(
+        #     (self.num_envs, 1), dtype=torch.float32, device=self.device
+        # )
+        # done = torch.zeros((self.num_envs, 1), dtype=torch.float32, device=self.device)
+
         self.env_steps += 1
 
         return (
             obs,
             reward,
-            self._done(),
+            done,
             {"obs_success": True, "action_success": True},
         )
 
