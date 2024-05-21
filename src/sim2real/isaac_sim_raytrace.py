@@ -40,6 +40,7 @@ simulation_app = SimulationApp(
 )
 """Rest everything follows."""
 
+import numpy as np
 import torch
 import omni.isaac.core.utils.prims as prim_utils
 from omni.isaac.core.simulation_context import SimulationContext
@@ -59,6 +60,35 @@ FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
 FILE = FILES[args_cli.demo_index]
 # FILE = "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/one_leg/teleop/low/success/2024-05-09T15:32:54.pkl"
 
+width, height = 640, 480
+pixel_size = 3.0 * 1e-3
+front_435_camera_matrix = np.array([[607.24603271,   0.        , 328.35696411],
+        [  0.        , 607.39056396, 244.84118652],
+        [  0.        ,   0.        ,   1.        ]])
+wrist_435_camera_matrix = np.array([[613.14752197,   0.        , 326.19647217],
+       [  0.        , 613.16229248, 244.59855652],
+       [  0.        ,   0.        ,   1.        ]])
+
+cam_params = {}
+
+for name, mat in zip(['front', 'wrist'], [front_435_camera_matrix, wrist_435_camera_matrix]):
+    camera_matrix = mat
+    ((fx,_,cx),(_,fy,cy),(_,_,_)) = camera_matrix
+
+    focal_length_x  = fx * pixel_size
+    focal_length_y  = fy * pixel_size
+
+    horizontal_aperture =  pixel_size * width
+    vertical_aperture =  pixel_size * height
+
+    params = dict(
+        horizontal_aperture=horizontal_aperture,
+        focal_length=(focal_length_x + focal_length_y) / 2,
+        f_stop=200.0,
+        focus_distance=0.6
+    )
+    cam_params[name] = params
+
 import numpy as np
 
 import furniture_bench.utils.transform as T
@@ -69,11 +99,6 @@ april_to_sim_mat = np.array([[6.1232343e-17, 1.0000000e+00, 1.2246469e-16, 1.499
                              [1.0000000e+00, -6.1232343e-17, -7.4987988e-33, 0.0000000e+00],
                              [0.0000000e+00, 1.2246469e-16, -1.0000000e+00, 4.1500002e-01],
                              [0.0000000e+00, 0.0000000e+00, 0.0000000e+00, 1.0000000e+00]])
-
-# april_to_sim_mat = np.array([[6.1232343e-17, 1.0000000e+00, 1.2246469e-16, 1.4999807e-03],
-#                              [1.0000000e+00, -6.1232343e-17, -7.4987988e-33, 0.0000000e+00],
-#                              [0.0000000e+00, 1.2246469e-16, -1.0000000e+00, 0.4],
-#                              [0.0000000e+00, 0.0000000e+00, 0.0000000e+00, 1.0000000e+00]])
 
 
 def run_until_quit(simulation_app, world):
@@ -146,14 +171,15 @@ def main():
     # Setup camera sensor
     camera_cfg = PinholeCameraCfg(
         sensor_tick=0,
-        # height=720,
-        # width=1280,
         height=480,
         width=640,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
-            focal_length=18.8, horizontal_aperture=26.035, clipping_range=(0.1, 1.0e5)
-            # focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
+            focal_length=cam_params['front']['focal_length'], 
+            horizontal_aperture=cam_params['front']['horizontal_aperture'], 
+            clipping_range=(0.1, 1.0e5), 
+            f_stop=200.0, 
+            focus_distance=0.6
         ),
     )
     camera = Camera(cfg=camera_cfg, device='cpu')
@@ -247,7 +273,7 @@ def main():
         usd_path=str(usd_base_path / "table.usda"))
         # translation=table_pos)
     table_view = XFormPrimView("/World/Table", reset_xform_properties=False)
-    table_view.set_local_scales(torch.Tensor([[1.0, 1.75, 1.0]]))
+    table_view.set_local_scales(torch.Tensor([[1.7, 1.35, 1.0]]))
 
     views = []
 
@@ -322,7 +348,9 @@ def main():
 
     # -- Spawn robot
     robot = SingleArmManipulator(cfg=robot_cfg)
-    franka_from_origin_mat = np.array([[1., 0., 0., -0.3], [0., 1., 0., 0.], [0., 0., 1., table_z_offset],
+    franka_from_origin_mat = np.array([[1., 0., 0., -0.3], 
+                                       [0., 1., 0., 0.], 
+                                       [0., 0., 1., table_z_offset],
                                        [0., 0., 0., 1.]])
     pos, ori = T.mat2pose(franka_from_origin_mat)
     robot.spawn("/World/Robot_2", translation=pos)
@@ -334,20 +362,22 @@ def main():
         width=640,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
-            focal_length=18.8, horizontal_aperture=26.035, clipping_range=(0.001, 2.0)
-            # focal_length=24.0, focus_distance=400.0, horizontal_aperture=20.955, clipping_range=(0.1, 1.0e5)
+            focal_length=cam_params['wrist']['focal_length'], 
+            horizontal_aperture=cam_params['wrist']['horizontal_aperture'], 
+            clipping_range=(1.0e-5, 1.0e5), 
+            f_stop=0.0,
+            focus_distance=0.0
         ),
     )
     wrist_camera = Camera(cfg=wrist_camera_cfg, device='cpu')
 
     # Spawn camera
     wrist_camera.spawn("/World/Robot_2/panda_hand",
-                    #    translation=np.array([0.1, 0.0, 0.04]),
-                    #    translation=np.array([-0.05, 0.0, 0.0]),
-                       translation=np.array([-0.04, 0.0, 0.0655]),
-                    #    orientation=T.convert_quat(R.from_euler("XYZ", np.deg2rad([180, 45, -90])).as_quat(), to='wxyz'))
-                    #    orientation=T.convert_quat(R.from_euler("XYZ", np.deg2rad([180, -10, 90])).as_quat(), to='wxyz'))
-                       orientation=T.convert_quat(R.from_euler("XYZ", np.deg2rad([180, -17, 90])).as_quat(), to='wxyz'))
+                       translation=np.array([-0.05, 0.0, 0.04]),
+                       orientation=T.convert_quat(
+                           R.from_euler("XYZ", np.deg2rad([180, -16.5, 90])).as_quat(), 
+                           to='wxyz')
+                        )
 
     # Play the simulator
     sim.reset()
@@ -360,10 +390,8 @@ def main():
     # Initialize camera
     camera.initialize()
 
-    # cam_pos = (0.775, -0.05, 0.85) # for objects/obstacles?
-    cam_pos = (0.61, -0.065, 0.82) # for robot?
-    # cam_quat = T.convert_quat(R.from_euler("XYZ", np.deg2rad([0.0, 65, 90])).as_quat(), to='wxyz') # for objects/obstacles?
-    cam_quat = T.convert_quat(R.from_euler("XYZ", np.deg2rad([0.0, 62, 90])).as_quat(), to='wxyz') # for robot?
+    cam_pos = (0.82, -0.065, 0.8)
+    cam_quat = T.convert_quat(R.from_euler("XYZ", np.deg2rad([0.0, 68.5, 90])).as_quat(), to='wxyz') 
     camera._sensor_xform.set_world_pose(cam_pos, cam_quat)
 
     wrist_camera.initialize()
@@ -456,9 +484,10 @@ def main():
         part_idx = obs_idx + part_idx_offset if obs_idx + part_idx_offset < len(
             data['observations']) else len(data['observations']) - 1
 
-        # if obs_idx == 50:
-        #     run_until_quit(simulation_app=simulation_app, world=sim)
-        #     assert False
+        if obs_idx == 50:
+            run_until_quit(simulation_app=simulation_app, world=sim)
+            from IPython import embed; embed()
+            assert False
 
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx
