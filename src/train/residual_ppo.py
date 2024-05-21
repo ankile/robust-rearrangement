@@ -94,35 +94,24 @@ def main(cfg: DictConfig):
     torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
     device = torch.device("cuda")
-    action_type = cfg.action_type
 
     turn_off_april_tags()
 
-    # env setup
-    with suppress_all_output(False):
-        kwargs = dict(
-            act_rot_repr=cfg.act_rot_repr,
-            action_type=action_type,
-            april_tags=False,
-            concat_robot_state=True,
-            ctrl_mode="diffik",
-            obs_keys=DEFAULT_STATE_OBS,
-            furniture="one_leg",
-            gpu_id=0,
-            headless=cfg.headless,
-            num_envs=cfg.num_envs,
-            observation_space="state",
-            randomness="low",
-            max_env_steps=100_000_000,
-            pos_scalar=1,
-            rot_scalar=1,
-            stiffness=1_000,
-            damping=200,
-        )
-        env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
-
-    env.max_force_magnitude = 0.05
-    env.max_torque_magnitude = 0.0025
+    env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+        act_rot_repr=cfg.act_rot_repr,
+        action_type=cfg.action_type,
+        april_tags=False,
+        concat_robot_state=True,
+        ctrl_mode="diffik",
+        obs_keys=DEFAULT_STATE_OBS,
+        furniture="one_leg",
+        gpu_id=0,
+        headless=cfg.headless,
+        num_envs=cfg.num_envs,
+        observation_space="state",
+        randomness=cfg.env.randomness,
+        max_env_steps=100_000_000,
+    )
 
     # Load the behavior cloning actor
     bc_actor: Actor = load_bc_actor(cfg.base_bc_poliy)
@@ -194,7 +183,7 @@ def main(cfg: DictConfig):
         config=OmegaConf.to_container(cfg, resolve=True),
         name=run_name,
         save_code=True,
-        mode="online" if not cfg.debug else "disabled",
+        mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
 
     # ALGO Logic: Storage setup

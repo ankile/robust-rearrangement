@@ -314,7 +314,7 @@ if __name__ == "__main__":
                     run.update()
 
                 # or best_test_loss / best_success_rate
-                checkpoint_type = "best_success_rate"
+                checkpoint_type = "best_test_loss"
                 model_file = [
                     f
                     for f in run.files()
