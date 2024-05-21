@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090
 #SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=ol_diff_adapt
 #SBATCH --nodes=1
@@ -13,8 +13,8 @@
 # cd /data/scratch/ankile/robust-rearrangement
 # git checkout diffusion-adapt
 
-cd /data/scratch/ankile/diffusion-adapt
-git checkout lars-furniture-tasks
+# cd /data/scratch/ankile/diffusion-adapt
+# git checkout lars-furniture-tasks
 
 # source env.sh
 
