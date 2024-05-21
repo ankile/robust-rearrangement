@@ -12,7 +12,7 @@ truncation_as_done: true
 base_bc_poliy: ol-state-dr-1/r9wm1uo6
 
 total_timesteps: 300_000_000
-num_envs: 1024
+num_envs: 512
 num_minibatches: 1
 update_epochs: 20
 num_env_steps: 700
@@ -36,7 +36,7 @@ residual_policy:
   critic_last_layer_std: 0.25
 
 # Learning rates
-learning_rate_actor: 5e-4
+learning_rate_actor: 3e-4
 learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
@@ -50,7 +50,7 @@ residual_l2: 0.01
 gamma: 0.999
 gae_lambda: 0.95
 norm_adv: true
-normalize_reward: false
+normalize_reward: true
 clip_reward: 5.0
 clip_coef: 0.2
 clip_vloss: true

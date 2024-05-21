@@ -124,6 +124,7 @@ def main(cfg: DictConfig):
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
+        normalize_reward=cfg.normalize_reward,
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
     )
