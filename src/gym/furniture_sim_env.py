@@ -320,7 +320,7 @@ class FurnitureSimEnv(gym.Env):
             table_pose.p = gymapi.Vec3(0.0, 0.0, table_pos.z)
 
             table_handle = self.isaac_gym.create_actor(
-                env, self.table_asset, table_pose, "table", i, 0b01
+                env, self.table_asset, table_pose, "table", i, 0
             )
             table_props = self.isaac_gym.get_actor_rigid_shape_properties(
                 env, table_handle
