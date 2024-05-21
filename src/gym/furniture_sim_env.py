@@ -1873,6 +1873,8 @@ class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
         obs = torch.cat([robot_state, parts_poses], dim=-1)
         nobs = self.normalizer(obs, "observations", forward=True)
 
+        nobs = torch.clamp(nobs, -5, 5)
+
         return (
             nobs.cpu().numpy(),
             reward.squeeze().cpu().numpy(),
