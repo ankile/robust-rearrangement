@@ -292,12 +292,6 @@ if __name__ == "__main__":
                         april_tags=not args.no_april_tags,
                         verbose=args.verbose,
                         headless=not args.visualize,
-                        pos_scalar=1,
-                        rot_scalar=1,
-                        stiffness=1000,
-                        damping=200,
-                        max_force_magnitude=0.2,  # 0.3,
-                        max_torque_magnitude=0.005,  # 0.0075,
                     )
                     if args.use_new_env:
                         env: FurnitureRLSimEnv = get_rl_env(**kwargs)
@@ -346,7 +340,6 @@ if __name__ == "__main__":
                                 if args.action_horizon is not None
                                 else run.config["actor"]["action_horizon"]
                             ),
-                            "flatten_obs": True,
                         },
                     },
                 )

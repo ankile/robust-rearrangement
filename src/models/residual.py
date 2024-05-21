@@ -79,6 +79,7 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         action_scale=0.1,
         critic_last_layer_bias_const=0.0,
         critic_last_layer_std=1.0,
+        critic_last_layer_activation=None,
     ):
         """
         Args:
@@ -112,6 +113,14 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             bias_on_last_layer=True,
             last_layer_bias_const=critic_last_layer_bias_const,
         )
+
+        if critic_last_layer_activation is not None:
+            self.critic.add_module(
+                "output_activation",
+                getattr(nn, critic_last_layer_activation)(),
+            )
+
+            print(self.critic)
 
         self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)
 

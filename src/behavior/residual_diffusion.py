@@ -26,6 +26,14 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         self.observations = deque(maxlen=self.obs_horizon)
         self.base_nactions = deque(maxlen=self.action_horizon)
 
+        if (wts := cfg.actor.get("base_bc_wts", None)) is not None:
+            print(f"Loading base bc weights from {wts}")
+            self.load_state_dict(torch.load(wts))
+
+            # Freeze the base policy
+            for param in self.parameters():
+                param.requires_grad = False
+
         # Make the residual layers:
         # This is an MLP that takes in the state and predicted action
         # and outputs the residual to be added to the predicted action
@@ -82,8 +90,10 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         # Pop off the next base action
         base_naction = self.base_nactions.popleft()
 
+        # return self.normalizer(base_naction, "action", forward=False)
+
         # Concatenate the state and base action
-        residual_nobs = torch.cat([obs["obs"], base_naction], dim=-1)
+        residual_nobs = torch.cat([nobs, base_naction], dim=-1)
 
         # Predict the residual (already scaled)
         residual = self.residual_policy.get_action(residual_nobs)

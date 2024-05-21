@@ -4,6 +4,7 @@ action_horizon: ${action_horizon}
 pred_horizon: ${pred_horizon}
 obs_horizon: ${obs_horizon}
 predict_past_actions: ${predict_past_actions}
+
 # Set the flatten obs variable to whatever value is in the diffusion_model sub-config
 flatten_obs: ${actor.diffusion_model.flatten_obs}
 

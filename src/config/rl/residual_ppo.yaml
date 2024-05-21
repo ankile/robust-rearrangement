@@ -8,14 +8,14 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-# base_bc_poliy: ankile/one_leg-diffusion-state-1/runs/7623y5vn
-base_bc_poliy: ankile/ol-state-dr-1/runs/klnpg80g
+# base_bc_poliy: ankile/ol-state-dr-1/runs/klnpg80g
+base_bc_poliy: ol-state-dr-1/r9wm1uo6
 
 total_timesteps: 300_000_000
-num_envs: 1024
+num_envs: 512
 num_minibatches: 1
 update_epochs: 10
-num_env_steps: 800
+num_env_steps: 600
 data_collection_steps: ${num_env_steps}
 
 env:
@@ -23,28 +23,29 @@ env:
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: -2.0
+  init_logstd: -1.25
   action_head_std: 0.0
   action_scale: 0.1
   actor_hidden_size: 512
-  actor_num_layers: 2
+  actor_num_layers: 1
   critic_hidden_size: 512
-  critic_num_layers: 2
+  critic_num_layers: 1
   actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
   critic_last_layer_bias_const: 0.5
   critic_last_layer_std: 0.1
+  critic_last_layer_activation: Tanh
 
 # Learning rates
-learning_rate_actor: 1e-4
-learning_rate_critic: 1e-3
+learning_rate_actor: 3e-4
+learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 5
+  warmup_steps: 8
 
 # Residual specific arguments
-residual_l1: 0.01
-residual_l2: 0.0
+residual_l1: 0.0
+residual_l2: 0.02
 
 # Algorithm specific arguments
 gamma: 0.999
@@ -55,7 +56,7 @@ clip_reward: 5.0
 clip_coef: 0.2
 clip_vloss: true
 ent_coef: 0.0
-vf_coef: 0.5
+vf_coef: 2.0
 max_grad_norm: 0.5
 target_kl: 0.1
 n_iterations_train_only_value: 0

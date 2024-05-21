@@ -51,7 +51,15 @@ def annotate_frames_with_speed(frames: np.ndarray, fps: int) -> np.ndarray:
     return frames
 
 
-def create_mp4_jupyter(np_images, filename, fps=10):
+def create_mp4_jupyter(
+    np_images,
+    filename,
+    fps=10,
+    speed_annotation=False,
+):
+    if speed_annotation:
+        np_images = annotate_frames_with_speed(np_images, fps)
+
     with imageio.get_writer(filename, fps=fps) as writer:
         for img in np_images:
             writer.append_data(img)

@@ -158,6 +158,34 @@ class FurnitureEnvRLWrapper:
         return self.env.max_torque_magnitude
 
 
+class RunningMeanStdClip:
+    def __init__(self, epsilon=1e-4, shape=(), clip_value=10.0, device="cuda"):
+        self.mean = torch.zeros(shape, dtype=torch.float32, device=device)
+        self.var = torch.ones(shape, dtype=torch.float32, device=device)
+        self.count = epsilon
+        self.clip_value = clip_value
+
+    def update(self, x):
+        batch_mean = torch.mean(x, dim=0)
+        batch_var = torch.var(x, dim=0, unbiased=False)
+        batch_count = x.shape[0]
+
+        delta = batch_mean - self.mean
+        total_count = self.count + batch_count
+
+        self.mean += delta * batch_count / total_count
+        m_a = self.var * self.count
+        m_b = batch_var * batch_count
+        M2 = m_a + m_b + delta**2 * self.count * batch_count / total_count
+        self.var = M2 / total_count
+        self.count = total_count
+
+    def __call__(self, x):
+        self.update(x)
+        x_normalized = x / torch.sqrt(self.var + 1e-8)
+        return torch.clamp(x_normalized, -self.clip_value, self.clip_value)
+
+
 class ResidualPolicyEnvWrapper:
 
     def __init__(
@@ -166,6 +194,7 @@ class ResidualPolicyEnvWrapper:
         max_env_steps=300,
         ee_dof=10,
         task="oneleg",
+        normalize_reward=False,
         add_relative_pose=False,
         reset_on_success=True,
         reset_on_failure=False,
@@ -179,6 +208,9 @@ class ResidualPolicyEnvWrapper:
         self.reset_on_failure = reset_on_failure
         self.device = device
         self.normalizer = LinearNormalizer()
+        self.reward_normalizer = (
+            RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
+        )
 
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
@@ -186,7 +218,7 @@ class ResidualPolicyEnvWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
+            -float("inf"), float("inf"), shape=(16 + 7 * (5 + 1),)
         )
 
         # Define the maximum number of steps in the environment
@@ -264,6 +296,9 @@ class ResidualPolicyEnvWrapper:
         # Move the robot
         obs, reward, _, info = self.env.step(action)
         reward = reward.squeeze()
+
+        if self.reward_normalizer is not None:
+            reward = self.reward_normalizer(reward)
 
         if self.reset_on_failure:
             # Get the gripper width

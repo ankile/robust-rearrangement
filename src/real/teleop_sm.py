@@ -503,10 +503,6 @@ def main():
                 # get robot state/image observation
                 observation = obs_act_helper.get_observation()
 
-                # print(f"EE xyz: {observation['robot_state']['ee_pos'].round(3)}")
-                # At pick tabletop-time, EE xyz: [0.433 0.009 0.127]
-                # At pick table leg-time, EE xyz: [0.437 0.212 0.051]
-
                 # get and unpack action
                 action_struct = obs_act_helper.get_action()
                 action_current_pose_mat = action_struct.current_pose_mat

@@ -1,5 +1,6 @@
 from typing import Dict, Tuple, Union
 from collections import deque
+from src.data_processing.utils import filter_and_concat_robot_state
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
 from src.models.utils import PrintParamCountMixin
@@ -321,6 +322,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         This function must account for if we predict the past actions or not
         """
+
+        if isinstance(obs["robot_state"], dict):
+            # bp()
+            obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
 
         # Append the new observation to the queue and ensure we fill it up to the horizon
         self.observations.append(obs)

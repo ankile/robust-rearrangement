@@ -11,6 +11,7 @@ rollout:
   every: 5
   max_steps: 1000
   num_envs: 256
+  randomness: low
 
 observation_type: state
 

@@ -1,6 +1,10 @@
 from pathlib import Path
 import furniture_bench  # noqa: F401
-from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS, DEFAULT_STATE_OBS
+from furniture_bench.envs.observation import (
+    DEFAULT_VISUAL_OBS,
+    DEFAULT_STATE_OBS,
+    FULL_OBS,
+)
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 import gym
@@ -100,19 +104,19 @@ def get_rl_env(
             Path(__file__).parent.parent.absolute() / "assets"
         )
 
-    if observation_space == "image":
-        obs_keys = DEFAULT_VISUAL_OBS + ["parts_poses"]
-    elif observation_space == "state":
-        obs_keys = DEFAULT_STATE_OBS
-    else:
-        raise ValueError("Invalid observation space")
+    # To ensure we can replay the rollouts, we need to (1) include all robot states in the observation space
+    # and (2) ensure that the robot state is stored as a dict for compatibility with the teleop data
+    obs_keys = FULL_OBS
+    if observation_space == "state":
+        # Filter out keys with `image` in them
+        obs_keys = [key for key in obs_keys if "image" not in key]
 
     with suppress_all_output(not verbose):
         env = FurnitureRLSimEnv(
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
-            concat_robot_state=True,  # If true, robot state is concatenated to the observation.
+            concat_robot_state=False,  # If true, robot state is concatenated to the observation.
             headless=headless,  # If true, simulation runs without GUI.
             obs_keys=obs_keys,
             compute_device_id=gpu_id,

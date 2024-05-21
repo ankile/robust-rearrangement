@@ -9,7 +9,7 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-from typing import Union
+from typing import Dict, Union
 
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
@@ -18,6 +18,9 @@ from src.common.tasks import furniture2idx
 from src.common.files import trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
 from src.data_processing.utils import resize, resize_crop
+from tensordict import TensorDict
+
+from copy import deepcopy
 
 import wandb
 
@@ -50,6 +53,44 @@ def resize_crop_image(obs, key):
         pass
 
 
+def squeeze_and_numpy(d: Dict[str, Union[torch.Tensor, np.ndarray, float, int, None]]):
+    """
+    Recursively squeeze and convert tensors to numpy arrays
+    Convert scalars to floats
+    Leave NoneTypes alone
+    """
+    for k, v in d.items():
+        if isinstance(v, dict):
+            d[k] = squeeze_and_numpy(v)
+
+        elif v is None:
+            continue
+
+        elif isinstance(v, (torch.Tensor, np.ndarray)):
+            if isinstance(v, torch.Tensor):
+                v = v.cpu().numpy()
+            d[k] = v.squeeze()
+
+        else:
+            raise ValueError(f"Unsupported type: {type(v)}")
+
+    return d
+
+
+def tensordict_to_list_of_dicts(tensordict):
+    list_of_dicts = []
+    keys = list(tensordict.keys())
+    num_elements = tensordict[keys[0]].shape[0]
+
+    for i in range(num_elements):
+        dict_element = {}
+        for key in keys:
+            dict_element[key] = tensordict[key][i].cpu().numpy()
+        list_of_dicts.append(dict_element)
+
+    return list_of_dicts
+
+
 def rollout(
     env: FurnitureSimEnv,
     actor: Actor,
@@ -62,12 +103,14 @@ def rollout(
         obs = env.reset()
         actor.reset()
 
+    # bp()
+
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 5 second
         for _ in range(50):
             obs, reward, done, _ = env.step_noop()
 
-    video_obs = obs.copy()
+    video_obs = deepcopy(obs)
 
     # Resize the images in the observation if they exist
     resize_image(obs, "color_image1")
@@ -78,7 +121,7 @@ def rollout(
         resize_crop_image(video_obs, "color_image2")
 
     # save visualization and rewards
-    robot_states = [video_obs["robot_state"].cpu()]
+    robot_states = [TensorDict(video_obs["robot_state"])]
     imgs1 = [] if "color_image1" not in video_obs else [video_obs["color_image1"].cpu()]
     imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
@@ -93,7 +136,7 @@ def rollout(
 
         obs, reward, done, _ = env.step(action_pred)
 
-        video_obs = obs.copy()
+        video_obs = deepcopy(obs)
 
         # Resize the images in the observation if they exist
         resize_image(obs, "color_image1")
@@ -105,7 +148,7 @@ def rollout(
             resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
-        robot_states.append(video_obs["robot_state"].cpu())
+        robot_states.append(TensorDict(video_obs["robot_state"]))
         if "color_image1" in video_obs:
             imgs1.append(video_obs["color_image1"].cpu())
         if "color_image2" in video_obs:
@@ -203,7 +246,7 @@ def calculate_success_rate(
         n_success += success.sum().item()
 
         # Save the results from the rollout
-        all_robot_states.extend(robot_states)
+        all_robot_states.extend([robot_states[i] for i in range(env.num_envs)])
         all_imgs1.extend(imgs1)
         all_imgs2.extend(imgs2)
         all_actions.extend(actions)
@@ -225,7 +268,7 @@ def calculate_success_rate(
         table_rows = []
         for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
             # Get the rewards and images for this rollout
-            robot_states = all_robot_states[rollout_idx].numpy()
+            robot_states = tensordict_to_list_of_dicts(all_robot_states[rollout_idx])
             video1 = all_imgs1[rollout_idx].numpy()
             video2 = all_imgs2[rollout_idx].numpy()
             actions = all_actions[rollout_idx].numpy()
