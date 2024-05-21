@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090
 #SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=ol_diff_adapt
 #SBATCH --nodes=1
