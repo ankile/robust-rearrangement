@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
@@ -117,6 +118,7 @@ def main(cfg: DictConfig):
             predict_past_actions=cfg.data.predict_past_actions,
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
+            include_future_obs=cfg.data.include_future_obs,
         )
     else:
         raise ValueError(f"Unknown observation type: {cfg.observation_type}")
@@ -289,7 +291,7 @@ def main(cfg: DictConfig):
             batch = dict_to_device(batch, device)
 
             # Get loss
-            loss = actor.compute_loss(batch)
+            loss, losses_log = actor.compute_loss(batch)
 
             # backward pass
             loss.backward()
@@ -309,6 +311,7 @@ def main(cfg: DictConfig):
                 {
                     "training/lr": lr,
                     "batch_loss": loss_cpu,
+                    **losses_log,
                 }
             )
 
@@ -324,6 +327,8 @@ def main(cfg: DictConfig):
         if cfg.training.ema.use:
             ema.apply_shadow()
 
+        eval_losses_log = defaultdict(list)
+
         test_tepoch = tqdm(testloader, desc="Validation", leave=False)
         for test_batch in test_tepoch:
             with torch.no_grad():
@@ -331,12 +336,16 @@ def main(cfg: DictConfig):
                 test_batch = dict_to_device(test_batch, device)
 
                 # Get test loss
-                test_loss_val = actor.compute_loss(test_batch)
+                test_loss_val, losses_log = actor.compute_loss(test_batch)
 
                 # logging
                 test_loss_cpu = test_loss_val.item()
                 test_loss.append(test_loss_cpu)
                 test_tepoch.set_postfix(loss=test_loss_cpu)
+
+                # Append the losses to the log
+                for k, v in losses_log.items():
+                    eval_losses_log[k].append(v)
 
         test_tepoch.close()
 
@@ -405,26 +414,21 @@ def main(cfg: DictConfig):
         ):
             # Do not load the environment until we successfuly made it this far
             if env is None:
-                from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
-
-                # env: FurnitureSimEnv = get_env(
                 env: FurnitureRLSimEnv = get_rl_env(
                     cfg.training.gpu_id,
                     furniture=cfg.rollout.furniture,
                     num_envs=cfg.rollout.num_envs,
                     randomness=cfg.rollout.randomness,
                     observation_space=cfg.observation_type,
-                    # Now using full size images in sim and resizing to be consistent
-                    # observation_space=cfg.observation_type,
                     resize_img=False,
                     act_rot_repr=cfg.control.act_rot_repr,
                     ctrl_mode=cfg.control.controller,
                     action_type=cfg.control.control_mode,
                     headless=True,
-                    pos_scalar=1,
-                    rot_scalar=1,
-                    stiffness=1_000,
-                    damping=200,
+                    # pos_scalar=1,
+                    # rot_scalar=1,
+                    # stiffness=1_000,
+                    # damping=200,
                 )
 
             best_success_rate = do_rollout_evaluation(
@@ -463,6 +467,10 @@ def main(cfg: DictConfig):
         epoch_log["early_stopper/counter"] = early_stopper.counter
         epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
         epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
+        # Update the epoch log with the mean of the evaluation losses
+        for k, v in eval_losses_log.items():
+            epoch_log[f"test_{k}"] = np.mean(v)
 
         # Log epoch stats
         wandb.log(epoch_log)

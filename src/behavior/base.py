@@ -1,5 +1,6 @@
 from typing import Dict, Tuple, Union
 from collections import deque
+from src.data_processing.utils import filter_and_concat_robot_state
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
 from src.models.utils import PrintParamCountMixin
@@ -62,17 +63,15 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     def __init__(
         self,
         device: Union[str, torch.device],
-        config: DictConfig,
+        cfg: DictConfig,
     ):
         super().__init__()
         self.normalizer = LinearNormalizer()
         self.camera_2_vib = None
 
-        actor_cfg = config.actor
+        actor_cfg = cfg.actor
         self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = (
-            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
-        )
+        self.action_dim = 10 if cfg.control.act_rot_repr == RotationMode.rot_6d else 8
         self.pred_horizon = actor_cfg.pred_horizon
         self.action_horizon = actor_cfg.action_horizon
         self.predict_past_actions = actor_cfg.predict_past_actions
@@ -81,22 +80,20 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         self.observations = deque(maxlen=self.obs_horizon)
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.observation_type = config.observation_type
+        self.observation_type = cfg.observation_type
 
         # Regularization
-        self.augment_image = config.data.augment_image
-        self.feature_noise = config.regularization.get("feature_noise", None)
-        self.feature_dropout = config.regularization.get("feature_dropout", None)
-        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
-        self.state_noise = config.regularization.get("state_noise", False)
-        self.proprioception_dropout = config.regularization.get(
+        self.augment_image = cfg.data.augment_image
+        self.feature_noise = cfg.regularization.get("feature_noise", None)
+        self.feature_dropout = cfg.regularization.get("feature_dropout", None)
+        self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
+        self.state_noise = cfg.regularization.get("state_noise", False)
+        self.proprioception_dropout = cfg.regularization.get(
             "proprioception_dropout", 0.0
         )
-        self.front_camera_dropout = config.regularization.get(
-            "front_camera_dropout", 0.0
-        )
+        self.front_camera_dropout = cfg.regularization.get("front_camera_dropout", 0.0)
 
-        self.vib_front_feature_beta = config.regularization.get(
+        self.vib_front_feature_beta = cfg.regularization.get(
             "vib_front_feature_beta", 0.0
         )
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
@@ -105,13 +102,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Convert the stats to tensors on the device
         if self.observation_type == "image":
-            self._initiate_image_encoder(config)
+            self._initiate_image_encoder(cfg)
         elif self.observation_type == "state":
-            self.timestep_obs_dim = config.robot_state_dim + config.parts_poses_dim
+            self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
-        self.flatten_obs = config.actor.flatten_obs
+        self.flatten_obs = cfg.actor.flatten_obs
         self.obs_dim = (
             self.timestep_obs_dim * self.obs_horizon
             if self.flatten_obs
@@ -157,13 +154,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # Load the rest of the state dict
         super().load_state_dict(state_dict)
 
-    def _initiate_image_encoder(self, config):
+    def _initiate_image_encoder(self, cfg):
         # === Encoder ===
-        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+        encoder_kwargs = OmegaConf.to_container(cfg.vision_encoder, resolve=True)
         device = self.device
-        actor_cfg = config.actor
-        encoder_name = config.vision_encoder.model
-        self.freeze_encoder = config.vision_encoder.freeze
+        actor_cfg = cfg.actor
+        encoder_name = cfg.vision_encoder.model
+        self.freeze_encoder = cfg.vision_encoder.freeze
 
         self.encoder1 = get_encoder(
             encoder_name,
@@ -193,7 +190,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self.encoder1_proj = nn.Identity()
             self.encoder2_proj = nn.Identity()
 
-        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
+        self.timestep_obs_dim = cfg.robot_state_dim + 2 * self.encoding_dim
 
     # === Inference Observations ===
     def _normalized_obs(self, obs: deque, flatten: bool = True):
@@ -301,19 +298,6 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         return actions
 
     @torch.no_grad()
-    def normalized_action_chunk(self, obs: deque):
-        # Normalize observations
-        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
-
-        naction = self._normalized_action(nobs)
-
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
-
-        return action_pred
-
-    @torch.no_grad()
     def action_pred(self, batch):
         """
         Predict the action given the batch of observations
@@ -338,6 +322,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         This function must account for if we predict the past actions or not
         """
+
+        if isinstance(obs["robot_state"], dict):
+            # bp()
+            obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
 
         # Append the new observation to the queue and ensure we fill it up to the horizon
         self.observations.append(obs)
@@ -455,7 +443,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         elif self.observation_type == "state":
             # Parts poses are already normalized in the dataset
-            nobs = batch["obs"]
+            nobs = batch["obs"][:, : self.obs_horizon]
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
@@ -500,7 +488,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         return feature1, feature2
 
-    def compute_loss(self, batch):
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
     def confusion_loss(self, batch, feature1, feature2):

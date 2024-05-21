@@ -15,6 +15,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor
 
+from src.behavior.diffusion import DiffusionPolicy
 from src.eval.load_model import load_bc_actor
 from diffusers.optimization import get_scheduler
 
@@ -116,9 +117,14 @@ def main(cfg: DictConfig):
     # Load the behavior cloning actor
     bc_actor: Actor = load_bc_actor(cfg.base_bc_poliy)
 
+    # Set the inference steps of the actor
+    if isinstance(bc_actor, DiffusionPolicy):
+        bc_actor.inference_steps = 4
+
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
+        normalize_reward=cfg.normalize_reward,
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
     )

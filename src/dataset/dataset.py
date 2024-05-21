@@ -236,12 +236,14 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         task: str = None,
         add_relative_pose: bool = False,
         normalizer: LinearNormalizer = None,
+        include_future_obs: bool = False,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
         self.predict_past_actions = predict_past_actions
         self.control_mode = control_mode
+        self.include_future_obs = include_future_obs
 
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
@@ -382,6 +384,9 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         # First action refers to the first action we predict, not necessarily the first action executed
         self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
+        self.last_obs = (
+            self.obs_horizon if not self.include_future_obs else self.sequence_length
+        )
 
         del self.train_data["robot_state"]
         del self.train_data["parts_poses"]
@@ -435,7 +440,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         ]
 
         # Discard unused observations
-        nsample["obs"] = nsample["obs"][: self.obs_horizon, :]
+        nsample["obs"] = nsample["obs"][: self.last_obs, :]
 
         # Sum up the returns accrued during the action chunk
         # Double check if this should be calculated only for executed actions

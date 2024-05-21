@@ -2,14 +2,10 @@
 defaults:
   - override /actor: diffusion
 
-actor:
-  hidden_dims: [1024, 1024, 1024, 1024, 1024]
-  residual: true
-
 observation_type: state
 
 action_horizon: 8
-pred_horizon: 16
+pred_horizon: 32
 obs_horizon: 1
   
 data:
@@ -24,5 +20,12 @@ furniture: ???
 randomness: low
 demo_source: teleop
 
+rollout:
+  every: 5
+  max_steps: 850
+  num_envs: 256
+  loss_threshold: 0.1
+  randomness: low
+
 wandb:
-  project: ${furniture}-diffusion-state-1
+  project: ???
