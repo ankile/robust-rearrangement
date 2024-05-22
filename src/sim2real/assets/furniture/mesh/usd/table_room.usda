@@ -693,7 +693,8 @@ def Xform "World" (
             apiSchemas = ["ShapingAPI"]
         )
         {
-            float intensity = 5000
+            color3f color = (0.78902954, 0.71528256, 0.6225676)
+            float intensity = 2000
             float length = 9.900001
             float radius = 0.1
             float shaping:cone:angle = 180
@@ -701,10 +702,10 @@ def Xform "World" (
             float shaping:focus
             color3f shaping:focusTint
             asset shaping:ies:file
-            token visibility = "invisible"
+            token visibility = "inherited"
             quatd xformOp:orient = (6.123233995736766e-17, -8.96726857279651e-18, -0.7071067811865475, -0.7071067811865476)
             double3 xformOp:scale = (1, 1, 1)
-            double3 xformOp:translate = (5.929223498124882, -0.7282673142357174, 2.6571330451436133)
+            double3 xformOp:translate = (3.0, -1.5, 2.5)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
 
@@ -712,7 +713,8 @@ def Xform "World" (
             apiSchemas = ["ShapingAPI"]
         )
         {
-            float intensity = 7000
+            color3f color = (0.78902954, 0.71528256, 0.6225676)
+            float intensity = 2000
             float length = 9.900001
             float radius = 0.1
             float shaping:cone:angle = 180
@@ -723,7 +725,7 @@ def Xform "World" (
             token visibility = "inherited"
             quatd xformOp:orient = (6.123233995736766e-17, 8.197998546692573e-18, -0.7071067811865475, -0.7071067811865476)
             double3 xformOp:scale = (1, 1, 1)
-            double3 xformOp:translate = (6.097179588003405, -0.13699205036516848, 2.6571330451436173)
+            double3 xformOp:translate = (3.0, -0.5, 2.5)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
 
@@ -731,7 +733,8 @@ def Xform "World" (
             apiSchemas = ["ShapingAPI"]
         )
         {
-            float intensity = 5000
+            color3f color = (0.78902954, 0.71528256, 0.6225676)
+            float intensity = 2000
             float length = 9.900001
             float radius = 0.1
             float shaping:cone:angle = 180
@@ -739,10 +742,10 @@ def Xform "World" (
             float shaping:focus
             color3f shaping:focusTint
             asset shaping:ies:file
-            token visibility = "invisible"
+            token visibility = "inherited"
             quatd xformOp:orient = (6.123233995736766e-17, 8.197998546692573e-18, -0.7071067811865475, -0.7071067811865476)
             double3 xformOp:scale = (1, 1, 1)
-            double3 xformOp:translate = (6.102969484201472, 1.086250126559675, 2.6571330451436106)
+            double3 xformOp:translate = (3.0, 0.5, 2.5)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
 
@@ -761,9 +764,32 @@ def Xform "World" (
             token visibility = "inherited"
             quatd xformOp:orient = (6.123233995736766e-17, 8.197998546692573e-18, -0.7071067811865475, -0.7071067811865476)
             double3 xformOp:scale = (1, 1, 1)
-            double3 xformOp:translate = (5.551265199340728, 2.3914281610640415, 2.6571330451436217)
+            double3 xformOp:translate = (3.0, 1.5, 2.5)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
+
+        def RectLight "RectLight_01" (
+            apiSchemas = ["ShapingAPI"]
+        )
+        {
+            color3f color = (0.4134, 0.60416, 0.72574)
+            float exposure = 0.0
+            float height = 6.9
+            float intensity = 300
+            float shaping:cone:angle = 180
+            float shaping:cone:softness
+            float shaping:focus
+            color3f shaping:focusTint
+            asset shaping:ies:file
+            float width = 10
+            float specular = 5
+            token visibility = "invisible"
+            quatd xformOp:orient = (1.0, 0.0, 0.0, 0.0)
+            double3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (4.019, 1.5, 4.5)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
     }
 }
 

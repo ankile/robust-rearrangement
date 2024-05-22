@@ -82,7 +82,9 @@ def Xform "World" (
                 uniform token info:implementationSource = "sourceAsset"
                 uniform asset info:mdl:sourceAsset = @OmniPBR.mdl@
                 uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR"
-                color3f inputs:diffuse_color_constant = (0.8, 0.8, 0.8) (
+                # color3f inputs:diffuse_color_constant = (0.8, 0.8, 0.8) (
+                # color3f inputs:diffuse_color_constant = (1.0, 1.0, 1.0) (
+                color3f inputs:diffuse_color_constant = (0.984, 0.890, 0.843) (
                     customData = {
                         float3 default = (0.2, 0.2, 0.2)
                         dictionary range = {
