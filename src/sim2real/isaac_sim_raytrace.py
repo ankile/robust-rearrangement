@@ -34,8 +34,10 @@ args_cli = parser.parse_args()
 simulation_app = SimulationApp(
     {
         "headless": args_cli.headless,
-        "width": 640,
-        "height": 480,
+        # "width": 640,
+        # "height": 480,
+        "width": 1440,
+        "height": 1080,
     }
 )
 """Rest everything follows."""
@@ -191,8 +193,10 @@ def main():
     # Setup camera sensor (front)
     camera_cfg = PinholeCameraCfg(
         sensor_tick=0,
-        height=480,
-        width=640,
+        # height=480,
+        # width=640,
+        width=1440,
+        height=1080,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
             focal_length=cam_params["front"]["focal_length"],
@@ -210,8 +214,10 @@ def main():
     # Setup camera sensor (wrist)
     wrist_camera_cfg = PinholeCameraCfg(
         sensor_tick=0,
-        height=480,
-        width=640,
+        # height=480,
+        # width=640,
+        width=1440,
+        height=1080,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
             focal_length=cam_params["wrist"]["focal_length"],
@@ -223,24 +229,6 @@ def main():
     )
     wrist_camera = Camera(cfg=wrist_camera_cfg, device="cpu")
 
-    # Spawn things into stage
-    # Ground-plane
-    kit_utils.create_ground_plane("/World/defaultGroundPlane", z_position=-1.05)
-    # Lights-1
-    prim_utils.create_prim(
-        "/World/Light/GreySphere",
-        "SphereLight",
-        translation=(4.5, 3.5, 5.0),
-        attributes={"radius": 4.5, "intensity": 1200.0, "color": (0.75, 0.75, 0.75)},
-    )
-    # Lights-2
-    prim_utils.create_prim(
-        "/World/Light/WhiteSphere",
-        "SphereLight",
-        translation=(-4.5, 3.5, 5.0),
-        attributes={"radius": 4.5, "intensity": 1200.0, "color": (1.0, 1.0, 1.0)},
-    )
-
     # Table
     usd_base_path = Path(
         f"{os.getenv('RARL_SOURCE_DIR')}/sim2real/assets/furniture/mesh/usd"
@@ -248,7 +236,10 @@ def main():
     # usd_base_path = Path(f"assets/furniture/mesh/usd")
     table_z_offset = 0.415
 
-    prim_utils.create_prim("/World/Table", usd_path=str(usd_base_path / "table.usda"))
+    # prim_utils.create_prim("/World/Table", usd_path=str(usd_base_path / "table.usda"))
+    prim_utils.create_prim(
+        "/World/Table", usd_path=str(usd_base_path / "table_room.usda")
+    )
     table_view = XFormPrimView("/World/Table", reset_xform_properties=False)
     table_view.set_local_scales(torch.Tensor([[1.7, 1.35, 1.0]]))
 
@@ -503,9 +494,9 @@ def main():
     # setup re-saving
     if args_cli.save:
         assert args_cli.save_dir is not None, f"Must set --save-dir if --save is True!"
-    demo_save_dir = Path(args_cli.save_dir)
-    demo_save_dir.mkdir(exist_ok=True, parents=True)
-    pkl_path = demo_save_dir / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
+        demo_save_dir = Path(args_cli.save_dir)
+        demo_save_dir.mkdir(exist_ok=True, parents=True)
+        pkl_path = demo_save_dir / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
 
     episode_data = {}
     episode_data["observations"] = []
@@ -515,7 +506,10 @@ def main():
     episode_data["success"] = True
     # episode_data["args"] = data["args"]
     episode_data["args_rerender"] = args_cli.__dict__
-    episode_data["metadata"] = data["metadata"]
+    if "metadata" in data:
+        episode_data["metadata"] = data["metadata"]
+    else:
+        episode_data["metadata"] = None
 
     fps_list = []
     last_time = time.time()
@@ -529,10 +523,12 @@ def main():
             else len(data["observations"]) - 1
         )
 
-        # if obs_idx == 50:
-        #     run_until_quit(simulation_app=simulation_app, world=sim)
-        #     from IPython import embed; embed()
-        #     assert False
+        if obs_idx == 50:
+            run_until_quit(simulation_app=simulation_app, world=sim)
+            from IPython import embed
+
+            embed()
+            assert False
 
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx
@@ -646,9 +642,10 @@ def main():
     e = time.time()
     print(f"Time taken: {e-s}")
 
-    print(f"Saving new pickle to: {pkl_path}")
-    with open(pkl_path, "wb") as f:
-        pickle.dump(episode_data, f)
+    if args_cli.save:
+        print(f"Saving new pickle to: {pkl_path}")
+        with open(pkl_path, "wb") as f:
+            pickle.dump(episode_data, f)
 
 
 if __name__ == "__main__":
