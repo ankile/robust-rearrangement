@@ -269,12 +269,15 @@ def main(cfg: DictConfig):
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
 
-        # Calculate the discounted rewards
-        # TODO: Change this so that it takes into account cyclic resets and multiple episodes
-        # per experience collection iteration
+        # Calculate the success rate
+        reward_mask = rewards.sum(dim=0) > 0
+        success_rate = reward_mask.float().mean().item()
 
-        reward_mask = (rewards.sum(dim=0) > 0).float()
-        success_rate = reward_mask.mean().item()
+        # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
+        # Count total timesteps in successful trajectories
+        total_timesteps_in_success = rewards[:, reward_mask].numel()
+        # Calculate the share of successful timesteps
+        success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
         running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
 
@@ -297,6 +300,7 @@ def main(cfg: DictConfig):
                         "scheduler_critic_state_dict": lr_scheduler_critic.state_dict(),
                         "config": OmegaConf.to_container(cfg, resolve=True),
                         "success_rate": success_rate,
+                        "success_timesteps_share": success_timesteps_share,
                         "iteration": iteration,
                     },
                     model_path,
@@ -445,6 +449,7 @@ def main(cfg: DictConfig):
                 "charts/SPS": sps,
                 "charts/rewards": rewards.sum().item(),
                 "charts/success_rate": success_rate,
+                "charts/success_timesteps_share": success_timesteps_share,
                 "charts/action_norm_mean": action_norms.mean(),
                 "charts/action_norm_std": action_norms.std(),
                 "values/advantages": b_advantages.mean().item(),
