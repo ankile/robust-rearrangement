@@ -80,6 +80,7 @@ class FurnitureSimEnv(gym.Env):
         action_type: str = "delta",  # "delta" or "pos"
         ctrl_mode: str = "diffik",
         ee_laser: bool = False,
+        calculate_reward_interval: int = 1,
         **kwargs,
     ):
         """
@@ -231,6 +232,12 @@ class FurnitureSimEnv(gym.Env):
         )
 
         print(f"Sim steps: {self.sim_steps}")
+
+        # Create variables for reward and dones for calculation only every so often.
+        self.calculate_reward_interval = calculate_reward_interval
+        print(f"Calculate reward interval: {self.calculate_reward_interval}")
+        self.reward = torch.zeros((self.num_envs, 1), device=self.device)
+        self.done = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
 
     def _create_ground_plane(self):
         """Creates ground plane."""
@@ -930,21 +937,17 @@ class FurnitureSimEnv(gym.Env):
 
         obs = self._get_observation()
 
-        reward = self._reward()
-        done = self._done()
-
-        # To benchmark how slow the reward and done calculations are, just return zeros.
-        # reward = torch.zeros(
-        #     (self.num_envs, 1), dtype=torch.float32, device=self.device
-        # )
-        # done = torch.zeros((self.num_envs, 1), dtype=torch.float32, device=self.device)
+        # Assume for now that all environments are at the same time step.
+        if self.env_steps[0] % self.calculate_reward_interval == 0:
+            self.reward = self._reward()
+            self.done = self._done()
 
         self.env_steps += 1
 
         return (
             obs,
-            reward,
-            done,
+            self.reward,
+            self.done,
             {"obs_success": True, "action_success": True},
         )
 
@@ -1244,6 +1247,9 @@ class FurnitureSimEnv(gym.Env):
 
         self.refresh()
         self.assemble_idx = 0
+
+        self.reward = torch.zeros((self.num_envs, 1), dtype=torch.float32)
+        self.done = torch.zeros((self.num_envs, 1), dtype=torch.bool)
 
         if self.save_camera_input:
             self._save_camera_input()

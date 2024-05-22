@@ -20,6 +20,7 @@ data_collection_steps: ${num_env_steps}
 
 env:
   randomness: med
+  calculate_reward_interval: 5
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy

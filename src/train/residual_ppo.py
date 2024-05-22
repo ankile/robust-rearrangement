@@ -112,6 +112,7 @@ def main(cfg: DictConfig):
         observation_space="state",
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
+        calculate_reward_interval=cfg.env.calculate_reward_interval,
     )
 
     # Load the behavior cloning actor
