@@ -14,12 +14,13 @@ base_bc_poliy: ol-state-dr-1/r9wm1uo6
 total_timesteps: 300_000_000
 num_envs: 2048
 num_minibatches: 1
-update_epochs: 10
+update_epochs: 20
 num_env_steps: 600
 data_collection_steps: ${num_env_steps}
 
 env:
   randomness: med
+  calculate_reward_interval: 5
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
@@ -39,8 +40,8 @@ residual_policy:
   pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
 
 # Learning rates
-learning_rate_actor: 3e-4
-learning_rate_critic: 5e-3
+learning_rate_actor: 5e-4
+learning_rate_critic: 6e-3
 lr_scheduler:
   name: cosine
   warmup_steps: 3

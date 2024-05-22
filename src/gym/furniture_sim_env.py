@@ -80,6 +80,7 @@ class FurnitureSimEnv(gym.Env):
         action_type: str = "delta",  # "delta" or "pos"
         ctrl_mode: str = "diffik",
         ee_laser: bool = False,
+        calculate_reward_interval: int = 1,
         **kwargs,
     ):
         """
@@ -1246,6 +1247,9 @@ class FurnitureSimEnv(gym.Env):
 
         self.refresh()
         self.assemble_idx = 0
+
+        self.reward = torch.zeros((self.num_envs, 1), dtype=torch.float32)
+        self.done = torch.zeros((self.num_envs, 1), dtype=torch.bool)
 
         if self.save_camera_input:
             self._save_camera_input()
