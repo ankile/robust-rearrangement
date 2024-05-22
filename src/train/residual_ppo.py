@@ -137,6 +137,11 @@ def main(cfg: DictConfig):
         action_shape=env.action_space.shape,
     )
 
+    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
+        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
+        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
+        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+
     residual_policy.to(device)
 
     actor_parameters = [

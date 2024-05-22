@@ -232,6 +232,19 @@ class FurnitureSimEnv(gym.Env):
 
         print(f"Sim steps: {self.sim_steps}")
 
+        self.already_assembled = torch.zeros(
+            (self.num_envs,),
+            dtype=torch.bool,
+            device=self.device,
+        )
+
+        self.pair_to_assemble = (0, 4)
+
+        self.assembled_rel_poses = torch.tensor(
+            self.furniture.assembled_rel_poses[self.pair_to_assemble],
+            device=self.device,
+        )
+
     def _create_ground_plane(self):
         """Creates ground plane."""
         plane_params = gymapi.PlaneParams()
@@ -797,6 +810,23 @@ class FurnitureSimEnv(gym.Env):
                 (num_envs, 10): End-effector delta in [x, y, z, 6D rotation, gripper] if self.act_rot_repr == "rot_6d".
                 (num_envs, 7): End-effector delta in [x, y, z, ax, ay, az, gripper] if self.act_rot_repr == "axis".
         """
+        self.simulate_step(action)
+
+        obs = self.get_observation()
+
+        reward = self._reward()
+        done = (self.already_assembled == 1).unsqueeze(1)
+
+        self.env_steps += 1
+
+        return (
+            obs,
+            reward,
+            done,
+            {"obs_success": True, "action_success": True},
+        )
+
+    def simulate_step(self, action):
         if isinstance(action, np.ndarray):
             action = torch.from_numpy(action).float().to(device=self.device)
         if len(action.shape) == 1:
@@ -928,157 +958,10 @@ class FurnitureSimEnv(gym.Env):
             self.isaac_gym.sync_frame_time(self.sim)
             self.isaac_gym.clear_lines(self.viewer)
 
-        obs = self._get_observation()
-
-        reward = self._reward()
-        done = self._done()
-
-        # To benchmark how slow the reward and done calculations are, just return zeros.
-        # reward = torch.zeros(
-        #     (self.num_envs, 1), dtype=torch.float32, device=self.device
-        # )
-        # done = torch.zeros((self.num_envs, 1), dtype=torch.float32, device=self.device)
-
-        self.env_steps += 1
-
-        return (
-            obs,
-            reward,
-            done,
-            {"obs_success": True, "action_success": True},
-        )
-
-    def cosine_sim(self, w, v):
-        return np.dot(w, v) / (np.linalg.norm(w) * np.linalg.norm(v))
-
-    def is_similar_pose(
-        self, pose1, pose2, ori_bound=0.99, pos_threshold=[0.01, 0.007, 0.007]
-    ):
-        """Check if two poses are similar."""
-        similar_rot = self.is_similar_rot(pose1[:3, :3], pose2[:3, :3], ori_bound)
-
-        similar_pos = self.is_similar_pos(pose1[:3, 3], pose2[:3, 3], pos_threshold)
-
-        return similar_rot and similar_pos
-
-    def is_similar_rot(self, rot1, rot2, ori_bound=0.99):
-        if self.cosine_sim(rot1[:, 0], rot2[:, 0]) < ori_bound:
-            return False
-        if self.cosine_sim(rot1[:, 1], rot2[:, 1]) < ori_bound:
-            return False
-        if self.cosine_sim(rot1[:, 2], rot2[:, 2]) < ori_bound:
-            return False
-        return True
-
-    def is_similar_pos(self, pos1, pos2, pos_threshold=[0.01, 0.007, 0.007]):
-        if np.abs(pos1[0] - pos2[0]) > pos_threshold[0]:  # x
-            return False
-        if np.abs(pos1[1] - pos2[1]) > pos_threshold[1]:  # y
-            return False
-        if len(pos1) > 2 and np.abs(pos1[2] - pos2[2]) > pos_threshold[2]:  # z
-            return False
-        return True
-
-    def is_assembled_idx(
-        self,
-        part_idx1: int,
-        part_idx2: int,
-        parts_poses,
-    ) -> bool:
-        """Compute whether the part_idx1 and part_idx2 are assembled or not."""
-
-        # Check if these two parts are even supposed to be assembled
-        if (part_idx1, part_idx2) not in self.furniture.should_be_assembled:
-            return False
-
-        # Extract the poses of the two parts.
-        pose1 = parts_poses[7 * part_idx1 : 7 * (part_idx1 + 1)]
-        pose2 = parts_poses[7 * part_idx2 : 7 * (part_idx2 + 1)]
-
-        # Check if parts that should be assembled are assembled before these ones are assembled.
-        if not self.furniture.check_assembled_first(part_idx1, part_idx2):
-            return False
-
-        # Compute the relative pose of the two parts.
-        pose1_mat = T.pose2mat(pose1)
-        pose2_mat = T.pose2mat(pose2)
-        rel_pose = np.linalg.inv(pose1_mat) @ pose2_mat
-
-        # Get the list of possible relative poses
-        assembled_rel_poses = self.furniture.assembled_rel_poses[(part_idx1, part_idx2)]
-
-        # For each of the possible relative poses, check if the relative pose is similar.
-        for assembled_rel_pose in assembled_rel_poses:
-            ori_bound = (
-                -1
-                if (part_idx1, part_idx2) in self.furniture.position_only
-                else self.furniture.ori_bound
-            )
-            if self.is_similar_pose(
-                assembled_rel_pose,
-                rel_pose,
-                ori_bound=ori_bound,
-                pos_threshold=self.furniture.assembled_pos_threshold,
-            ):
-                return True
-
-        return False
-
-    def pose_from_vector(self, vec):
-        # Extract position and quaternion from the vector
-        pos = vec[..., :3]
-        quat = vec[..., 3:]
-
-        # Normalize the quaternion
-        quat = quat / torch.norm(quat, dim=-1, keepdim=True)
-
-        # Convert quaternion to rotation matrix
-        x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
-        xx = x * x
-        xy = x * y
-        xz = x * z
-        xw = x * w
-        yy = y * y
-        yz = y * z
-        yw = y * w
-        zz = z * z
-        zw = z * w
-
-        rot_matrix = torch.stack(
-            [
-                1 - 2 * (yy + zz),
-                2 * (xy - zw),
-                2 * (xz + yw),
-                2 * (xy + zw),
-                1 - 2 * (xx + zz),
-                2 * (yz - xw),
-                2 * (xz - yw),
-                2 * (yz + xw),
-                1 - 2 * (xx + yy),
-            ],
-            dim=-1,
-        ).view(*quat.shape[:-1], 3, 3)
-
-        # Combine position and rotation matrix to form the pose matrix
-        pose_matrix = torch.eye(4, dtype=vec.dtype, device=vec.device).repeat(
-            *vec.shape[:-1], 1, 1
-        )
-        pose_matrix[..., :3, :3] = rot_matrix
-        pose_matrix[..., :3, 3] = pos
-
-        return pose_matrix
-
     def _reward(self):
         """Reward is 1 if two parts are assembled."""
         rewards = torch.zeros(
             (self.num_envs, 1), dtype=torch.float32, device=self.device
-        )
-
-        # A mask tensor to indicate whether two parts should be assembled.
-        assemble_mask = torch.zeros(
-            (self.num_envs, len(self.furniture.should_be_assembled)),
-            dtype=torch.float32,
-            device=self.device,
         )
 
         # return rewards
@@ -1088,71 +971,16 @@ class FurnitureSimEnv(gym.Env):
             return rewards
 
         # Don't have to convert to AprilTag coordinate since the reward is computed with relative poses.
-        parts_poses = self.get_parts_poses(sim_coord=True)
+        parts_poses, founds = self.get_parts_poses(sim_coord=True)
         for env_idx in range(self.num_envs):
+            env_parts_poses = parts_poses[env_idx].cpu().numpy()
+            env_founds = founds[env_idx].cpu().numpy()
+            rewards[env_idx] = self.furnitures[env_idx].compute_assemble(
+                env_parts_poses, env_founds
+            )
 
-            # Compute the number of newly assembled parts.
-            ret = 0
-            for assemble_idx in self.furniture.should_be_assembled:
-                part_idx1, part_idx2 = assemble_idx
-                pair = (part_idx1, part_idx2)
-
-                are_assembled = False
-                # Check if these two parts are even supposed to be assembled
-                if (part_idx1, part_idx2) not in self.furniture.should_be_assembled:
-                    return False
-
-                # Extract the poses of the two parts.
-                pose1: torch.Tensor = parts_poses[
-                    env_idx, 7 * part_idx1 : 7 * (part_idx1 + 1)
-                ]
-                pose2: torch.Tensor = parts_poses[
-                    env_idx, 7 * part_idx2 : 7 * (part_idx2 + 1)
-                ]
-
-                # Check if parts that should be assembled are assembled before these ones are assembled.
-                if not self.furniture.check_assembled_first(part_idx1, part_idx2):
-                    return False
-                bp()
-
-                # Compute the relative pose of the two parts.
-                pose1_mat = self.pose_from_vector(pose1)
-                pose2_mat = self.pose_from_vector(pose2)
-                rel_pose = torch.inverse(pose1_mat) @ pose2_mat
-
-                # Get the list of possible relative poses
-                assembled_rel_poses = self.furniture.assembled_rel_poses[
-                    (part_idx1, part_idx2)
-                ]
-
-                # For each of the possible relative poses, check if the relative pose is similar.
-                for assembled_rel_pose in assembled_rel_poses:
-                    # ori_bound = (
-                    #     -1
-                    #     if (part_idx1, part_idx2) in self.furniture.position_only
-                    #     else self.furniture.ori_bound
-                    # )
-                    similar_rot = self.is_similar_rot(
-                        rel_pose[:3, :3],
-                        assembled_rel_pose[:3, :3],
-                        self.furniture.ori_bound,
-                    )
-                    similar_pos = self.is_similar_pos(
-                        rel_pose[:3, 3],
-                        assembled_rel_pose[:3, 3],
-                        self.furniture.pos_threshold,
-                    )
-
-                    if similar_rot and similar_pos:
-                        are_assembled = True
-
-                if are_assembled:
-                    if pair not in self.furniture.assembled_set:
-                        self.furniture.assembled_set.add(pair)
-                        self.furniture._log_assemble_set()
-                        ret += 1
-
-            rewards[env_idx] = ret
+        if self.np_step_out:
+            return rewards.cpu().numpy()
 
         return rewards
 
@@ -1173,7 +1001,7 @@ class FurnitureSimEnv(gym.Env):
         self.isaac_gym.refresh_rigid_body_state_tensor(self.sim)
         self.isaac_gym.refresh_jacobian_tensors(self.sim)
 
-        obs = self._get_observation()
+        obs = self.get_observation()
 
         return obs
 
@@ -1372,7 +1200,7 @@ class FurnitureSimEnv(gym.Env):
 
         return P, V
 
-    def _get_observation(self):
+    def get_observation(self):
         obs = {}
 
         robot_state = self._read_robot_state()
@@ -1397,13 +1225,10 @@ class FurnitureSimEnv(gym.Env):
 
         return obs
 
-    def get_observation(self):
-        return self._get_observation()
-
     def render(self, mode="rgb_array"):
         if mode != "rgb_array":
             raise NotImplementedError
-        return self._get_observation()["color_image2"]
+        return self.get_observation()["color_image2"]
 
     def is_success(self):
         return [
@@ -1425,7 +1250,7 @@ class FurnitureSimEnv(gym.Env):
         if self.save_camera_input:
             self._save_camera_input()
 
-        return self._get_observation()
+        return self.get_observation()
 
     def reset_env(self, env_idx, reset_franka=True, reset_parts=True):
         """Resets the environment. **MUST refresh in between multiple calls
@@ -1875,16 +1700,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         assert env_idxs.numel() > 0
 
-        for idx in env_idxs:
-            self.furnitures[idx].reset()
-
+        self.already_assembled[env_idxs] = 0
         self._reset_frankas(env_idxs)
         self._reset_parts_multiple(env_idxs)
         self.env_steps[env_idxs] = 0
 
         self.refresh()
 
-        return self._get_observation()
+        return self.get_observation()
 
     def increment_randomness(self):
         force_magnitude_limit = 1
@@ -1901,8 +1724,63 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             f"T->{self.max_torque_magnitude:.4f}"
         )
 
+    def _reward(self):
+        """Reward is 1 if two parts are assembled."""
+        rewards = torch.zeros(
+            (self.num_envs, 1), dtype=torch.float32, device=self.device
+        )
+
+        parts_poses = self.get_parts_poses(sim_coord=True)
+
+        # Reshape parts_poses to (num_envs, num_parts, 7)
+        num_parts = parts_poses.shape[1] // 7
+        parts_poses = parts_poses.view(self.num_envs, num_parts, 7)
+
+        # Compute the relative pose for the specific pair of parts that should be assembled
+        pose_mat1 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
+        pose_mat2 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
+        rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
+
+        similar_rot = self.is_similar_rot(
+            rel_pose[..., :3, :3],
+            self.assembled_rel_poses[:, None, :3, :3],
+            self.furniture.ori_bound,
+        )
+        similar_pos = self.is_similar_pos(
+            rel_pose[..., :3, 3],
+            self.assembled_rel_poses[:, None, :3, 3],
+            self.furniture.assembled_pos_threshold,
+        )
+        assembled_mask = similar_rot & similar_pos
+
+        # Check if the parts are newly assembled
+        newly_assembled_mask = assembled_mask.any(dim=0) & ~self.already_assembled
+
+        # Update the already_assembled tensor
+        self.already_assembled |= newly_assembled_mask
+
+        # Compute the rewards based on the newly assembled parts
+        rewards = newly_assembled_mask.float().unsqueeze(-1)
+
+        return rewards
+
+    @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
-        obs, reward, done, info = super().step(action)
+        """Robot takes an action.
+
+        Args:
+            action:
+                (num_envs, 8): End-effector delta in [x, y, z, qx, qy, qz, qw, gripper] if self.act_rot_repr == "quat".
+                (num_envs, 10): End-effector delta in [x, y, z, 6D rotation, gripper] if self.act_rot_repr == "rot_6d".
+                (num_envs, 7): End-effector delta in [x, y, z, ax, ay, az, gripper] if self.act_rot_repr == "axis".
+        """
+        self.simulate_step(action)
+
+        obs = self.get_observation()
+        reward = self._reward()
+        done = (self.already_assembled == 1).unsqueeze(1)
+
+        self.env_steps += 1
 
         if sample_perturbations:
             self._random_perturbation_of_parts(
@@ -1910,7 +1788,12 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
                 self.max_torque_magnitude,
             )
 
-        return obs, reward, done, info
+        return (
+            obs,
+            reward,
+            done,
+            {"obs_success": True, "action_success": True},
+        )
 
     def _reset_frankas(self, env_idxs: torch.Tensor):
         # Define the range of random values for joint positions
@@ -2111,6 +1994,69 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self._apply_forces_to_parts(
             env_idxs, self.max_force_magnitude, self.max_torque_magnitude
         )
+
+    def pose_from_vector(self, vec):
+        # TODO: Move this to a utility function
+        # Extract position and quaternion from the vector
+        pos = vec[..., :3]
+        quat = vec[..., 3:]
+
+        # Normalize the quaternion
+        quat = quat / torch.norm(quat, dim=-1, keepdim=True)
+
+        # Convert quaternion to rotation matrix
+        x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
+        xx = x * x
+        xy = x * y
+        xz = x * z
+        xw = x * w
+        yy = y * y
+        yz = y * z
+        yw = y * w
+        zz = z * z
+        zw = z * w
+
+        rot_matrix = torch.stack(
+            [
+                1 - 2 * (yy + zz),
+                2 * (xy - zw),
+                2 * (xz + yw),
+                2 * (xy + zw),
+                1 - 2 * (xx + zz),
+                2 * (yz - xw),
+                2 * (xz - yw),
+                2 * (yz + xw),
+                1 - 2 * (xx + yy),
+            ],
+            dim=-1,
+        ).view(*quat.shape[:-1], 3, 3)
+
+        # Combine position and rotation matrix to form the pose matrix
+        pose_matrix = torch.eye(4, dtype=vec.dtype, device=vec.device).repeat(
+            *vec.shape[:-1], 1, 1
+        )
+        pose_matrix[..., :3, :3] = rot_matrix
+        pose_matrix[..., :3, 3] = pos
+
+        return pose_matrix
+
+    def cosine_sim(self, w, v):
+        # Compute the dot product and norms along the last dimension
+        dot_product = torch.sum(w * v, dim=-1)
+        w_norm = torch.norm(w, dim=-1)
+        v_norm = torch.norm(v, dim=-1)
+
+        # Compute the cosine similarity
+        return dot_product / (w_norm * v_norm)
+
+    def is_similar_rot(self, rot1, rot2, ori_bound=0.99):
+        cosine_sims = self.cosine_sim(rot1, rot2)
+        return torch.all(cosine_sims >= ori_bound, dim=-1)
+
+    def is_similar_pos(self, pos1, pos2, pos_threshold=[0.01, 0.007, 0.007]):
+        pos_diffs = torch.abs(pos1 - pos2)
+        within_threshold = pos_diffs <= torch.tensor(pos_threshold, device=pos1.device)
+        return torch.all(within_threshold, dim=-1)
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
