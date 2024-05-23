@@ -121,7 +121,7 @@ def rollout(
         resize_crop_image(video_obs, "color_image2")
 
     # save visualization and rewards
-    robot_states = [TensorDict(video_obs["robot_state"])]
+    robot_states = [TensorDict(video_obs["robot_state"], batch_size=env.num_envs)]
     imgs1 = [] if "color_image1" not in video_obs else [video_obs["color_image1"].cpu()]
     imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
@@ -148,7 +148,9 @@ def rollout(
             resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
-        robot_states.append(TensorDict(video_obs["robot_state"]))
+        robot_states.append(
+            TensorDict(video_obs["robot_state"], batch_size=env.num_envs)
+        )
         if "color_image1" in video_obs:
             imgs1.append(video_obs["color_image1"].cpu())
         if "color_image2" in video_obs:
