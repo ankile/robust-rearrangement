@@ -8,6 +8,7 @@ import argparse
 import time
 import os
 from pathlib import Path
+from dataclasses import dataclass
 from datetime import datetime
 from scipy.spatial.transform import Rotation as R
 
@@ -28,22 +29,44 @@ parser.add_argument("-sub", "--sub-steps", type=int, default=0)
 parser.add_argument("--load-dir", type=str, required=True)
 parser.add_argument("--save", action="store_true")
 parser.add_argument("--save-dir", type=str, default=None)
+parser.add_argument("-dr", "--domain-rand", action="store_true")
+
+# Create a subparser for randomization arguments
+subparsers = parser.add_subparsers(dest="subcommand")
+
+# Create the parser for the "rand" command
+rand_parser = subparsers.add_parser("rand", help="Randomization arguments")
+rand_parser.add_argument(
+    "--part-random", type=str, default="base", help="Randomize part colors"
+)
+rand_parser.add_argument(
+    "--table-random", type=str, default="base", help="Randomize table colors"
+)
+rand_parser.add_argument(
+    "--different-part-colors", action="store_true", help="Use different part colors"
+)
+rand_parser.add_argument(
+    "--random-frame-freq", type=int, default=1, help="Randomize every X frames"
+)
+
 args_cli = parser.parse_args()
 
 # launch omniverse app
 simulation_app = SimulationApp(
     {
         "headless": args_cli.headless,
-        # "width": 640,
-        # "height": 480,
-        "width": 1440,
-        "height": 1080,
+        "width": 640,
+        "height": 480,
+        # "width": 1440,
+        # "height": 1080,
     }
 )
 """Rest everything follows."""
 
 import numpy as np
 import torch
+from torchvision.transforms import functional as F, InterpolationMode
+from pxr import Gf
 import omni.isaac.core.utils.prims as prim_utils
 from omni.isaac.core.simulation_context import SimulationContext
 from omni.isaac.core.utils.viewports import set_camera_view
@@ -59,7 +82,7 @@ from omni.isaac.orbit.utils import convert_dict_to_backend
 import furniture_bench.utils.transform as T
 from furniture_bench.config import config
 
-from typing import Dict
+from typing import Dict, Union, Tuple
 
 # folder to load from
 # DEMO_DIR = "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/one_leg/teleop/med_perturb/success"
@@ -177,6 +200,320 @@ def gen_prim(usd_path: str, prim_name: str, init_pos, init_ori):
     return view
 
 
+light_prim_paths = [
+    "/World/Table/Lights/RectLight",
+    "/World/Table/Lights/RectLight_01",
+    "/World/Table/Lights/CylinderLight",
+    "/World/Table/Lights/CylinderLight_01",
+    "/World/Table/Lights/CylinderLight_02",
+    "/World/Table/Lights/CylinderLight_03",
+]
+
+
+part_mat_paths = [
+    "/World/ObstacleFront/Looks/OmniPBR_ClearCoat",
+    "/World/ObstacleRight/Looks/OmniPBR_ClearCoat",
+    "/World/ObstacleLeft/Looks/OmniPBR_ClearCoat",
+    "/World/SquareTableTop/Looks/Material_004",
+    "/World/SquareTableLeg1/Looks/Material_005",
+    "/World/SquareTableLeg2/Looks/Material_005",
+    "/World/SquareTableLeg3/Looks/Material_005",
+    "/World/SquareTableLeg4/Looks/Material_004",
+]
+
+
+table_mat_paths = [
+    "/World/Table/Looks/Material_010",
+]
+
+camera_prim_paths = ["/World/CameraSensor"]
+
+
+def rnd_high_low(high: np.ndarray, low: np.ndarray):
+    rnd = np.random.random(high.shape[0])
+    return low + (high - low) * rnd
+
+
+def rnd_about_nominal(
+    nom: np.ndarray,
+    dist_type: str = "gaussian",
+    uniform_scale: float = None,
+    variance: float = None,
+):
+    assert dist_type in ["gaussian", "uniform"], f"Unrecognized dist type: {dist_type}"
+    if dist_type == "gaussian":
+        assert variance is not None, f"Must set variance if using Gaussian"
+    if dist_type == "uniform":
+        assert uniform_scale is not None, f"Must set uniform_scale if using uniform"
+
+    if dist_type == "gaussian":
+        rnd = np.random.normal(scale=np.sqrt(variance), size=nom.shape)
+    elif dist_type == "uniform":
+        rnd = (np.random.random(size=nom.shape) - 0.5) * uniform_scale
+
+    return nom + rnd
+
+
+def rnd_isaac_pose_about_nominal(
+    nom_pose: Tuple[torch.Tensor, torch.Tensor],
+    dist_type: str = "gaussian",
+    uniform_scale_xyz: float = None,
+    uniform_scale_rpyaw: float = None,
+    variance_xyz: float = None,
+    variance_rpyaw: float = None,
+):
+    assert dist_type in ["gaussian", "uniform"], f"Unrecognized dist type: {dist_type}"
+    if dist_type == "gaussian":
+        assert variance_xyz is not None, f"Must set variance if using Gaussian"
+        assert variance_rpyaw is not None, f"Must set variance if using Gaussian"
+    if dist_type == "uniform":
+        assert uniform_scale_xyz is not None, f"Must set uniform_scale if using uniform"
+        assert (
+            uniform_scale_rpyaw is not None
+        ), f"Must set uniform_scale if using uniform"
+
+    if dist_type == "gaussian":
+        rnd_xyz = torch.normal(mean=0.0, std=np.sqrt(variance_xyz), size=(3,))
+        rnd_rpyaw = torch.normal(mean=0.0, std=np.sqrt(variance_rpyaw), size=(3,))
+    elif dist_type == "uniform":
+        rnd_xyz = (torch.rand(size=(3,)) - 0.5) * uniform_scale_xyz
+        rnd_rpyaw = (torch.rand(size=(3,)) - 0.5) * uniform_scale_rpyaw
+
+    # add the position part
+    nom_pos = nom_pose[0]
+    new_pos = nom_pos + rnd_xyz
+
+    # convert orientation part properly
+    nom_quat = T.convert_quat(nom_pose[1], to="xyzw")
+    rnd_quat = T.euler2quat(rnd_rpyaw)
+    new_quat = T.quat_multiply(nom_quat, rnd_quat)
+    new_quat = T.convert_quat(new_quat, to="wxyz")
+
+    return new_pos, new_quat
+
+
+def np2Vec3f(arr):
+    assert arr.shape[0] == 3, f"Must be 3D to make Vec3f"
+    vec = Gf.Vec3f()
+    for i, val in enumerate(arr):
+        vec[i] = val
+    return vec
+
+
+def resize(img: Union[np.ndarray, torch.Tensor]):
+    """Resizes `img` into ..."""
+    th, tw = 480, 640
+    was_numpy = False
+
+    if isinstance(img, np.ndarray):
+        img = torch.from_numpy(img)
+        was_numpy = True
+
+    if isinstance(img, torch.Tensor):
+        # Move channels in front (B, H, W, C) -> (B, C, H, W)
+        if len(img.shape) == 4:
+            img = img.permute(0, 3, 1, 2)
+        else:
+            img = img.permute(2, 0, 1)
+
+    img = F.resize(
+        img, (th, tw), interpolation=InterpolationMode.BILINEAR, antialias=True
+    )
+
+    if isinstance(img, torch.Tensor):
+        # Move channels back (B, C, H, W) -> (B, H, W, C)
+        if len(img.shape) == 4:
+            img = img.permute(0, 2, 3, 1)
+        else:
+            img = img.permute(1, 2, 0)
+
+    if was_numpy:
+        img = img.numpy()
+
+    return img
+
+
+def resize_dict(img_dict: dict):
+    img_dict["rgb"] = resize(img_dict["rgb"][:, :, :3])
+    return img_dict
+
+
+@dataclass
+class RandomizationConfig:
+    part_random: str = "base"
+    table_random: str = "base"
+    different_part_colors: bool = False
+    random_frame_freq: int = 1
+
+
+class RandomizationHelper:
+    def __init__(self, rand_config: RandomizationConfig):
+        self.rand_config = rand_config
+
+        assert self.rand_config.part_random in ["base", "full"]
+        self.part_random = self.rand_config.part_random
+
+        assert self.rand_config.table_random in ["base", "full"]
+        self.table_random = self.rand_config.table_random
+
+        self.different_part_colors = self.rand_config.different_part_colors
+
+        self._setup()
+
+    def _setup(self):
+
+        # get the nominal color for the table
+
+        table_mat_prim = prim_utils.get_prim_at_path(table_mat_paths[0])
+        # print(f"Part material prim: {part_mat_prim} at path: {pmpp}")
+        assert (
+            table_mat_prim.IsValid()
+        ), f"Prim {table_mat_prim} at path {table_mat_paths[0]} is not valid"
+        table_shader_prim = table_mat_prim.GetChildren()[0]
+        self.nominal_color = np.asarray(
+            table_shader_prim.GetAttribute("inputs:diffuse_color_constant").Get()
+        )
+
+        # set different low levels for part colors
+        self.part_low_high = np.array([0.984, 0.889, 0.843])
+        self.part_low_middle = np.array([0.5, 0.5, 0.5])
+
+        self.part_color_low = (
+            self.part_low_middle if self.part_random == "full" else self.part_low_high
+        )
+
+        self.global_cams = []
+        self.global_cam_poses = []
+        self.local_cams = []
+        self.local_cam_poses = []
+
+    def set_global_cams(self, global_cams):
+        self.global_cams = global_cams
+        self.global_cam_poses = [
+            cam._sensor_xform.get_world_pose() for cam in self.global_cams
+        ]
+
+    def set_local_cams(self, local_cams):
+        self.local_cams = local_cams
+        self.local_cam_poses = [
+            cam._sensor_xform.get_local_pose() for cam in self.local_cams
+        ]
+
+    def random_table_colors(self):
+        # set table color rand function
+        if self.table_random == "full":
+            return self.random_table_colors_full()
+        else:
+            return self.random_table_colors_nominal()
+
+    def toggle_lights(self):
+        for lpp in light_prim_paths:
+            light_prim = prim_utils.get_prim_at_path(lpp)
+            # print(f"Light prim: {light_prim} at path: {lpp}")
+            assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
+            visible_attr = light_prim.GetAttribute("visibility")
+            if np.random.random() > 0.5:
+                visible_attr.Set("inherited")
+            else:
+                visible_attr.Set("invisible")
+
+    def random_light_colors(self):
+        high = np.array([1.0, 1.0, 1.0])
+        low = np.array([0.789, 0.715, 0.622])
+        for lpp in light_prim_paths:
+            # print(f"Light prim: {light_prim} at path: {lpp}")
+            light_prim = prim_utils.get_prim_at_path(lpp)
+            assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
+            color_attr = light_prim.GetAttribute("color")
+            color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
+            color_attr.Set(color_to_set_gf)
+
+    def random_part_colors(self):
+        high = np.array([1.0, 1.0, 1.0])
+        # low = np.array([0.984, 0.889, 0.843])
+        # low = np.array([0.5, 0.5, 0.5])
+        low = self.part_color_low
+        color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
+        for pmpp in part_mat_paths:
+            part_mat_prim = prim_utils.get_prim_at_path(pmpp)
+            # print(f"Part material prim: {part_mat_prim} at path: {pmpp}")
+            assert (
+                part_mat_prim.IsValid()
+            ), f"Prim {part_mat_prim} at path {pmpp} is not valid"
+            shader_prim = part_mat_prim.GetChildren()[0]
+            color_attr = shader_prim.GetAttribute("inputs:diffuse_color_constant")
+            if self.different_part_colors:
+                color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
+            color_attr.Set(color_to_set_gf)
+
+    def random_table_colors_nominal(self):
+
+        table_mat_prim = prim_utils.get_prim_at_path(table_mat_paths[0])
+        # print(f"Part material prim: {part_mat_prim} at path: {pmpp}")
+        assert (
+            table_mat_prim.IsValid()
+        ), f"Prim {table_mat_prim} at path {table_mat_paths[0]} is not valid"
+        table_shader_prim = table_mat_prim.GetChildren()[0]
+
+        # nominal_color = np.asarray(
+        #     table_shader_prim.GetAttribute("inputs:diffuse_color_constant").Get()
+        # )
+        nominal_color = self.nominal_color
+        dist_type = "gaussian"
+        variance = 0.0001
+
+        color_attr = table_shader_prim.GetAttribute("inputs:diffuse_color_constant")
+        color_to_set_gf = np2Vec3f(
+            rnd_about_nominal(nom=nominal_color, dist_type=dist_type, variance=variance)
+        )
+        color_attr.Set(color_to_set_gf)
+
+    def random_table_colors_full(self):
+
+        table_mat_prim = prim_utils.get_prim_at_path(table_mat_paths[0])
+        # print(f"Part material prim: {part_mat_prim} at path: {pmpp}")
+        assert (
+            table_mat_prim.IsValid()
+        ), f"Prim {table_mat_prim} at path {table_mat_paths[0]} is not valid"
+        table_shader_prim = table_mat_prim.GetChildren()[0]
+
+        high = np.array([1.0, 1.0, 1.0])
+        low = np.array([0.5, 0.5, 0.5])
+
+        color_attr = table_shader_prim.GetAttribute("inputs:diffuse_color_constant")
+        color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
+        color_attr.Set(color_to_set_gf)
+
+    def random_camera_pose(self):
+
+        dist_type = "gaussian"
+        std_xyz = 0.00075
+        std_rpyaw = np.deg2rad(0.5)
+        for i, cam in enumerate(self.global_cams):
+            nom_world_pose = self.global_cam_poses[i]
+            new_world_pose = rnd_isaac_pose_about_nominal(
+                nom_pose=nom_world_pose,
+                dist_type=dist_type,
+                variance_xyz=std_xyz**2,
+                variance_rpyaw=std_rpyaw**2,
+            )
+            new_pos, new_quat = new_world_pose
+            cam._sensor_xform.set_world_pose(new_pos, new_quat)
+
+        std_xyz = 0.0005
+        std_rpyaw = np.deg2rad(0.25)
+        for i, cam in enumerate(self.local_cams):
+            nom_local_pose = self.local_cam_poses[i]
+            new_local_pose = rnd_isaac_pose_about_nominal(
+                nom_pose=nom_local_pose,
+                dist_type=dist_type,
+                variance_xyz=std_xyz**2,
+                variance_rpyaw=std_rpyaw**2,
+            )
+            new_pos, new_quat = new_local_pose
+            cam._sensor_xform.set_local_pose(new_pos, new_quat)
+
+
 def main():
     s = time.time()
     with open(FILE, "rb") as f:
@@ -193,10 +530,10 @@ def main():
     # Setup camera sensor (front)
     camera_cfg = PinholeCameraCfg(
         sensor_tick=0,
-        # height=480,
-        # width=640,
-        width=1440,
-        height=1080,
+        height=480,
+        width=640,
+        # width=1440,
+        # height=1080,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
             focal_length=cam_params["front"]["focal_length"],
@@ -214,10 +551,10 @@ def main():
     # Setup camera sensor (wrist)
     wrist_camera_cfg = PinholeCameraCfg(
         sensor_tick=0,
-        # height=480,
-        # width=640,
-        width=1440,
-        height=1080,
+        height=480,
+        width=640,
+        # width=1440,
+        # height=1080,
         data_types=["rgb"],
         usd_params=PinholeCameraCfg.UsdCameraCfg(
             focal_length=cam_params["wrist"]["focal_length"],
@@ -377,6 +714,7 @@ def main():
         R.from_euler("XYZ", np.deg2rad([0.0, 68.5, 90])).as_quat(), to="wxyz"
     )
     camera._sensor_xform.set_world_pose(cam_pos, cam_quat)
+    from IPython import embed
 
     wrist_camera.initialize()
 
@@ -388,6 +726,9 @@ def main():
         "camera",
         f"{demo_date}_substeps_{args_cli.sub_steps}",
     )
+    if args_cli.domain_rand:
+        output_dir += "_domain_rand"
+
     rep_writer = rep.BasicWriter(output_dir=output_dir, frame_padding=3)
 
     wrist_output_dir = os.path.join(
@@ -396,6 +737,9 @@ def main():
         "wrist_camera",
         f"{demo_date}_substeps_{args_cli.sub_steps}",
     )
+    if args_cli.domain_rand:
+        wrist_output_dir += "_domain_rand"
+
     wrist_rep_writer = rep.BasicWriter(output_dir=wrist_output_dir, frame_padding=3)
 
     # Now we are ready!
@@ -488,7 +832,9 @@ def main():
         time.sleep(0.01)
 
     # run_until_quit(simulation_app=simulation_app, world=sim)
-    # from IPython import embed; embed()
+    # from IPython import embed
+
+    # embed()
     # assert False
 
     # setup re-saving
@@ -513,7 +859,29 @@ def main():
 
     fps_list = []
     last_time = time.time()
+
+    # Use the subcommand arguments
+    dr_config = RandomizationConfig()
+    if args_cli.subcommand == "rand":
+        rand_args = args_cli
+        for rand_key in dr_config.__dict__.keys():
+            print(f"Rand key: {rand_key}, args value: {rand_args.__dict__[rand_key]}")
+            dr_config.__dict__[rand_key] = rand_args.__dict__[rand_key]
+
+    dr_helper = RandomizationHelper(rand_config=dr_config)
+    dr_helper.set_global_cams([camera])
+    dr_helper.set_local_cams([wrist_camera])
+
     for obs_idx, obs in enumerate(data["observations"]):
+
+        if args_cli.domain_rand:
+            if obs_idx % dr_config.random_frame_freq == 0:
+                dr_helper.toggle_lights()
+                dr_helper.random_light_colors()
+                dr_helper.random_part_colors()
+                dr_helper.random_table_colors()
+                dr_helper.random_camera_pose()
+
         goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         dx = (goal_pos - prev_goal_pos) / sim_steps
 
@@ -523,12 +891,12 @@ def main():
             else len(data["observations"]) - 1
         )
 
-        if obs_idx == 50:
-            run_until_quit(simulation_app=simulation_app, world=sim)
-            from IPython import embed
+        # if obs_idx == 50:
+        #     run_until_quit(simulation_app=simulation_app, world=sim)
+        #     from IPython import embed
 
-            embed()
-            assert False
+        #     embed()
+        #     assert False
 
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx
@@ -542,12 +910,16 @@ def main():
             camera.update(dt=0.0)
             wrist_camera.update(dt=0.0)
 
-            rep_writer.write(
-                convert_dict_to_backend(camera.data.output, backend="numpy")
-            )
-            wrist_rep_writer.write(
-                convert_dict_to_backend(wrist_camera.data.output, backend="numpy")
-            )
+            if not args_cli.save:
+                rep_writer.write(
+                    convert_dict_to_backend(camera.data.output, backend="numpy")
+                )
+                wrist_rep_writer.write(
+                    convert_dict_to_backend(wrist_camera.data.output, backend="numpy")
+                )
+                # rep_writer.write(resize_dict(camera.data.output))
+                # wrist_rep_writer.write(resize_dict(wrist_camera.data.output))
+
             elapsed = time.time() - last_time
             fps = 1.0 / elapsed
             fps_list.append(fps)
@@ -629,15 +1001,22 @@ def main():
             parts_prev_goal_pos.append(pos)
             parts_prev_goal_ori.append(ori)
 
-        # log the new observation
-        wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
-        front_image = camera.data.output["rgb"][:, :, :3]
-        new_obs = dict(
-            color_image1=wrist_image,
-            color_image2=front_image,
-            robot_state=obs["robot_state"],
-        )
-        episode_data["observations"].append(new_obs)
+        if args_cli.save:
+            # log the new observation
+            # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3].copy())
+            # front_image = resize(camera.data.output["rgb"][:, :, :3].copy())
+
+            # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
+            # front_image = resize(camera.data.output["rgb"][:, :, :3])
+
+            wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
+            front_image = camera.data.output["rgb"][:, :, :3]
+            new_obs = dict(
+                color_image1=wrist_image,
+                color_image2=front_image,
+                robot_state=obs["robot_state"],
+            )
+            episode_data["observations"].append(new_obs)
 
     e = time.time()
     print(f"Time taken: {e-s}")
