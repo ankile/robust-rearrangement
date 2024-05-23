@@ -753,7 +753,7 @@ def Xform "World" (
             apiSchemas = ["ShapingAPI"]
         )
         {
-            float intensity = 7000
+            float intensity = 2000
             float length = 9.900001
             float radius = 0.1
             float shaping:cone:angle = 180
