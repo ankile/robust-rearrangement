@@ -487,7 +487,7 @@ class RandomizationHelper:
     def random_camera_pose(self):
 
         dist_type = "gaussian"
-        std_xyz = 0.00075
+        std_xyz = 0.0025
         std_rpyaw = np.deg2rad(0.5)
         for i, cam in enumerate(self.global_cams):
             nom_world_pose = self.global_cam_poses[i]
@@ -500,7 +500,7 @@ class RandomizationHelper:
             new_pos, new_quat = new_world_pose
             cam._sensor_xform.set_world_pose(new_pos, new_quat)
 
-        std_xyz = 0.0005
+        std_xyz = 0.00075
         std_rpyaw = np.deg2rad(0.25)
         for i, cam in enumerate(self.local_cams):
             nom_local_pose = self.local_cam_poses[i]
