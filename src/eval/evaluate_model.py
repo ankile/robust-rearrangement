@@ -1,18 +1,20 @@
 import argparse
 import time
-from typing import List
+
 import furniture_bench
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+import torch  # needs to be after isaac gym imports
+from omegaconf import OmegaConf, DictConfig
 from src.behavior.base import Actor  # noqa
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
-import torch
-from omegaconf import OmegaConf, DictConfig
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
+from src.eval.eval_utils import load_eval_config, load_model_weights
 
+from typing import List
 from ipdb import set_trace as bp  # noqa
 import wandb
 from wandb import Api
@@ -64,12 +66,13 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
         runs = [run for run in runs if run.state in args.run_state]
 
     # Filter out runs based on action type
-    runs = [
-        run
-        for run in runs
-        if run.config.get("control", {}).get("control_mode", "delta")
-        == args.action_type
-    ]
+    # run.config.control.control_mode == args.action_type
+    # runs = [
+    #     run
+    #     for run in runs
+    #     if run.config.get("control", {}).get("control_mode", "delta")
+    #     == args.action_type
+    # ]
     return runs
 
 
@@ -307,42 +310,24 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                # or best_test_loss / best_success_rate
-                checkpoint_type = "best_test_loss"
-                model_file = [
-                    f
-                    for f in run.files()
-                    if f.name.endswith(".pt") and checkpoint_type in f.name
-                ][0]
-                print(f"Loading checkpoint: {model_file.name}")
-                model_path = model_file.download(
-                    root=f"./models/{run.name}", exist_ok=True, replace=True
-                ).name
-
-                print(f"Model path: {model_path}")
-
                 # Get the current `test_epoch_loss` from the run
                 test_epoch_loss = run.summary.get("test_epoch_loss", None)
                 print(
                     f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}"
                 )
 
-                # Create the config object with the project name and make it read-only
-                config: DictConfig = OmegaConf.create(
-                    {
-                        **run.config,
-                        "project_name": run.project,
-                        "actor": {
-                            **run.config["actor"],
-                            "inference_steps": 4,
-                            "action_horizon": (
-                                args.action_horizon
-                                if args.action_horizon is not None
-                                else run.config["actor"]["action_horizon"]
-                            ),
-                        },
-                    },
+                # # Create the config object with the project name
+                print(f"Fix me!!!")
+                config = load_eval_config(
+                    run=run,
+                    actor_name=(
+                        "residual_diffusion"
+                        if "actor" not in run.config
+                        else run.config["actor"]["name"]
+                    ),
+                    action_horizon=args.action_horizon,
                 )
+
                 if "predict_past_actions" not in config.actor:
                     config.actor.predict_past_actions = True
 
@@ -360,9 +345,7 @@ if __name__ == "__main__":
                 # Make the actor
                 actor: Actor = get_actor(cfg=config, device=device)
 
-                actor.load_state_dict(torch.load(model_path))
-                actor.eval()
-                actor.cuda()
+                load_model_weights(run=run, actor=actor)
 
                 save_dir = (
                     trajectory_save_dir(

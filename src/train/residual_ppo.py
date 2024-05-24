@@ -16,7 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.eval.load_model import load_bc_actor
+from src.eval.eval_utils import load_bc_actor
 from diffusers.optimization import get_scheduler
 
 
