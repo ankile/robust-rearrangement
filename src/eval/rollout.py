@@ -121,7 +121,7 @@ def rollout(
         resize_crop_image(video_obs, "color_image2")
 
     # save visualization and rewards
-    robot_states = [TensorDict(video_obs["robot_state"])]
+    robot_states = [TensorDict(video_obs["robot_state"], batch_size=env.num_envs)]
     imgs1 = [] if "color_image1" not in video_obs else [video_obs["color_image1"].cpu()]
     imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
@@ -148,7 +148,9 @@ def rollout(
             resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
-        robot_states.append(TensorDict(video_obs["robot_state"]))
+        robot_states.append(
+            TensorDict(video_obs["robot_state"], batch_size=env.num_envs)
+        )
         if "color_image1" in video_obs:
             imgs1.append(video_obs["color_image1"].cpu())
         if "color_image2" in video_obs:
@@ -263,14 +265,31 @@ def calculate_success_rate(
         for rewards in all_rewards
     ]
 
-    if (rollout_save_dir is not None or save_rollouts_wandb) and len(all_imgs1) > 0:
+    print(f"Checking if we should save rollouts (rollout_save_dir: {rollout_save_dir})")
+    if rollout_save_dir is not None or save_rollouts_wandb:
+        have_img_obs = len(all_imgs1) > 0
+        print(
+            f"Saving rollouts, have image observations: {have_img_obs} (will make dummy video if False)"
+        )
         total_reward = 0
         table_rows = []
         for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
             # Get the rewards and images for this rollout
             robot_states = tensordict_to_list_of_dicts(all_robot_states[rollout_idx])
-            video1 = all_imgs1[rollout_idx].numpy()
-            video2 = all_imgs2[rollout_idx].numpy()
+            video1 = (
+                all_imgs1[rollout_idx].numpy()
+                if have_img_obs
+                else np.zeros(
+                    (len(robot_states), 2, 2, 3), dtype=np.uint8
+                )  # dummy video
+            )
+            video2 = (
+                all_imgs2[rollout_idx].numpy()
+                if have_img_obs
+                else np.zeros(
+                    (len(robot_states), 2, 2, 3), dtype=np.uint8
+                )  # dummy video
+            )
             actions = all_actions[rollout_idx].numpy()
             rewards = all_rewards[rollout_idx].numpy()
             parts_poses = all_parts_poses[rollout_idx].numpy()
@@ -287,13 +306,16 @@ def calculate_success_rate(
 
             # Stack the two videos side by side into a single video
             # and keep axes as (T, H, W, C) (and cut off after rollout reaches success)
-            video = np.concatenate([video1, video2], axis=2)[trim_start_steps:n_steps]
-            video = create_in_memory_mp4(video, fps=20)
+            if have_img_obs:
+                video = np.concatenate([video1, video2], axis=2)[
+                    trim_start_steps:n_steps
+                ]
+                video = create_in_memory_mp4(video, fps=20)
 
             # Calculate the reward and return for this rollout
             episode_return = episode_returns[rollout_idx]
 
-            if save_rollouts_wandb:
+            if save_rollouts_wandb and have_img_obs:
                 table_rows.append(
                     [
                         wandb.Video(video, fps=20, format="mp4"),

@@ -371,7 +371,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
-                        create=False,
+                        create=True,
                     )
                     if args.save_rollouts
                     else None

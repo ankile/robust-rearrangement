@@ -77,7 +77,7 @@ def save_raw_rollout(
 
     output_path = rollout_save_dir / ("success" if success else "failure")
     output_path.mkdir(parents=True, exist_ok=True)
-    output_path = output_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
+    output_path = output_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')}.pkl"
 
     if compress_pickles:
         output_path = output_path.with_suffix(".pkl.xz")
