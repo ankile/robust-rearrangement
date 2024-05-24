@@ -1997,7 +1997,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ## Reset poses
         self._reset_part_poses(env_idxs)
 
-        ## Random forces
         self._apply_forces_to_parts(
             env_idxs, self.max_force_magnitude, self.max_torque_magnitude
         )

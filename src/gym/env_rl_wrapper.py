@@ -225,10 +225,6 @@ class ResidualPolicyEnvWrapper:
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
 
-        self.no_rotation_or_gripper = torch.tensor(
-            [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
-        ).repeat(self.num_envs, 1)
-
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
@@ -289,6 +285,7 @@ class ResidualPolicyEnvWrapper:
 
     def step(self, naction: torch.Tensor):
         assert naction.shape[1:] == self.action_space.shape
+        # bp()
 
         # First denormalize the action
         action = self.normalizer(naction, "action", forward=False)

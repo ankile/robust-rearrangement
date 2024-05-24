@@ -103,7 +103,7 @@ def rollout(
         obs = env.reset()
         actor.reset()
 
-    # bp()
+    bp()
 
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 5 second

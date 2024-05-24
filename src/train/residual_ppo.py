@@ -116,7 +116,7 @@ def main(cfg: DictConfig):
     )
 
     # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_poliy)
+    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
 
     # Set the inference steps of the actor
     if isinstance(bc_actor, DiffusionPolicy):
@@ -137,11 +137,6 @@ def main(cfg: DictConfig):
         obs_shape=env.observation_space.shape,
         action_shape=env.action_space.shape,
     )
-
-    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
-        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
-        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
-        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
 
     residual_policy.to(device)
 
@@ -180,6 +175,13 @@ def main(cfg: DictConfig):
         num_training_steps=cfg.num_iterations,
     )
 
+    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
+        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
+        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
+        bp()
+        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+
     steps_per_iteration = cfg.data_collection_steps
 
     print(f"Total timesteps: {cfg.total_timesteps}, batch size: {cfg.batch_size}")
@@ -212,6 +214,8 @@ def main(cfg: DictConfig):
     global_step = 0
     iteration = 0
     start_time = time.time()
+    training_cum_time = 0
+    last_iteration_duration = 0
     # bp()
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -225,6 +229,7 @@ def main(cfg: DictConfig):
         iteration += 1
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
         print(f"Run name: {run_name}")
+        iteration_start_time = time.time()
 
         # If eval first flag is set, we will evaluate the model before doing any training
         eval_mode = (iteration - int(cfg.eval_first)) % cfg.eval_interval == 0
@@ -235,25 +240,28 @@ def main(cfg: DictConfig):
             bc_actor.reset()
 
         print(f"Eval mode: {eval_mode}")
+        if not eval_mode:
+            # Only count environment steps during training
+            global_step += cfg.num_envs * steps_per_iteration
+            training_cum_time += last_iteration_duration
 
         for step in range(0, steps_per_iteration):
-            if not eval_mode:
-                # Only count environment steps during training
-                global_step += cfg.num_envs
+
+            # bp()
 
             # Get the base normalized action
             base_naction = bc_actor.action_normalized(next_obs)
 
             # Process the obs for the residual policy
-            next_obs = env.process_obs(next_obs)
-            next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
+            next_nobs = env.process_obs(next_obs)
+            next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
 
             dones[step] = next_done
-            obs[step] = next_residual_obs
+            obs[step] = next_residual_nobs
 
             with torch.no_grad():
                 residual_naction_samp, logprob, _, value, naction_mean = (
-                    residual_policy.get_action_and_value(next_residual_obs)
+                    residual_policy.get_action_and_value(next_residual_nobs)
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
@@ -446,7 +454,9 @@ def main(cfg: DictConfig):
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         action_norms = torch.norm(b_actions[:, :3], dim=-1).cpu()
-        sps = int(global_step / (time.time() - start_time))
+
+        last_iteration_duration = time.time() - iteration_start_time
+        sps = int(global_step / training_cum_time) if training_cum_time > 0 else 0
 
         wandb.log(
             {
