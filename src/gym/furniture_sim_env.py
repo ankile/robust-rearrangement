@@ -233,19 +233,6 @@ class FurnitureSimEnv(gym.Env):
 
         print(f"Sim steps: {self.sim_steps}")
 
-        self.already_assembled = torch.zeros(
-            (self.num_envs,),
-            dtype=torch.bool,
-            device=self.device,
-        )
-
-        self.pair_to_assemble = (0, 4)
-
-        self.assembled_rel_poses = torch.tensor(
-            self.furniture.assembled_rel_poses[self.pair_to_assemble],
-            device=self.device,
-        )
-
     def _create_ground_plane(self):
         """Creates ground plane."""
         plane_params = gymapi.PlaneParams()
@@ -1694,6 +1681,20 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             [70, 1, 1, 1, 1], device=self.device
         ).unsqueeze(-1)
 
+        # Book keeping related to vectorized reward computation
+        self.already_assembled = torch.zeros(
+            (self.num_envs,),
+            dtype=torch.bool,
+            device=self.device,
+        )
+
+        self.pair_to_assemble = (0, 4)
+
+        self.assembled_rel_poses = torch.tensor(
+            self.furniture.assembled_rel_poses[self.pair_to_assemble],
+            device=self.device,
+        )
+
     def reset(self, env_idxs: torch.Tensor = None):
         # return super().reset()
         # can also reset the full set of robots/parts, without applying torques and refreshing
@@ -1729,7 +1730,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         )
 
     def _reward(self):
-        """Reward is 1 if two parts are assembled."""
+        """Reward is 1 if two parts are newly assembled."""
         rewards = torch.zeros(
             (self.num_envs, 1), dtype=torch.float32, device=self.device
         )
@@ -1782,6 +1783,8 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         obs = self.get_observation()
         reward = self._reward()
+        # if reward.sum() > 0:
+        #     bp()
         done = (self.already_assembled == 1).unsqueeze(1)
 
         self.env_steps += 1

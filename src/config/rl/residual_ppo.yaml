@@ -8,9 +8,10 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-# base_bc_poliy: ankile/ol-state-dr-1/runs/klnpg80g
-base_bc_poliy: ol-state-dr-1/r9wm1uo6
+# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
+base_bc_policy: ol-state-dr-1/r9wm1uo6
 
+moidels_we_depend_on:
 total_timesteps: 300_000_000
 num_envs: 2048
 num_minibatches: 1
@@ -38,13 +39,14 @@ residual_policy:
   critic_last_layer_activation: null
 
   pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
+  # pretrained_wts: null
 
 # Learning rates
-learning_rate_actor: 5e-4
-learning_rate_critic: 6e-3
+learning_rate_actor: 3e-4
+learning_rate_critic: 3e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 3
+  warmup_steps: 5
 
 # Residual specific arguments
 residual_l1: 0.0

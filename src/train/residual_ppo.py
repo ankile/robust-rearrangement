@@ -259,7 +259,7 @@ def main(cfg: DictConfig):
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
             naction = base_naction + residual_naction * cfg.residual_policy.action_scale
 
-            next_obs, reward, next_done, truncated, infos = env.step(naction)
+            next_obs, reward, next_done, truncated, _ = env.step(naction)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
