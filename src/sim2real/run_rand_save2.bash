@@ -4,7 +4,7 @@ mkdir -p out_logs
 
 sub=2
 
-for copy in {0..5};
+for copy in {2..5};
 do
     for val in {0..25};
     do
