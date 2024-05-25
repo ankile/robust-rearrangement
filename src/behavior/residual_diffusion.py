@@ -93,6 +93,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         # return self.normalizer(base_naction, "action", forward=False)
 
         # Concatenate the state and base action
+        nobs = nobs.flatten(start_dim=1)
         residual_nobs = torch.cat([nobs, base_naction], dim=-1)
 
         # Predict the residual (already scaled)

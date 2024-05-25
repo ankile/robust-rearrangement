@@ -17,6 +17,7 @@ from src.common.context import suppress_all_output
 from src.common.tasks import furniture2idx
 from src.common.files import trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
+from src.data_processing.utils import filter_and_concat_robot_state
 from src.data_processing.utils import resize, resize_crop
 from tensordict import TensorDict
 
@@ -131,6 +132,9 @@ def rollout(
 
     step_idx = 0
     while not done.all():
+        # Convert from robot state dict to robot state tensor
+        obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
+
         # Get the next actions from the actor
         action_pred = actor.action(obs)
 
