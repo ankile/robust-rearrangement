@@ -112,7 +112,6 @@ def main(cfg: DictConfig):
         observation_space="state",
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
-        calculate_reward_interval=cfg.env.calculate_reward_interval,
     )
 
     # Load the behavior cloning actor
@@ -178,7 +177,6 @@ def main(cfg: DictConfig):
     if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
         print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
         run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
-        bp()
         residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
 
@@ -289,7 +287,14 @@ def main(cfg: DictConfig):
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
-        total_timesteps_in_success = rewards[:, reward_mask].numel()
+        timesteps_in_success = rewards[:, reward_mask]
+
+        # Find index of last reward in each trajectory
+        last_reward_idx = torch.argmax(timesteps_in_success, dim=0)
+
+        # Calculate the total number of timesteps in successful trajectories
+        total_timesteps_in_success = last_reward_idx.sum().item()
+
         # Calculate the share of successful timesteps
         success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
@@ -333,7 +338,7 @@ def main(cfg: DictConfig):
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
-        next_value = residual_policy.get_value(next_residual_obs).reshape(1, -1).cpu()
+        next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
         advantages, returns = calculate_advantage(

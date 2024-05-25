@@ -80,7 +80,6 @@ class FurnitureSimEnv(gym.Env):
         action_type: str = "delta",  # "delta" or "pos"
         ctrl_mode: str = "diffik",
         ee_laser: bool = False,
-        calculate_reward_interval: int = 1,
         **kwargs,
     ):
         """
