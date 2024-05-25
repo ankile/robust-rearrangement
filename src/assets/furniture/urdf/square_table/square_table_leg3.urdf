@@ -10,7 +10,7 @@
             <geometry>
                 <mesh filename="../mesh/square_table/square_table_leg3.obj" scale="1 1 1"/>
             </geometry>
-            <sdf resolution="512"/>
+            <!-- <sdf resolution="512"/> -->
         </collision>
     </link>
 </robot>

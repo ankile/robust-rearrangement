@@ -80,6 +80,7 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         critic_last_layer_bias_const=0.0,
         critic_last_layer_std=1.0,
         critic_last_layer_activation=None,
+        **kwargs,
     ):
         """
         Args:

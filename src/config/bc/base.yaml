@@ -11,7 +11,7 @@ defaults:
 
 hydra:
   run:
-    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S.%f}"
 
 action_horizon: 8
 pred_horizon: 16

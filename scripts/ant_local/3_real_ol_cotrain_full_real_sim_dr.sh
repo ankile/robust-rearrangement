@@ -1,0 +1,12 @@
+python -m src.train.bc +experiment=image/real_ol_cotrain \
+    actor/diffusion_model=transformer \
+    training.actor_lr=1e-4 \
+    demo_source='[teleop]' \
+    training.num_epochs=5000 \
+    training.batch_size=64 \
+    furniture='[one_leg_render_dr_low,one_leg_simple]' \
+    randomness='[low,med,med_perturb]' \
+    actor.confusion_loss_beta=0.0 \
+    environment='[real,sim]' \
+    wandb.mode=offline \
+    dryrun=false

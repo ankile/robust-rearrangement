@@ -80,7 +80,6 @@ class FurnitureSimEnv(gym.Env):
         action_type: str = "delta",  # "delta" or "pos"
         ctrl_mode: str = "diffik",
         ee_laser: bool = False,
-        calculate_reward_interval: int = 1,
         **kwargs,
     ):
         """
@@ -232,12 +231,6 @@ class FurnitureSimEnv(gym.Env):
         )
 
         print(f"Sim steps: {self.sim_steps}")
-
-        # Create variables for reward and dones for calculation only every so often.
-        self.calculate_reward_interval = calculate_reward_interval
-        print(f"Calculate reward interval: {self.calculate_reward_interval}")
-        self.reward = torch.zeros((self.num_envs, 1), device=self.device)
-        self.done = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
 
     def _create_ground_plane(self):
         """Creates ground plane."""
@@ -804,6 +797,23 @@ class FurnitureSimEnv(gym.Env):
                 (num_envs, 10): End-effector delta in [x, y, z, 6D rotation, gripper] if self.act_rot_repr == "rot_6d".
                 (num_envs, 7): End-effector delta in [x, y, z, ax, ay, az, gripper] if self.act_rot_repr == "axis".
         """
+        self.simulate_step(action)
+
+        obs = self.get_observation()
+
+        reward = self._reward()
+        done = (self.already_assembled == 1).unsqueeze(1)
+
+        self.env_steps += 1
+
+        return (
+            obs,
+            reward,
+            done,
+            {"obs_success": True, "action_success": True},
+        )
+
+    def simulate_step(self, action):
         if isinstance(action, np.ndarray):
             action = torch.from_numpy(action).float().to(device=self.device)
         if len(action.shape) == 1:
@@ -935,22 +945,6 @@ class FurnitureSimEnv(gym.Env):
             self.isaac_gym.sync_frame_time(self.sim)
             self.isaac_gym.clear_lines(self.viewer)
 
-        obs = self._get_observation()
-
-        # Assume for now that all environments are at the same time step.
-        if self.env_steps[0] % self.calculate_reward_interval == 0:
-            self.reward = self._reward()
-            self.done = self._done()
-
-        self.env_steps += 1
-
-        return (
-            obs,
-            self.reward,
-            self.done,
-            {"obs_success": True, "action_success": True},
-        )
-
     def _reward(self):
         """Reward is 1 if two parts are assembled."""
         rewards = torch.zeros(
@@ -994,7 +988,7 @@ class FurnitureSimEnv(gym.Env):
         self.isaac_gym.refresh_rigid_body_state_tensor(self.sim)
         self.isaac_gym.refresh_jacobian_tensors(self.sim)
 
-        obs = self._get_observation()
+        obs = self.get_observation()
 
         return obs
 
@@ -1008,20 +1002,15 @@ class FurnitureSimEnv(gym.Env):
             parts_poses: (num_envs, num_parts * pose_dim). The poses of all parts in the AprilTag frame.
             founds: (num_envs, num_parts). Always 1 since we don't use AprilTag for detection in simulation.
         """
-        founds = torch.ones(
-            (self.num_envs, len(self.furniture.parts)),
-            dtype=torch.float32,
-            device=self.device,
-        )
 
         parts_poses = self.rb_states[self.furniture_rb_indices, :7]
         if sim_coord:
-            return parts_poses.reshape(self.num_envs, -1), founds
+            return parts_poses.reshape(self.num_envs, -1)
 
         april_coord_poses = self.sim_pose_to_april_pose(parts_poses)
         parts_poses = april_coord_poses.view(self.num_envs, -1)
 
-        return parts_poses, founds
+        return parts_poses
 
     def get_obstacle_pose(self, sim_coord=False):
         obstacle_front_poses = self.rb_states[self.obstacle_front_rb_indices, :7]
@@ -1198,7 +1187,7 @@ class FurnitureSimEnv(gym.Env):
 
         return P, V
 
-    def _get_observation(self):
+    def get_observation(self):
         obs = {}
 
         robot_state = self._read_robot_state()
@@ -1216,20 +1205,17 @@ class FurnitureSimEnv(gym.Env):
 
         if self.include_parts_poses:
             # Part poses in AprilTag.
-            parts_poses, _ = self.get_parts_poses(sim_coord=False)
+            parts_poses = self.get_parts_poses(sim_coord=False)
             obstacle_poses = self.get_obstacle_pose(sim_coord=False)
 
             obs["parts_poses"] = torch.cat([parts_poses, obstacle_poses], dim=1)
 
         return obs
 
-    def get_observation(self):
-        return self._get_observation()
-
     def render(self, mode="rgb_array"):
         if mode != "rgb_array":
             raise NotImplementedError
-        return self._get_observation()["color_image2"]
+        return self.get_observation()["color_image2"]
 
     def is_success(self):
         return [
@@ -1254,7 +1240,7 @@ class FurnitureSimEnv(gym.Env):
         if self.save_camera_input:
             self._save_camera_input()
 
-        return self._get_observation()
+        return self.get_observation()
 
     def reset_env(self, env_idx, reset_franka=True, reset_parts=True):
         """Resets the environment. **MUST refresh in between multiple calls
@@ -1694,6 +1680,20 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             [70, 1, 1, 1, 1], device=self.device
         ).unsqueeze(-1)
 
+        # Book keeping related to vectorized reward computation
+        self.already_assembled = torch.zeros(
+            (self.num_envs,),
+            dtype=torch.bool,
+            device=self.device,
+        )
+
+        self.pair_to_assemble = (0, 4)
+
+        self.assembled_rel_poses = torch.tensor(
+            self.furniture.assembled_rel_poses[self.pair_to_assemble],
+            device=self.device,
+        )
+
     def reset(self, env_idxs: torch.Tensor = None):
         # return super().reset()
         # can also reset the full set of robots/parts, without applying torques and refreshing
@@ -1704,16 +1704,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         assert env_idxs.numel() > 0
 
-        for idx in env_idxs:
-            self.furnitures[idx].reset()
-
+        self.already_assembled[env_idxs] = 0
         self._reset_frankas(env_idxs)
         self._reset_parts_multiple(env_idxs)
         self.env_steps[env_idxs] = 0
 
         self.refresh()
 
-        return self._get_observation()
+        return self.get_observation()
 
     def increment_randomness(self):
         force_magnitude_limit = 1
@@ -1730,8 +1728,65 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             f"T->{self.max_torque_magnitude:.4f}"
         )
 
+    def _reward(self):
+        """Reward is 1 if two parts are newly assembled."""
+        rewards = torch.zeros(
+            (self.num_envs, 1), dtype=torch.float32, device=self.device
+        )
+
+        parts_poses = self.get_parts_poses(sim_coord=True)
+
+        # Reshape parts_poses to (num_envs, num_parts, 7)
+        num_parts = parts_poses.shape[1] // 7
+        parts_poses = parts_poses.view(self.num_envs, num_parts, 7)
+
+        # Compute the relative pose for the specific pair of parts that should be assembled
+        pose_mat1 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
+        pose_mat2 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
+        rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
+
+        similar_rot = self.is_similar_rot(
+            rel_pose[..., :3, :3],
+            self.assembled_rel_poses[:, None, :3, :3],
+            self.furniture.ori_bound,
+        )
+        similar_pos = self.is_similar_pos(
+            rel_pose[..., :3, 3],
+            self.assembled_rel_poses[:, None, :3, 3],
+            self.furniture.assembled_pos_threshold,
+        )
+        assembled_mask = similar_rot & similar_pos
+
+        # Check if the parts are newly assembled
+        newly_assembled_mask = assembled_mask.any(dim=0) & ~self.already_assembled
+
+        # Update the already_assembled tensor
+        self.already_assembled |= newly_assembled_mask
+
+        # Compute the rewards based on the newly assembled parts
+        rewards = newly_assembled_mask.float().unsqueeze(-1)
+
+        return rewards
+
+    @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
-        obs, reward, done, info = super().step(action)
+        """Robot takes an action.
+
+        Args:
+            action:
+                (num_envs, 8): End-effector delta in [x, y, z, qx, qy, qz, qw, gripper] if self.act_rot_repr == "quat".
+                (num_envs, 10): End-effector delta in [x, y, z, 6D rotation, gripper] if self.act_rot_repr == "rot_6d".
+                (num_envs, 7): End-effector delta in [x, y, z, ax, ay, az, gripper] if self.act_rot_repr == "axis".
+        """
+        self.simulate_step(action)
+
+        obs = self.get_observation()
+        reward = self._reward()
+        # if reward.sum() > 0:
+        #     bp()
+        done = (self.already_assembled == 1).unsqueeze(1)
+
+        self.env_steps += 1
 
         if sample_perturbations:
             self._random_perturbation_of_parts(
@@ -1739,7 +1794,12 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
                 self.max_torque_magnitude,
             )
 
-        return obs, reward, done, info
+        return (
+            obs,
+            reward,
+            done,
+            {"obs_success": True, "action_success": True},
+        )
 
     def _reset_frankas(self, env_idxs: torch.Tensor):
         # Define the range of random values for joint positions
@@ -1936,10 +1996,72 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ## Reset poses
         self._reset_part_poses(env_idxs)
 
-        ## Random forces
         self._apply_forces_to_parts(
             env_idxs, self.max_force_magnitude, self.max_torque_magnitude
         )
+
+    def pose_from_vector(self, vec):
+        # TODO: Move this to a utility function
+        # Extract position and quaternion from the vector
+        pos = vec[..., :3]
+        quat = vec[..., 3:]
+
+        # Normalize the quaternion
+        quat = quat / torch.norm(quat, dim=-1, keepdim=True)
+
+        # Convert quaternion to rotation matrix
+        x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
+        xx = x * x
+        xy = x * y
+        xz = x * z
+        xw = x * w
+        yy = y * y
+        yz = y * z
+        yw = y * w
+        zz = z * z
+        zw = z * w
+
+        rot_matrix = torch.stack(
+            [
+                1 - 2 * (yy + zz),
+                2 * (xy - zw),
+                2 * (xz + yw),
+                2 * (xy + zw),
+                1 - 2 * (xx + zz),
+                2 * (yz - xw),
+                2 * (xz - yw),
+                2 * (yz + xw),
+                1 - 2 * (xx + yy),
+            ],
+            dim=-1,
+        ).view(*quat.shape[:-1], 3, 3)
+
+        # Combine position and rotation matrix to form the pose matrix
+        pose_matrix = torch.eye(4, dtype=vec.dtype, device=vec.device).repeat(
+            *vec.shape[:-1], 1, 1
+        )
+        pose_matrix[..., :3, :3] = rot_matrix
+        pose_matrix[..., :3, 3] = pos
+
+        return pose_matrix
+
+    def cosine_sim(self, w, v):
+        # Compute the dot product and norms along the last dimension
+        dot_product = torch.sum(w * v, dim=-1)
+        w_norm = torch.norm(w, dim=-1)
+        v_norm = torch.norm(v, dim=-1)
+
+        # Compute the cosine similarity
+        return dot_product / (w_norm * v_norm)
+
+    def is_similar_rot(self, rot1, rot2, ori_bound=0.99):
+        cosine_sims = self.cosine_sim(rot1, rot2)
+        return torch.all(cosine_sims >= ori_bound, dim=-1)
+
+    def is_similar_pos(self, pos1, pos2, pos_threshold=[0.01, 0.007, 0.007]):
+        pos_diffs = torch.abs(pos1 - pos2)
+        within_threshold = pos_diffs <= torch.tensor(pos_threshold, device=pos1.device)
+        return torch.all(within_threshold, dim=-1)
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):
@@ -2022,7 +2144,7 @@ class FurnitureRLSimEnvPlaceTabletop(FurnitureRLSimEnv):
     def _reward(self):
         """Calculates the reward for the current state of the environment."""
         # Get the end effector position
-        parts_poses, _ = self.get_parts_poses(sim_coord=False)
+        parts_poses = self.get_parts_poses(sim_coord=False)
         tabletop_pos = parts_poses[:, :3]
 
         reward = torch.zeros(self.num_envs, device=self.device)

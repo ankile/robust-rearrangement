@@ -8,41 +8,44 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-# base_bc_poliy: ankile/ol-state-dr-1/runs/klnpg80g
-base_bc_poliy: ol-state-dr-1/r9wm1uo6
+# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
+base_bc_policy: ol-state-dr-1/r9wm1uo6
 
+moidels_we_depend_on:
 total_timesteps: 300_000_000
-num_envs: 512
+num_envs: 2048
 num_minibatches: 1
-update_epochs: 20
+update_epochs: 100
 num_env_steps: 600
 data_collection_steps: ${num_env_steps}
 
 env:
   randomness: med
-  calculate_reward_interval: 5
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: -1.5
+  init_logstd: -2.0
   action_head_std: 0.0
   action_scale: 0.1
-  actor_hidden_size: 256
+  actor_hidden_size: 512
   actor_num_layers: 2
-  critic_hidden_size: 256
+  critic_hidden_size: 512
   critic_num_layers: 2
   actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
-  critic_last_layer_bias_const: 0.25
-  critic_last_layer_std: 0.25
+  critic_last_layer_bias_const: 0.5
+  critic_last_layer_std: 0.5
   critic_last_layer_activation: null
 
+  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
+  pretrained_wts: null
+
 # Learning rates
-learning_rate_actor: 5e-4
-learning_rate_critic: 6e-3
+learning_rate_actor: 3e-4
+learning_rate_critic: 3e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 8
+  warmup_steps: 5
 
 # Residual specific arguments
 residual_l1: 0.0
@@ -58,8 +61,8 @@ clip_coef: 0.2
 clip_vloss: true
 ent_coef: 0.0
 vf_coef: 1.0
-max_grad_norm: 0.6
-target_kl: 0.1
+max_grad_norm: 0.5
+target_kl: 0.03
 n_iterations_train_only_value: 0
 
 # Calculate the batch size as the data collection steps times the number of environments
@@ -71,7 +74,7 @@ action_type: pos
 act_rot_repr: rot_6d
 
 wandb:
-  entity: ankile
+  entity: robust-rearrangement
   project: residual-ppo-dr-1
   mode: online
 

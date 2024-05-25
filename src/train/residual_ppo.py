@@ -16,7 +16,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.eval.load_model import load_bc_actor
+from src.eval.eval_utils import load_bc_actor
 from diffusers.optimization import get_scheduler
 
 
@@ -112,11 +112,10 @@ def main(cfg: DictConfig):
         observation_space="state",
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
-        calculate_reward_interval=cfg.env.calculate_reward_interval,
     )
 
     # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_poliy)
+    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
 
     # Set the inference steps of the actor
     if isinstance(bc_actor, DiffusionPolicy):
@@ -175,6 +174,12 @@ def main(cfg: DictConfig):
         num_training_steps=cfg.num_iterations,
     )
 
+    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
+        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
+        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
+        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+
     steps_per_iteration = cfg.data_collection_steps
 
     print(f"Total timesteps: {cfg.total_timesteps}, batch size: {cfg.batch_size}")
@@ -207,6 +212,8 @@ def main(cfg: DictConfig):
     global_step = 0
     iteration = 0
     start_time = time.time()
+    training_cum_time = 0
+    last_iteration_duration = 0
     # bp()
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -220,6 +227,7 @@ def main(cfg: DictConfig):
         iteration += 1
         print(f"Iteration: {iteration}/{cfg.num_iterations}")
         print(f"Run name: {run_name}")
+        iteration_start_time = time.time()
 
         # If eval first flag is set, we will evaluate the model before doing any training
         eval_mode = (iteration - int(cfg.eval_first)) % cfg.eval_interval == 0
@@ -230,31 +238,34 @@ def main(cfg: DictConfig):
             bc_actor.reset()
 
         print(f"Eval mode: {eval_mode}")
+        if not eval_mode:
+            # Only count environment steps during training
+            global_step += cfg.num_envs * steps_per_iteration
+            training_cum_time += last_iteration_duration
 
         for step in range(0, steps_per_iteration):
-            if not eval_mode:
-                # Only count environment steps during training
-                global_step += cfg.num_envs
+
+            # bp()
 
             # Get the base normalized action
             base_naction = bc_actor.action_normalized(next_obs)
 
             # Process the obs for the residual policy
-            next_obs = env.process_obs(next_obs)
-            next_residual_obs = torch.cat([next_obs, base_naction], dim=-1)
+            next_nobs = env.process_obs(next_obs)
+            next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
 
             dones[step] = next_done
-            obs[step] = next_residual_obs
+            obs[step] = next_residual_nobs
 
             with torch.no_grad():
                 residual_naction_samp, logprob, _, value, naction_mean = (
-                    residual_policy.get_action_and_value(next_residual_obs)
+                    residual_policy.get_action_and_value(next_residual_nobs)
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
             naction = base_naction + residual_naction * cfg.residual_policy.action_scale
 
-            next_obs, reward, next_done, truncated, infos = env.step(naction)
+            next_obs, reward, next_done, truncated, _ = env.step(naction)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
@@ -276,7 +287,14 @@ def main(cfg: DictConfig):
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
-        total_timesteps_in_success = rewards[:, reward_mask].numel()
+        timesteps_in_success = rewards[:, reward_mask]
+
+        # Find index of last reward in each trajectory
+        last_reward_idx = torch.argmax(timesteps_in_success, dim=0)
+
+        # Calculate the total number of timesteps in successful trajectories
+        total_timesteps_in_success = last_reward_idx.sum().item()
+
         # Calculate the share of successful timesteps
         success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
@@ -320,7 +338,7 @@ def main(cfg: DictConfig):
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
-        next_value = residual_policy.get_value(next_residual_obs).reshape(1, -1).cpu()
+        next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
         advantages, returns = calculate_advantage(
@@ -441,7 +459,9 @@ def main(cfg: DictConfig):
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         action_norms = torch.norm(b_actions[:, :3], dim=-1).cpu()
-        sps = int(global_step / (time.time() - start_time))
+
+        last_iteration_duration = time.time() - iteration_start_time
+        sps = int(global_step / training_cum_time) if training_cum_time > 0 else 0
 
         wandb.log(
             {
