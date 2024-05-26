@@ -5,35 +5,77 @@ import torch
 import wandb
 
 from typing import Union
-from wandb import Api
 from wandb.sdk.wandb_run import Run
+
+from ipdb import set_trace as bp  # noqa
+
+
+import os
+import pickle
+from omegaconf import OmegaConf, DictConfig
 
 
 def load_bc_actor(run_id: str, wt_type="best_success_rate", device="cuda"):
-    api = wandb.Api(overrides=dict(entity="ankile"))
-    run = api.run(run_id)
+    cfg, model_path = get_model_from_api_or_cached(run_id, wt_type)
 
-    cfg: DictConfig = OmegaConf.create(run.config)
     if "flatten_obs" not in cfg.actor:
         cfg.actor.flatten_obs = True
     if "predict_past_actions" not in cfg.actor:
         cfg.actor.predict_past_actions = False
 
     bc_actor: Actor = get_actor(cfg, device=device)
-
-    model_path = (
-        [f for f in run.files() if f.name.endswith(".pt") and wt_type in f.name][0]
-        .download(exist_ok=True)
-        .name
-    )
-
-    print(model_path)
-
     bc_actor.load_state_dict(torch.load(model_path))
     bc_actor.eval()
     bc_actor.to(device)
 
     return bc_actor
+
+
+def get_model_from_api_or_cached(run_id: str, wt_type: str):
+    cache_dir = os.environ.get("WANDB_CACHE_DIR", "./wandb_cache")
+    cache_file = os.path.join(cache_dir, f"{run_id.replace('/', '-')}_{wt_type}.pkl")
+
+    if os.path.exists(cache_file):
+        # Load the cached data from the file system
+        with open(cache_file, "rb") as f:
+            cfg, model_path = pickle.load(f)
+    else:
+        try:
+            # Try to fetch the data using the Weights and Biases API
+            api = wandb.Api(overrides=dict(entity="ankile"))
+            run = api.run(run_id)
+
+            cfg: DictConfig = OmegaConf.create(run.config)
+
+            model_path = (
+                [
+                    f
+                    for f in run.files()
+                    if f.name.endswith(".pt") and wt_type in f.name
+                ][0]
+                .download(exist_ok=True)
+                .name
+            )
+
+            # Cache the data on the file system for future use
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(cache_file, "wb") as f:
+                pickle.dump((cfg, model_path), f)
+
+        except Exception as e:
+            # If the API call fails, try to find the files on the file system
+            print(f"API call failed: {str(e)}. Searching for files on the file system.")
+            cfg_path = os.path.join(run_id, "config.yaml")
+            model_path = os.path.join(run_id, f"{wt_type}.pt")
+
+            if os.path.exists(cfg_path) and os.path.exists(model_path):
+                cfg = OmegaConf.load(cfg_path)
+            else:
+                raise FileNotFoundError(
+                    f"Could not find the required files for run {run_id}"
+                )
+
+    return cfg, model_path
 
 
 def load_eval_config(

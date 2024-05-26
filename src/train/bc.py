@@ -253,6 +253,9 @@ def main(cfg: DictConfig):
         }
     )
 
+    starttime = now()
+    wandb.summary["start_time"] = starttime
+
     # Create model save dir
     model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -263,7 +266,7 @@ def main(cfg: DictConfig):
     best_success_rate = 0
     prev_best_success_rate = 0
 
-    print(f"Job started at: {now()}")
+    print(f"Job started at: {starttime}")
 
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
