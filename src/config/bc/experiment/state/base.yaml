@@ -22,7 +22,7 @@ training:
   batch_size: 256
   steps_per_epoch: -1
   checkpoint_interval: 100
-  num_epochs: 2000
+  num_epochs: 5000
 
 # rollout:
 #   every: 10
