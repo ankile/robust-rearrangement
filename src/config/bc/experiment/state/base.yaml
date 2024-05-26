@@ -1,4 +1,8 @@
 # @package _global_
+defaults:
+  - override /rollout: rollout
+
+
 observation_type: state
 
 control:
@@ -11,6 +15,7 @@ obs_horizon: 1
 furniture: one_leg
 randomness: [med, med_perturb]
 demo_source: teleop
+
 early_stopper:
   patience: inf
 
