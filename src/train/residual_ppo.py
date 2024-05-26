@@ -96,6 +96,9 @@ def main(cfg: DictConfig):
 
     device = torch.device("cuda")
 
+    # Load the behavior cloning actor
+    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
+
     turn_off_april_tags()
 
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(
@@ -113,9 +116,6 @@ def main(cfg: DictConfig):
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
     )
-
-    # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
 
     # Set the inference steps of the actor
     if isinstance(bc_actor, DiffusionPolicy):
