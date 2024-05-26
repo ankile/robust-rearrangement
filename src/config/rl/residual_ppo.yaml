@@ -13,7 +13,7 @@ base_bc_policy: ol-state-dr-1/r9wm1uo6
 
 moidels_we_depend_on:
 total_timesteps: 500_000_000
-num_envs: 1024
+num_envs: 512
 num_minibatches: 1
 update_epochs: 20
 num_env_steps: 700
@@ -31,38 +31,38 @@ residual_policy:
   actor_num_layers: 2
   critic_hidden_size: 256
   critic_num_layers: 2
-  actor_activation: SiLU
+  actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
-  critic_last_layer_bias_const: 0.5
-  critic_last_layer_std: 0.1
+  critic_last_layer_bias_const: 0.25
+  critic_last_layer_std: 0.25
   critic_last_layer_activation: null
 
   # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
   pretrained_wts: null
 
 # Learning rates
-learning_rate_actor: 1e-3
-learning_rate_critic: 3e-3
+learning_rate_actor: 3e-4
+learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
   warmup_steps: 8
 
 # Residual specific arguments
 residual_l1: 0.0
-residual_l2: 0.005
+residual_l2: 0.01
 
 # Algorithm specific arguments
 gamma: 0.999
 gae_lambda: 0.95
 norm_adv: true
-normalize_reward: false
+normalize_reward: true
 clip_reward: 5.0
 clip_coef: 0.2
 clip_vloss: false
 ent_coef: 0.0
 vf_coef: 1.0
 max_grad_norm: 1.0
-target_kl: 0.03
+target_kl: 0.1
 n_iterations_train_only_value: 0
 
 # Calculate the batch size as the data collection steps times the number of environments
