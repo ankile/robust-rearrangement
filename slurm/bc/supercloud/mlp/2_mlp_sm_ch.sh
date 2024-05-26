@@ -8,4 +8,5 @@
 
 python -m src.train.bc +experiment=state/mlp_sm_ch \
     wandb.mode=offline \
+    rollout.rollouts=false \
     dryrun=false

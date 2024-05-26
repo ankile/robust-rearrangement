@@ -1,7 +1,6 @@
 # @package _global_
-defaults:
-  - override /rollout: rollout
-
+# defaults:
+#   - override /rollout: rollout
 
 observation_type: state
 
@@ -17,20 +16,20 @@ randomness: [med, med_perturb]
 demo_source: teleop
 
 early_stopper:
-  patience: inf
+  patience: 250
 
 training:
   batch_size: 256
   steps_per_epoch: -1
-  checkpoint_interval: 50
+  checkpoint_interval: 100
   num_epochs: 2000
 
-rollout:
-  every: 10
-  max_steps: 850
-  num_envs: 256
-  loss_threshold: 0.1
-  randomness: low
+# rollout:
+#   every: 10
+#   max_steps: 850
+#   num_envs: 256
+#   loss_threshold: 0.1
+#   randomness: low
 
 wandb:
-  project: ol-state-dr-1
+  project: ol-state-dr-med-1
