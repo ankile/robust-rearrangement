@@ -1,32 +1,24 @@
 # @package _global_
-defaults:
-  - override /actor: diffusion
-  - override /actor/diffusion_model: transformer
-  - override /rollout: rollout
-
 observation_type: state
+
+control:
+  controller: diffik
 
 action_horizon: 8
 pred_horizon: 32
 obs_horizon: 1
-  
-data:
-  data_subset: null
-  augment_image: true
-  dataloader_workers: 20
+
+furniture: one_leg
+randomness: [med, med_perturb]
+demo_source: teleop
+early_stopper:
+  patience: inf
 
 training:
   batch_size: 256
   steps_per_epoch: -1
   checkpoint_interval: 50
   num_epochs: 2000
-
-early_stopper:
-  patience: inf
-
-furniture: one_leg
-randomness: [med,med_perturb]
-demo_source: teleop
 
 rollout:
   every: 10

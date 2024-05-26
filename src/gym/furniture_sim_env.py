@@ -814,10 +814,10 @@ class FurnitureSimEnv(gym.Env):
         )
 
     def simulate_step(self, action):
-        if isinstance(action, np.ndarray):
-            action = torch.from_numpy(action).float().to(device=self.device)
-        if len(action.shape) == 1:
-            action = action.unsqueeze(0)
+        # if isinstance(action, np.ndarray):
+        #     action = torch.from_numpy(action).float().to(device=self.device)
+        # if len(action.shape) == 1:
+        #     action = action.unsqueeze(0)
 
         # Clip the action to be within the action space.
         action = torch.clamp(action, self.act_low, self.act_high)
@@ -1741,19 +1741,19 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         parts_poses = parts_poses.view(self.num_envs, num_parts, 7)
 
         # Compute the relative pose for the specific pair of parts that should be assembled
-        pose_mat1 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
-        pose_mat2 = self.pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
+        pose_mat1 = pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
+        pose_mat2 = pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
         rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
 
-        similar_rot = self.is_similar_rot(
+        similar_rot = is_similar_rot(
             rel_pose[..., :3, :3],
             self.assembled_rel_poses[:, None, :3, :3],
             self.furniture.ori_bound,
         )
-        similar_pos = self.is_similar_pos(
+        similar_pos = is_similar_pos(
             rel_pose[..., :3, 3],
             self.assembled_rel_poses[:, None, :3, 3],
-            self.furniture.assembled_pos_threshold,
+            torch.tensor(self.furniture.assembled_pos_threshold, device=self.device),
         )
         assembled_mask = similar_rot & similar_pos
 
@@ -1782,8 +1782,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         obs = self.get_observation()
         reward = self._reward()
-        # if reward.sum() > 0:
-        #     bp()
         done = (self.already_assembled == 1).unsqueeze(1)
 
         self.env_steps += 1
@@ -2000,68 +1998,80 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             env_idxs, self.max_force_magnitude, self.max_torque_magnitude
         )
 
-    def pose_from_vector(self, vec):
-        # TODO: Move this to a utility function
-        # Extract position and quaternion from the vector
-        pos = vec[..., :3]
-        quat = vec[..., 3:]
 
-        # Normalize the quaternion
-        quat = quat / torch.norm(quat, dim=-1, keepdim=True)
+@torch.jit.script
+def pose_from_vector(vec):
+    """
+    Vec is (num_envs, 7) tensor where the first 3 elements are the position
+    and the last 4 elements are the quaternion x, y, z, w.
+    """
+    num_envs = vec.shape[0]
+    # Extract position and quaternion from the vector
+    pos = vec[:, :3]
+    quat = vec[:, 3:]
 
-        # Convert quaternion to rotation matrix
-        x, y, z, w = quat[..., 0], quat[..., 1], quat[..., 2], quat[..., 3]
-        xx = x * x
-        xy = x * y
-        xz = x * z
-        xw = x * w
-        yy = y * y
-        yz = y * z
-        yw = y * w
-        zz = z * z
-        zw = z * w
+    # Normalize the quaternion
+    quat = quat / torch.norm(quat, dim=-1, keepdim=True)
 
-        rot_matrix = torch.stack(
-            [
-                1 - 2 * (yy + zz),
-                2 * (xy - zw),
-                2 * (xz + yw),
-                2 * (xy + zw),
-                1 - 2 * (xx + zz),
-                2 * (yz - xw),
-                2 * (xz - yw),
-                2 * (yz + xw),
-                1 - 2 * (xx + yy),
-            ],
-            dim=-1,
-        ).view(*quat.shape[:-1], 3, 3)
+    # Convert quaternion to rotation matrix
+    x, y, z, w = quat[:, 0], quat[:, 1], quat[:, 2], quat[:, 3]
+    xx = x * x
+    xy = x * y
+    xz = x * z
+    xw = x * w
+    yy = y * y
+    yz = y * z
+    yw = y * w
+    zz = z * z
+    zw = z * w
 
-        # Combine position and rotation matrix to form the pose matrix
-        pose_matrix = torch.eye(4, dtype=vec.dtype, device=vec.device).repeat(
-            *vec.shape[:-1], 1, 1
-        )
-        pose_matrix[..., :3, :3] = rot_matrix
-        pose_matrix[..., :3, 3] = pos
+    rot_matrix = torch.stack(
+        [
+            1 - 2 * (yy + zz),
+            2 * (xy - zw),
+            2 * (xz + yw),
+            2 * (xy + zw),
+            1 - 2 * (xx + zz),
+            2 * (yz - xw),
+            2 * (xz - yw),
+            2 * (yz + xw),
+            1 - 2 * (xx + yy),
+        ],
+        dim=-1,
+    ).view(num_envs, 3, 3)
 
-        return pose_matrix
+    # Combine position and rotation matrix to form the pose matrix
+    pose_matrix = torch.eye(4, dtype=vec.dtype, device=vec.device).repeat(
+        num_envs, 1, 1
+    )
+    pose_matrix[:, :3, :3] = rot_matrix
+    pose_matrix[:, :3, 3] = pos
 
-    def cosine_sim(self, w, v):
-        # Compute the dot product and norms along the last dimension
-        dot_product = torch.sum(w * v, dim=-1)
-        w_norm = torch.norm(w, dim=-1)
-        v_norm = torch.norm(v, dim=-1)
+    return pose_matrix
 
-        # Compute the cosine similarity
-        return dot_product / (w_norm * v_norm)
 
-    def is_similar_rot(self, rot1, rot2, ori_bound=0.99):
-        cosine_sims = self.cosine_sim(rot1, rot2)
-        return torch.all(cosine_sims >= ori_bound, dim=-1)
+@torch.jit.script
+def cosine_sim(w, v):
+    # Compute the dot product and norms along the last dimension
+    dot_product = torch.sum(w * v, dim=-1)
+    w_norm = torch.norm(w, dim=-1)
+    v_norm = torch.norm(v, dim=-1)
 
-    def is_similar_pos(self, pos1, pos2, pos_threshold=[0.01, 0.007, 0.007]):
-        pos_diffs = torch.abs(pos1 - pos2)
-        within_threshold = pos_diffs <= torch.tensor(pos_threshold, device=pos1.device)
-        return torch.all(within_threshold, dim=-1)
+    # Compute the cosine similarity
+    return dot_product / (w_norm * v_norm)
+
+
+@torch.jit.script
+def is_similar_rot(rot1: torch.Tensor, rot2: torch.Tensor, ori_bound: float):
+    cosine_sims = cosine_sim(rot1, rot2)
+    return torch.all(cosine_sims >= ori_bound, dim=-1)
+
+
+@torch.jit.script
+def is_similar_pos(pos1: torch.Tensor, pos2: torch.Tensor, pos_threshold: torch.Tensor):
+    pos_diffs = torch.abs(pos1 - pos2)
+    within_threshold = pos_diffs <= pos_threshold
+    return torch.all(within_threshold, dim=-1)
 
 
 class FurnitureRLSimEnvFinetune(FurnitureRLSimEnv):

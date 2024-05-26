@@ -338,6 +338,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # Return the first action in the queue
         return self.actions.popleft()
 
+    # @torch.compile
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
         action = self.action(obs)
         return self.normalizer(action, "action", forward=True)

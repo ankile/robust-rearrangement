@@ -14,11 +14,11 @@ hydra:
     dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S.%f}"
 
 action_horizon: 8
-pred_horizon: 16
-obs_horizon: 2
+pred_horizon: 32
+obs_horizon: 1
 predict_past_actions: false
 
-observation_type: image
+observation_type: ???
 furniture: ???
 environment: sim
 demo_source: teleop
@@ -29,7 +29,7 @@ demo_outcome: success
 control:
   act_rot_repr: rot_6d
   control_mode: pos # delta, pos
-  controller: diffik  # osc, diffik
+  controller: diffik  # diffik
 
 lr_scheduler:
   name: cosine

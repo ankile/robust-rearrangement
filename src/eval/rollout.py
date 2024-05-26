@@ -193,6 +193,7 @@ def calculate_success_rate(
     epoch_idx: int,
     gamma: float = 0.99,
     rollout_save_dir: Union[str, None] = None,
+    save_rollouts_to_wandb: bool = False,
     save_failures: bool = False,
     n_parts_assemble: Union[int, None] = None,
     compress_pickles: bool = False,
@@ -206,8 +207,6 @@ def calculate_success_rate(
         self.set_description(
             f"Performing rollouts ({env.furniture_name}): round {rnd}/{n_rollouts//env.num_envs}, success: {n_success}/{total} ({success_rate:.1%})"
         )
-
-    save_rollouts_wandb = True
 
     if n_parts_assemble is None:
         n_parts_assemble = len(env.furniture.should_be_assembled)
@@ -268,7 +267,7 @@ def calculate_success_rate(
     ]
 
     print(f"Checking if we should save rollouts (rollout_save_dir: {rollout_save_dir})")
-    if rollout_save_dir is not None or save_rollouts_wandb:
+    if rollout_save_dir is not None or save_rollouts_to_wandb:
         have_img_obs = len(all_imgs1) > 0
         print(
             f"Saving rollouts, have image observations: {have_img_obs} (will make dummy video if False)"
@@ -377,14 +376,15 @@ def calculate_success_rate(
 def do_rollout_evaluation(
     config: DictConfig,
     env: FurnitureSimEnv,
-    save_rollouts: bool,
+    save_rollouts_to_file: bool,
+    save_rollouts_to_wandb: bool,
     actor: Actor,
     best_success_rate: float,
     epoch_idx: int,
 ) -> float:
     rollout_save_dir = None
 
-    if save_rollouts:
+    if save_rollouts_to_file:
         rollout_save_dir = trajectory_save_dir(
             controller=env.ctrl_mode,
             environment="sim",
@@ -405,6 +405,7 @@ def do_rollout_evaluation(
         epoch_idx=epoch_idx,
         gamma=config.discount,
         rollout_save_dir=rollout_save_dir,
+        save_rollouts_to_wandb=save_rollouts_to_wandb,
         save_failures=config.rollout.save_failures,
     )
     success_rate = rollout_stats.success_rate
