@@ -1,3 +1,5 @@
+actor_name: residual_diffusion
+
 seed: null
 torch_deterministic: true
 headless: true
@@ -8,8 +10,8 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
-base_bc_policy: ol-state-dr-1/r9wm1uo6
+base_policy: 
+  wandb_id: ol-state-dr-1/r9wm1uo6
 
 moidels_we_depend_on:
 total_timesteps: 300_000_000
@@ -18,6 +20,8 @@ num_minibatches: 1
 update_epochs: 100
 num_env_steps: 600
 data_collection_steps: ${num_env_steps}
+
+observation_type: state
 
 env:
   randomness: med

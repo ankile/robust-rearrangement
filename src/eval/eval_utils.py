@@ -36,6 +36,27 @@ def load_bc_actor(run_id: str, wt_type="best_success_rate", device="cuda"):
     return bc_actor
 
 
+def load_bc_cfg_and_wts(run_id: str, wt_type="best_success_rate", device="cuda"):
+    api = wandb.Api(overrides=dict(entity="ankile"))
+    run = api.run(run_id)
+
+    cfg: DictConfig = OmegaConf.create(run.config)
+    if "flatten_obs" not in cfg.actor:
+        cfg.actor.flatten_obs = True
+    if "predict_past_actions" not in cfg.actor:
+        cfg.actor.predict_past_actions = False
+
+    model_path = (
+        [f for f in run.files() if f.name.endswith(".pt") and wt_type in f.name][0]
+        .download(exist_ok=True)
+        .name
+    )
+
+    print(model_path)
+
+    return cfg, model_path
+
+
 def load_eval_config(
     run: Run,
     actor_name: str,

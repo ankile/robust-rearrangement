@@ -16,7 +16,11 @@ from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.eval.eval_utils import load_bc_actor
+from src.behavior.residual_diffusion import (
+    ResidualDiffusionPolicy,
+    ResidualTrainingValues,
+)
+from src.eval.eval_utils import load_bc_actor, load_bc_cfg_and_wts
 from diffusers.optimization import get_scheduler
 
 
@@ -77,6 +81,8 @@ def calculate_advantage(
 @hydra.main(config_path="../config/rl", config_name="residual_ppo", version_base="1.2")
 def main(cfg: DictConfig):
 
+    OmegaConf.set_struct(cfg, False)
+
     # TRY NOT TO MODIFY: seeding
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
@@ -115,11 +121,20 @@ def main(cfg: DictConfig):
     )
 
     # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
+    base_cfg, base_wts = load_bc_cfg_and_wts(cfg.base_policy.wandb_id)
+
+    # Add the contents of the base config to the current config under the base_policy key without overwriting anything
+    OmegaConf.update(cfg, "base_policy", base_cfg, merge=True)
+    cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
+
+    agent = ResidualDiffusionPolicy(device, cfg)
+    agent.load_base_state_dict(base_wts)
+
+    agent.to(device)
 
     # Set the inference steps of the actor
-    if isinstance(bc_actor, DiffusionPolicy):
-        bc_actor.inference_steps = 4
+    # if isinstance(bc_actor, DiffusionPolicy):
+    #     bc_actor.inference_steps = 4
 
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
@@ -128,26 +143,9 @@ def main(cfg: DictConfig):
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
     )
-    env.set_normalizer(bc_actor.normalizer)
-
-    # Residual policy setup
-    residual_policy: ResidualPolicy = hydra.utils.instantiate(
-        cfg.residual_policy,
-        obs_shape=env.observation_space.shape,
-        action_shape=env.action_space.shape,
-    )
-
-    residual_policy.to(device)
-
-    actor_parameters = [
-        p for n, p in residual_policy.named_parameters() if "critic" not in n
-    ]
-    critic_parameters = [
-        p for n, p in residual_policy.named_parameters() if "critic" in n
-    ]
 
     optimizer_actor = optim.AdamW(
-        actor_parameters,
+        agent.actor_parameters,
         lr=cfg.learning_rate_actor,
         eps=1e-5,
         weight_decay=1e-6,
@@ -161,7 +159,7 @@ def main(cfg: DictConfig):
     )
 
     optimizer_critic = optim.AdamW(
-        critic_parameters,
+        agent.critic_parameters,
         lr=cfg.learning_rate_critic,
         eps=1e-5,
         weight_decay=1e-6,
@@ -177,7 +175,7 @@ def main(cfg: DictConfig):
     if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
         print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
         run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
-        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
 
     steps_per_iteration = cfg.data_collection_steps
@@ -202,7 +200,13 @@ def main(cfg: DictConfig):
     best_eval_success_rate = 0.0
     running_mean_success_rate = 0.0
 
-    obs = torch.zeros((steps_per_iteration, cfg.num_envs, residual_policy.obs_dim))
+    obs = torch.zeros(
+        (
+            steps_per_iteration,
+            cfg.num_envs,
+            agent.residual_policy.obs_dim,
+        )
+    )
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
     logprobs = torch.zeros((steps_per_iteration, cfg.num_envs))
     rewards = torch.zeros((steps_per_iteration, cfg.num_envs))
@@ -214,10 +218,10 @@ def main(cfg: DictConfig):
     start_time = time.time()
     training_cum_time = 0
     last_iteration_duration = 0
-    # bp()
+
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
-    bc_actor.reset()
+    agent.reset()
 
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
@@ -235,7 +239,7 @@ def main(cfg: DictConfig):
         # Also reset the env to have more consistent results
         if eval_mode or cfg.reset_every_iteration:
             next_obs = env.reset()
-            bc_actor.reset()
+            agent.reset()
 
         print(f"Eval mode: {eval_mode}")
         if not eval_mode:
@@ -245,38 +249,26 @@ def main(cfg: DictConfig):
 
         for step in range(0, steps_per_iteration):
 
-            # bp()
-
-            # Get the base normalized action
-            base_naction = bc_actor.action_normalized(next_obs)
-
-            # Process the obs for the residual policy
-            next_nobs = env.process_obs(next_obs)
-            next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
-
-            dones[step] = next_done
-            obs[step] = next_residual_nobs
-
             with torch.no_grad():
-                residual_naction_samp, logprob, _, value, naction_mean = (
-                    residual_policy.get_action_and_value(next_residual_nobs)
+                train_val: ResidualTrainingValues = agent.get_action_and_value(
+                    next_obs, eval=eval_mode
                 )
 
-            residual_naction = residual_naction_samp if not eval_mode else naction_mean
-            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
+            dones[step] = next_done
+            obs[step] = train_val.next_residual_nobs
 
-            next_obs, reward, next_done, truncated, _ = env.step(naction)
+            next_obs, reward, next_done, truncated, _ = env.step(train_val.env_action)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
 
-            values[step] = value.flatten().cpu()
-            actions[step] = residual_naction.cpu()
-            logprobs[step] = logprob.cpu()
+            values[step] = train_val.value.flatten().cpu()
+            actions[step] = train_val.residual_naction_samp.cpu()
+            logprobs[step] = train_val.logprob.cpu()
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if step > 0 and (env_step := step * 1) % 100 == 0:
+            if step > 0 and (env_step := step) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
@@ -312,7 +304,8 @@ def main(cfg: DictConfig):
                 model_path = str(model_save_dir / f"eval_best.pt")
                 torch.save(
                     {
-                        "model_state_dict": residual_policy.state_dict(),
+                        # Save the weights of the residual policy (base + residual)
+                        "model_state_dict": agent.state_dict(),
                         "optimizer_actor_state_dict": optimizer_actor.state_dict(),
                         "optimizer_critic_state_dict": optimizer_critic.state_dict(),
                         "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
@@ -333,12 +326,12 @@ def main(cfg: DictConfig):
             # iteration only if the reset_every_iteration flag is set
             continue
 
-        b_obs = obs.reshape((-1, residual_policy.obs_dim))
+        b_obs = obs.reshape((-1, agent.residual_policy.obs_dim))
         b_actions = actions.reshape((-1,) + env.action_space.shape)
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
-        next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()
+        next_value = agent.get_value(train_val.next_residual_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
         advantages, returns = calculate_advantage(
@@ -374,10 +367,10 @@ def main(cfg: DictConfig):
                 mb_values = b_values[mb_inds].to(device)
 
                 # Calculate the loss
-                _, newlogprob, entropy, newvalue, action_mean = (
-                    residual_policy.get_action_and_value(mb_obs, mb_actions)
+                train_val: ResidualTrainingValues = agent.get_action_and_value(
+                    mb_obs, mb_actions
                 )
-                logratio = newlogprob - mb_logprobs
+                logratio: torch.Tensor = train_val.logprob - mb_logprobs
                 ratio = logratio.exp()
 
                 with torch.no_grad():
@@ -418,13 +411,17 @@ def main(cfg: DictConfig):
                     v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
 
                 # Entropy loss
-                entropy_loss = entropy.mean() * cfg.ent_coef
+                entropy_loss = train_val.entropy.mean() * cfg.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
 
                 # Add the auxiliary regularization loss
-                residual_l1_loss = torch.mean(torch.abs(action_mean))
-                residual_l2_loss = torch.mean(torch.square(action_mean))
+                residual_l1_loss = torch.mean(
+                    torch.abs(train_val.residual_naction_mean)
+                )
+                residual_l2_loss = torch.mean(
+                    torch.square(train_val.residual_naction_mean)
+                )
 
                 # Normalize the losses so that each term has the same scale
                 if iteration > cfg.n_iterations_train_only_value:
@@ -442,17 +439,17 @@ def main(cfg: DictConfig):
 
                 loss.backward()
                 nn.utils.clip_grad_norm_(
-                    residual_policy.parameters(), cfg.max_grad_norm
+                    agent.residual_policy.parameters(), cfg.max_grad_norm
                 )
 
                 optimizer_actor.step()
                 optimizer_critic.step()
 
-            if cfg.target_kl is not None and approx_kl > cfg.target_kl:
-                print(
-                    f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
-                )
-                break
+                if cfg.target_kl is not None and approx_kl > cfg.target_kl:
+                    print(
+                        f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
+                    )
+                    break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -505,7 +502,7 @@ def main(cfg: DictConfig):
             model_path = str(model_save_dir / f"iter_{iteration}.pt")
             torch.save(
                 {
-                    "model_state_dict": residual_policy.state_dict(),
+                    "model_state_dict": agent.state_dict(),
                     "optimizer_actor_state_dict": optimizer_actor.state_dict(),
                     "optimizer_critic_state_dict": optimizer_critic.state_dict(),
                     "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),

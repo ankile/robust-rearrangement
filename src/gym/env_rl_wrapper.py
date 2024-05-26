@@ -207,7 +207,6 @@ class ResidualPolicyEnvWrapper:
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
         self.device = device
-        self.normalizer = LinearNormalizer()
         self.reward_normalizer = (
             RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
         )
@@ -224,9 +223,6 @@ class ResidualPolicyEnvWrapper:
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
-
-    def set_normalizer(self, normalizer: LinearNormalizer):
-        self.normalizer.load_state_dict(normalizer.state_dict())
 
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
@@ -283,12 +279,8 @@ class ResidualPolicyEnvWrapper:
         # Add the velocity-based penalty to the rewards
         return velocity_penalty
 
-    def step(self, naction: torch.Tensor):
-        assert naction.shape[1:] == self.action_space.shape
-        # bp()
-
-        # First denormalize the action
-        action = self.normalizer(naction, "action", forward=False)
+    def step(self, action: torch.Tensor):
+        assert action.shape[1:] == self.action_space.shape
 
         # Move the robot
         obs, reward, _, info = self.env.step(action)

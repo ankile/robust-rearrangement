@@ -1690,7 +1690,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.pair_to_assemble = (0, 4)
 
         self.assembled_rel_poses = torch.tensor(
-            self.furniture.assembled_rel_poses[self.pair_to_assemble],
+            np.array(self.furniture.assembled_rel_poses[self.pair_to_assemble]),
             device=self.device,
         )
 
