@@ -10,18 +10,20 @@
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=checkpoint_sweep
 
-# ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx
+# ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5
 
-run_id="ol-state-dr-med-1/xaqzl3mx"
+run_id="ol-state-dr-med-1/8k6oiit5"
 
-folder=$(dirname "$run_id")
+root_dir=outputs
+
+folder=$(dirname "$root_dir/$run_id")
 
 if [ ! -d "$folder" ]; then
     echo "Folder '$folder' does not exist. Creating it..."
     mkdir -p "$folder"
 fi
 
-csv_file="${run_id}_results.csv"
+csv_file="$root_dir/${run_id}_results.csv"
 echo "wt_type,success_rate" > "$csv_file"
 
 for ((i=99; i<=4999; i+=100)); do

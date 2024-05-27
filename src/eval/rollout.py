@@ -1,5 +1,6 @@
 import furniture_bench
 from omegaconf import DictConfig  # noqa: F401
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 import torch
 
 import collections
@@ -127,7 +128,7 @@ class SuccessTqdm(tqdm):
 
 
 def rollout(
-    env: FurnitureSimEnv,
+    env: FurnitureRLSimEnv,
     actor: Actor,
     rollout_max_steps: int,
     pbar: SuccessTqdm = None,
@@ -142,7 +143,7 @@ def rollout(
     if env.furniture_name == "lamp":
         # Before we start, let the environment settle by doing nothing for 5 second
         for _ in range(50):
-            obs, reward, done, _ = env.step_noop()
+            obs, reward, done, _ = env.noop()
 
     video_obs = deepcopy(obs)
 
