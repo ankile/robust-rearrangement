@@ -246,7 +246,7 @@ def main(cfg: DictConfig):
                 global_step += cfg.num_envs
 
             # Get the base normalized action
-            base_naction = agent.action_normalized(next_obs)
+            base_naction = agent.base_action_normalized(next_obs)
 
             # Process the obs for the residual policy
             next_nobs = agent.process_obs(next_obs)
@@ -345,7 +345,7 @@ def main(cfg: DictConfig):
 
         # Get the base normalized action
         # Process the obs for the residual policy
-        base_naction = agent.action_normalized(next_obs)
+        base_naction = agent.base_action_normalized(next_obs)
         next_nobs = agent.process_obs(next_obs)
         next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
         next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()

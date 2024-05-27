@@ -224,29 +224,9 @@ class ResidualPolicyEnvWrapper:
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
 
-    def process_action(self, action: torch.Tensor):
-        """
-        Done any desired processing to the action before
-        it is passed to the environment.
-        """
-        return action
-
     def reset(self, **kwargs):
         obs = self.env.reset()
         return obs
-
-    def jerkinesss_penalty(self, action: torch.Tensor):
-        # Get the current end-effector velocity
-        ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
-
-        # Calculate the dot product between the action and the end-effector velocity
-        dot_product = torch.sum(action[..., :3] * ee_velocity, dim=1, keepdim=True)
-
-        # Calculate the velocity-based penalty
-        velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
-
-        # Add the velocity-based penalty to the rewards
-        return velocity_penalty
 
     def step(self, action: torch.Tensor):
         assert action.shape[1:] == self.action_space.shape

@@ -317,24 +317,6 @@ if __name__ == "__main__":
                     f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}"
                 )
 
-                # # Create the config object with the project name
-                # print(f"Fix me!!!")
-                # config = load_eval_config(
-                #     run=run,
-                #     actor_name=(
-                #         "residual_diffusion"
-                #         if "actor" not in run.config
-                #         else run.config["actor"]["name"]
-                #     ),
-                #     action_horizon=args.action_horizon,
-                # )
-
-                # if "predict_past_actions" not in config.actor:
-                #     config.actor.predict_past_actions = True
-
-                # if "confusion_loss_beta" not in config.actor:
-                #     config.actor.confusion_loss_beta = 0.0
-
                 cfg = OmegaConf.create(run.config)
 
                 # Check that we didn't set the wrong action type above

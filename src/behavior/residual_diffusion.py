@@ -214,7 +214,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         return self.residual_policy.get_value(residual_nobs)
 
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
-        return super().action_normalized(obs)
+        raise NotImplementedError
 
     @property
     def actor_parameters(self):
