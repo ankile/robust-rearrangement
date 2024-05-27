@@ -172,6 +172,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         action: torch.Tensor = None,
         eval: bool = False,
     ) -> ResidualTrainingValues:
+        raise NotImplementedError
         if isinstance(obs, dict):
             # Get the base normalized action
             base_naction = self.base_action_normalized(obs)
@@ -213,7 +214,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         return self.residual_policy.get_value(residual_nobs)
 
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
-        raise NotImplementedError
+        return super().action_normalized(obs)
 
     @property
     def actor_parameters(self):

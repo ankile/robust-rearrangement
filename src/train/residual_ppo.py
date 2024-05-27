@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
+from src.behavior.diffusion import DiffusionPolicy
 from src.behavior.residual_diffusion import (
     ResidualDiffusionPolicy,
     ResidualTrainingValues,
@@ -127,9 +128,11 @@ def main(cfg: DictConfig):
 
     agent.to(device)
 
+    residual_policy = agent.residual_policy
+
     # Set the inference steps of the actor
-    # if isinstance(bc_actor, DiffusionPolicy):
-    #     bc_actor.inference_steps = 4
+    if isinstance(agent, DiffusionPolicy):
+        agent.inference_steps = 4
 
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
@@ -170,7 +173,7 @@ def main(cfg: DictConfig):
     if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
         print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
         run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
-        agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
 
     steps_per_iteration = cfg.data_collection_steps
@@ -202,7 +205,7 @@ def main(cfg: DictConfig):
         (
             steps_per_iteration,
             cfg.num_envs,
-            agent.residual_policy.obs_dim,
+            residual_policy.obs_dim,
         )
     )
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
@@ -242,28 +245,40 @@ def main(cfg: DictConfig):
 
         for step in range(0, steps_per_iteration):
             if not eval_mode:
+                # Only count environment steps during training
                 global_step += cfg.num_envs
 
-            with torch.no_grad():
-                train_val: ResidualTrainingValues = agent.get_action_and_value(
-                    next_obs, eval=eval_mode
-                )
+            # Get the base normalized action
+            base_naction = agent.action_normalized(next_obs)
+
+            # Process the obs for the residual policy
+            next_nobs = agent.process_obs(next_obs)
+            next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
 
             dones[step] = next_done
-            obs[step] = train_val.next_residual_nobs
+            obs[step] = next_residual_nobs
 
-            next_obs, reward, next_done, truncated, _ = env.step(train_val.env_action)
+            with torch.no_grad():
+                residual_naction_samp, logprob, _, value, naction_mean = (
+                    residual_policy.get_action_and_value(next_residual_nobs)
+                )
+
+            residual_naction = residual_naction_samp if not eval_mode else naction_mean
+            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
+
+            action = agent.normalizer(naction, "action", forward=False)
+            next_obs, reward, next_done, truncated, _ = env.step(action)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
 
-            values[step] = train_val.value.flatten().cpu()
-            actions[step] = train_val.residual_naction_samp.cpu()
-            logprobs[step] = train_val.logprob.cpu()
+            values[step] = value.flatten().cpu()
+            actions[step] = residual_naction.cpu()
+            logprobs[step] = logprob.cpu()
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if step > 0 and (env_step := step) % 100 == 0:
+            if step > 0 and (env_step := step * 1) % 100 == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()} fps={env_step * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
                 )
@@ -331,7 +346,7 @@ def main(cfg: DictConfig):
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
-        next_value = agent.get_value(train_val.next_residual_nobs).reshape(1, -1).cpu()
+        next_value = agent.get_value(next_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
         advantages, returns = calculate_advantage(
@@ -368,10 +383,10 @@ def main(cfg: DictConfig):
                 mb_values = b_values[mb_inds].to(device)
 
                 # Calculate the loss
-                train_val: ResidualTrainingValues = agent.get_action_and_value(
-                    mb_obs, mb_actions
+                _, newlogprob, entropy, newvalue, action_mean = (
+                    residual_policy.get_action_and_value(mb_obs, mb_actions)
                 )
-                logratio: torch.Tensor = train_val.logprob - mb_logprobs
+                logratio = newlogprob - mb_logprobs
                 ratio = logratio.exp()
 
                 with torch.no_grad():
@@ -397,7 +412,7 @@ def main(cfg: DictConfig):
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
-                newvalue = train_val.value.view(-1)
+                newvalue = newvalue.view(-1)
                 if cfg.clip_vloss:
                     v_loss_unclipped = (newvalue - mb_returns) ** 2
                     v_clipped = mb_values + torch.clamp(
@@ -412,17 +427,13 @@ def main(cfg: DictConfig):
                     v_loss = 0.5 * ((newvalue - mb_returns) ** 2).mean()
 
                 # Entropy loss
-                entropy_loss = train_val.entropy.mean() * cfg.ent_coef
+                entropy_loss = entropy.mean() * cfg.ent_coef
 
                 ppo_loss = pg_loss - entropy_loss
 
                 # Add the auxiliary regularization loss
-                residual_l1_loss = torch.mean(
-                    torch.abs(train_val.residual_naction_mean)
-                )
-                residual_l2_loss = torch.mean(
-                    torch.square(train_val.residual_naction_mean)
-                )
+                residual_l1_loss = torch.mean(torch.abs(action_mean))
+                residual_l2_loss = torch.mean(torch.square(action_mean))
 
                 # Normalize the losses so that each term has the same scale
                 if iteration > cfg.n_iterations_train_only_value:
@@ -440,7 +451,7 @@ def main(cfg: DictConfig):
 
                 loss.backward()
                 nn.utils.clip_grad_norm_(
-                    agent.residual_policy.parameters(), cfg.max_grad_norm
+                    residual_policy.parameters(), cfg.max_grad_norm
                 )
 
                 optimizer_actor.step()

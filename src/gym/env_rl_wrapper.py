@@ -224,37 +224,6 @@ class ResidualPolicyEnvWrapper:
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
 
-    def process_obs(self, obs: Dict[str, torch.Tensor]):
-        # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
-        robot_state = obs["robot_state"]
-        N = robot_state.shape[0]
-
-        # Parts poses is [pos, ori_quat] for each part
-        parts_poses = obs["parts_poses"]
-
-        # Make the robot state have 6D proprioception
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-
-        if self.normalizer is not None:
-            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            if self.task != "reacher":
-                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
-
-        obs = torch.cat([robot_state, parts_poses], dim=-1)
-
-        if self.add_relative_pose:
-            ee_pose = robot_state[..., :7].unsqueeze(1)
-            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
-                N, -1
-            )
-
-            obs = torch.cat([obs, relative_poses], dim=-1)
-
-        # Clamp the observation to be bounded to [-5, 5]
-        obs = torch.clamp(obs, -5, 5)
-
-        return obs
-
     def process_action(self, action: torch.Tensor):
         """
         Done any desired processing to the action before
