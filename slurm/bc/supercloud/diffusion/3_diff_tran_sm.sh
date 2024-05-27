@@ -8,5 +8,4 @@
 
 python -m src.train.bc +experiment=state/diff_tran \
     wandb.mode=offline \
-    rollout.rollouts=false \
     dryrun=false

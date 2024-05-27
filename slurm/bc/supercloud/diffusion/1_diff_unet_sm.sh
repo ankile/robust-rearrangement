@@ -9,5 +9,4 @@
 python -m src.train.bc +experiment=state/diff_unet \
     actor.diffusion_model.down_dims='[64,128,256]' \
     wandb.mode=offline \
-    rollout.rollouts=false \
     dryrun=false

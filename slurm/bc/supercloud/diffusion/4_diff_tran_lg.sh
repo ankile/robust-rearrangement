@@ -9,5 +9,4 @@
 python -m src.train.bc +experiment=state/diff_tran \
     wandb.mode=offline \
     actor/diffusion_model=transformer_big \
-    rollout.rollouts=false \
     dryrun=false
