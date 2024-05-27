@@ -11,4 +11,5 @@
 #SBATCH --job-name=2_diff_unet_lg
 
 python -m src.train.bc +experiment=state/diff_unet \
+    training.ema.use=true \
     dryrun=false
