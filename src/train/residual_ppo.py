@@ -4,23 +4,18 @@ import furniture_bench  # noqa
 from ipdb import set_trace as bp
 
 
-from collections import deque
-from typing import Literal, Tuple
-
 import random
 import time
 from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from src.behavior.base import Actor
 
-from src.behavior.diffusion import DiffusionPolicy
 from src.behavior.residual_diffusion import (
     ResidualDiffusionPolicy,
     ResidualTrainingValues,
 )
-from src.eval.eval_utils import load_bc_actor, get_model_from_api_or_cached
+from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
@@ -33,8 +28,6 @@ from src.gym.furniture_sim_env import (
 
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
-from src.common.context import suppress_all_output
-from src.models.residual import ResidualPolicy
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -57,7 +50,7 @@ def calculate_advantage(
     dones: torch.Tensor,
     next_done: torch.Tensor,
     steps_per_iteration: int,
-    gamma: float,
+    discount: float,
     gae_lambda: float,
 ):
     advantages = torch.zeros_like(rewards)
@@ -70,9 +63,9 @@ def calculate_advantage(
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
             nextvalues = values[t + 1]
 
-        delta = rewards[t] + gamma * nextvalues * nextnonterminal - values[t]
+        delta = rewards[t] + discount * nextvalues * nextnonterminal - values[t]
         advantages[t] = lastgaelam = (
-            delta + gamma * gae_lambda * nextnonterminal * lastgaelam
+            delta + discount * gae_lambda * nextnonterminal * lastgaelam
         )
     returns = advantages + values
     return advantages, returns
@@ -222,7 +215,6 @@ def main(cfg: DictConfig):
     iteration = 0
     start_time = time.time()
     training_cum_time = 0
-    last_iteration_duration = 0
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -249,6 +241,8 @@ def main(cfg: DictConfig):
         print(f"Eval mode: {eval_mode}")
 
         for step in range(0, steps_per_iteration):
+            if not eval_mode:
+                global_step += cfg.num_envs
 
             with torch.no_grad():
                 train_val: ResidualTrainingValues = agent.get_action_and_value(
@@ -307,7 +301,7 @@ def main(cfg: DictConfig):
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = str(model_save_dir / f"eval_best.pt")
+                model_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
                 torch.save(
                     {
                         # Save the weights of the residual policy (base + residual)
@@ -347,7 +341,7 @@ def main(cfg: DictConfig):
             dones,
             next_done,
             steps_per_iteration,
-            cfg.gamma,
+            cfg.discount,
             cfg.gae_lambda,
         )
 
@@ -358,6 +352,7 @@ def main(cfg: DictConfig):
         b_inds = np.arange(cfg.batch_size)
         clipfracs = []
         for epoch in trange(cfg.update_epochs, desc="Policy update"):
+            early_stop = False
 
             np.random.shuffle(b_inds)
             for start in range(0, cfg.batch_size, cfg.minibatch_size):
@@ -455,7 +450,11 @@ def main(cfg: DictConfig):
                     print(
                         f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
                     )
+                    early_stop = True
                     break
+
+            if early_stop:
+                break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
@@ -505,7 +504,7 @@ def main(cfg: DictConfig):
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
-            model_path = str(model_save_dir / f"iter_{iteration}.pt")
+            model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {
                     "model_state_dict": agent.state_dict(),

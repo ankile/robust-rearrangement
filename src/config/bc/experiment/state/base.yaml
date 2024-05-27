@@ -33,3 +33,4 @@ rollout:
 
 wandb:
   project: ol-state-dr-med-1
+  entity: robust-rearrangement

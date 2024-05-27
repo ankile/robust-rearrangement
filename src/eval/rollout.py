@@ -228,7 +228,7 @@ def calculate_success_rate(
     n_rollouts: int,
     rollout_max_steps: int,
     epoch_idx: int,
-    gamma: float = 0.99,
+    discount: float = 0.99,
     rollout_save_dir: Union[str, None] = None,
     save_rollouts_to_wandb: bool = False,
     save_failures: bool = False,
@@ -295,7 +295,7 @@ def calculate_success_rate(
 
     total_reward = np.sum([np.sum(rewards.numpy()) for rewards in all_rewards])
     episode_returns = [
-        np.sum(rewards.numpy() * gamma ** np.arange(len(rewards)))
+        np.sum(rewards.numpy() * discount ** np.arange(len(rewards)))
         for rewards in all_rewards
     ]
 
@@ -436,7 +436,7 @@ def do_rollout_evaluation(
         n_rollouts=config.rollout.count,
         rollout_max_steps=config.rollout.max_steps,
         epoch_idx=epoch_idx,
-        gamma=config.discount,
+        discount=config.discount,
         rollout_save_dir=rollout_save_dir,
         save_rollouts_to_wandb=save_rollouts_to_wandb,
         save_failures=config.rollout.save_failures,

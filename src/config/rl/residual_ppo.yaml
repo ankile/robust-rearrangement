@@ -8,7 +8,7 @@ reset_every_iteration: true
 reset_on_success: false
 eval_interval: 5
 eval_first: true
-checkpoint_interval: 1
+checkpoint_interval: 10
 truncation_as_done: true
 base_policy: 
   wandb_id: ol-state-dr-1/r9wm1uo6
@@ -42,6 +42,7 @@ residual_policy:
   critic_last_layer_activation: null
 
   # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
+  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
   pretrained_wts: null
 
 # Learning rates
@@ -56,7 +57,7 @@ residual_l1: 0.0
 residual_l2: 0.01
 
 # Algorithm specific arguments
-gamma: 0.999
+discount: 0.999
 gae_lambda: 0.95
 norm_adv: true
 normalize_reward: true
@@ -77,9 +78,15 @@ num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
 action_type: pos
 act_rot_repr: rot_6d
 
+control:
+  act_rot_repr: rot_6d
+  control_mode: pos # delta, pos
+  controller: diffik  # diffik
+
+
 wandb:
   entity: robust-rearrangement
-  project: residual-ppo-dr-debug-1
+  project: residual-ppo-dr-1
   mode: online
 
 debug: false

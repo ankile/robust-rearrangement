@@ -185,11 +185,11 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
             next_residual_nobs = obs
 
         # Get the residual action
-        residual_naction_samp, logprob, ent, value, naction_mean = (
+        residual_naction_samp, logprob, ent, value, residual_naction_mean = (
             self.residual_policy.get_action_and_value(next_residual_nobs, action=action)
         )
 
-        residual_naction = naction_mean if eval else residual_naction_samp
+        residual_naction = residual_naction_mean if eval else residual_naction_samp
 
         if action is None:
             env_naction = (
@@ -201,7 +201,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
         return ResidualTrainingValues(
             residual_naction_samp=residual_naction_samp,
-            residual_naction_mean=naction_mean,
+            residual_naction_mean=residual_naction_mean,
             logprob=logprob,
             entropy=ent,
             value=value,

@@ -53,11 +53,11 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     # Clear the cache to make sure we get the latest runs
     api.flush()
     if args.sweep_id:
-        runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
+        runs: List[Run] = list(api.sweep(args.sweep_id).runs)
     elif args.run_id:
-        runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
+        runs: List[Run] = [api.run(run_id) for run_id in args.run_id]
     elif args.project_id:
-        runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
+        runs: List[Run] = list(api.runs(args.project_id))
     else:
         raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
@@ -318,33 +318,35 @@ if __name__ == "__main__":
                 )
 
                 # # Create the config object with the project name
-                print(f"Fix me!!!")
-                config = load_eval_config(
-                    run=run,
-                    actor_name=(
-                        "residual_diffusion"
-                        if "actor" not in run.config
-                        else run.config["actor"]["name"]
-                    ),
-                    action_horizon=args.action_horizon,
-                )
+                # print(f"Fix me!!!")
+                # config = load_eval_config(
+                #     run=run,
+                #     actor_name=(
+                #         "residual_diffusion"
+                #         if "actor" not in run.config
+                #         else run.config["actor"]["name"]
+                #     ),
+                #     action_horizon=args.action_horizon,
+                # )
 
-                if "predict_past_actions" not in config.actor:
-                    config.actor.predict_past_actions = True
+                # if "predict_past_actions" not in config.actor:
+                #     config.actor.predict_past_actions = True
 
-                if "confusion_loss_beta" not in config.actor:
-                    config.actor.confusion_loss_beta = 0.0
+                # if "confusion_loss_beta" not in config.actor:
+                #     config.actor.confusion_loss_beta = 0.0
+
+                cfg = OmegaConf.create(run.config)
 
                 # Check that we didn't set the wrong action type above
-                assert config.control.control_mode == args.action_type, (
-                    f"Control mode in the config: {config.control.control_mode} "
+                assert cfg.control.control_mode == args.action_type, (
+                    f"Control mode in the config: {cfg.control.control_mode} "
                     f"does not match the action type: {args.action_type}"
                 )
 
-                print(OmegaConf.to_yaml(config))
+                print(OmegaConf.to_yaml(cfg))
 
                 # Make the actor
-                actor: Actor = get_actor(cfg=config, device=device)
+                actor: Actor = get_actor(cfg=cfg, device=device)
 
                 load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
@@ -380,7 +382,7 @@ if __name__ == "__main__":
                     n_rollouts=args.n_rollouts,
                     rollout_max_steps=rollout_max_steps,
                     epoch_idx=0,
-                    gamma=config.discount,
+                    discount=cfg.discount,
                     rollout_save_dir=save_dir,
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,

@@ -1,3 +1,5 @@
+actor_name: ${actor.name}
+
 defaults:
   - _self_
   - actor: diffusion

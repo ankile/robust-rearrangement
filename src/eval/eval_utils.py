@@ -85,51 +85,50 @@ def load_eval_config(
     inference_steps: Union[int, None] = None,
 ):
 
-    def make_config_override_actor(
-        run: Run,
-        action_horizon: Union[int, None] = None,
-        inference_steps: Union[int, None] = None,
-    ):
-        cfg: DictConfig = OmegaConf.create(
-            {
-                **run.config,
-                "project_name": run.project,
-                "actor": {
-                    **run.config["actor"],
-                    "inference_steps": (
-                        inference_steps if inference_steps is not None else 4
-                    ),
-                    "action_horizon": (
-                        action_horizon
-                        if action_horizon is not None
-                        else run.config["actor"]["action_horizon"]
-                    ),
-                },
-            },
-        )
-        return cfg
+    # def make_config_override_actor(
+    #     run: Run,
+    #     action_horizon: Union[int, None] = None,
+    #     inference_steps: Union[int, None] = None,
+    # ):
+    #     cfg: DictConfig = OmegaConf.create(
+    #         {
+    #             **run.config,
+    #             "project_name": run.project,
+    #             "actor": {
+    #                 **run.config["actor"],
+    #                 "inference_steps": (
+    #                     inference_steps if inference_steps is not None else 4
+    #                 ),
+    #                 "action_horizon": (
+    #                     action_horizon
+    #                     if action_horizon is not None
+    #                     else run.config["actor"]["action_horizon"]
+    #                 ),
+    #             },
+    #         },
+    #     )
+    #     return cfg
 
-    if "residual" in run.project:
-        # if residual, load the config from the base policy and merge
-        res_cfg: DictConfig = OmegaConf.create(run.config)
+    # if actor_name == "residual_diffusion":
+    #     bp()
+    #     # if residual, load the config from the base policy and merge
+    #     res_cfg: DictConfig = OmegaConf.create(run.config)
 
-        api = wandb.Api(overrides=dict(entity="ankile"))
-        base_run_id = run.config["base_bc_poliy"]
-        base_run: Run = api.run(base_run_id)
-        cfg = make_config_override_actor(
-            base_run, action_horizon=action_horizon, inference_steps=inference_steps
-        )
+    #     api = wandb.Api(overrides=dict(entity="ankile"))
+    #     base_run_id = run.config["base_bc_poliy"]
+    #     base_run: Run = api.run(base_run_id)
+    #     cfg = make_config_override_actor(
+    #         base_run, action_horizon=action_horizon, inference_steps=inference_steps
+    #     )
 
-        # merge
-        cfg.actor.update({"residual_policy": res_cfg.residual_policy})
+    #     # merge
+    #     cfg.actor.update({"residual_policy": res_cfg.residual_policy})
 
-    else:
-        # if base BC, just directly load the config
-        cfg = make_config_override_actor(run, action_horizon=action_horizon)
+    # else:
+    #     # if base BC, just directly load the config
+    #     cfg = make_config_override_actor(run, action_horizon=action_horizon)
 
-    cfg.actor.name = actor_name
-
-    return cfg
+    return run.config
 
 
 def load_model_weights(
@@ -151,38 +150,44 @@ def load_model_weights(
         print(f"Model path: {model_path}")
         return model_path
 
-    if "residual" in run.project:
-        # if residual, load the config from the base policy and merge
-        res_model_path = get_model_path_from_run(run)
-        actor.residual_policy.load_state_dict(
-            torch.load(res_model_path)["model_state_dict"]
-        )
+    # if "residual" in run.project:
+    #     # if residual, load the config from the base policy and merge
+    #     res_model_path = get_model_path_from_run(run)
+    #     actor.residual_policy.load_state_dict(
+    #         torch.load(res_model_path)["model_state_dict"]
+    #     )
 
-        api = wandb.Api(overrides=dict(entity="ankile"))
-        base_run_id = run.config["base_bc_poliy"]
-        base_run: Run = api.run(base_run_id)
-        base_model_path = get_model_path_from_run(base_run)
+    #     api = wandb.Api(overrides=dict(entity="ankile"))
+    #     base_run_id = run.config["base_bc_poliy"]
+    #     base_run: Run = api.run(base_run_id)
+    #     base_model_path = get_model_path_from_run(base_run)
 
-        base_state_dict = torch.load(base_model_path)
+    #     base_state_dict = torch.load(base_model_path)
 
-        base_model_state_dict = {
-            key[len("model.") :]: value
-            for key, value in base_state_dict.items()
-            if key.startswith("model.")
-        }
-        base_normalizer_state_dict = {
-            key[len("normalizer.") :]: value
-            for key, value in base_state_dict.items()
-            if key.startswith("normalizer.")
-        }
+    #     base_model_state_dict = {
+    #         key[len("model.") :]: value
+    #         for key, value in base_state_dict.items()
+    #         if key.startswith("model.")
+    #     }
+    #     base_normalizer_state_dict = {
+    #         key[len("normalizer.") :]: value
+    #         for key, value in base_state_dict.items()
+    #         if key.startswith("normalizer.")
+    #     }
 
-        # Load the normalizer state dict
-        actor.normalizer.load_state_dict(base_normalizer_state_dict)
-        actor.model.load_state_dict(base_model_state_dict)
-        # actor.model.load_state_dict(torch.load(base_model_path))
-    else:
-        model_path = get_model_path_from_run(run)
-        actor.load_state_dict(torch.load(model_path))
+    #     # Load the normalizer state dict
+    #     actor.normalizer.load_state_dict(base_normalizer_state_dict)
+    #     actor.model.load_state_dict(base_model_state_dict)
+    #     # actor.model.load_state_dict(torch.load(base_model_path))
+    # else:
+
+    model_path = get_model_path_from_run(run)
+    state_dict = torch.load(model_path)
+
+    if "model_state_dict" in state_dict:
+        state_dict = state_dict["model_state_dict"]
+
+    actor.load_state_dict(state_dict)
 
     actor.eval()
     actor.to(device)
