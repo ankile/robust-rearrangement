@@ -20,7 +20,7 @@ from src.behavior.residual_diffusion import (
     ResidualDiffusionPolicy,
     ResidualTrainingValues,
 )
-from src.eval.eval_utils import load_bc_actor, load_bc_cfg_and_wts
+from src.eval.eval_utils import load_bc_actor, get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
@@ -102,6 +102,9 @@ def main(cfg: DictConfig):
 
     device = torch.device("cuda")
 
+    # Load the behavior cloning actor
+    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
+
     turn_off_april_tags()
 
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(
@@ -121,7 +124,9 @@ def main(cfg: DictConfig):
     )
 
     # Load the behavior cloning actor
-    base_cfg, base_wts = load_bc_cfg_and_wts(cfg.base_policy.wandb_id)
+    base_cfg, base_wts = get_model_from_api_or_cached(
+        cfg.base_policy.wandb_id, wr_type="best_success_rate"
+    )
 
     # Add the contents of the base config to the current config under the base_policy key without overwriting anything
     OmegaConf.update(cfg, "base_policy", base_cfg, merge=True)
@@ -185,6 +190,9 @@ def main(cfg: DictConfig):
         f"Mini-batch size: {cfg.minibatch_size}, num iterations: {cfg.num_iterations}"
     )
 
+    # bc_actor = torch.compile(bc_actor)
+    # residual_policy = torch.compile(residual_policy)
+
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
     wandb.init(
@@ -242,10 +250,6 @@ def main(cfg: DictConfig):
             agent.reset()
 
         print(f"Eval mode: {eval_mode}")
-        if not eval_mode:
-            # Only count environment steps during training
-            global_step += cfg.num_envs * steps_per_iteration
-            training_cum_time += last_iteration_duration
 
         for step in range(0, steps_per_iteration):
 
@@ -270,7 +274,7 @@ def main(cfg: DictConfig):
 
             if step > 0 and (env_step := step) % 100 == 0:
                 print(
-                    f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
+                    f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()} fps={env_step * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
                 )
 
         # Calculate the success rate
@@ -292,11 +296,16 @@ def main(cfg: DictConfig):
 
         running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
 
-        print(f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}")
+        print(
+            f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+        )
 
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
-            wandb.log({"eval/success_rate": success_rate}, step=global_step)
+            wandb.log(
+                {"eval/success_rate": success_rate, "iteration": iteration},
+                step=global_step,
+            )
 
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
@@ -457,7 +466,7 @@ def main(cfg: DictConfig):
 
         action_norms = torch.norm(b_actions[:, :3], dim=-1).cpu()
 
-        last_iteration_duration = time.time() - iteration_start_time
+        training_cum_time += time.time() - iteration_start_time
         sps = int(global_step / training_cum_time) if training_cum_time > 0 else 0
 
         wandb.log(

@@ -56,7 +56,9 @@ class MLPActor(Actor):
 
         loss = self.loss_fn(naction_pred, naction)
 
-        return loss
+        losses = {"bc_loss": loss.item()}
+
+        return loss, losses
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):

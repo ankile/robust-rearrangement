@@ -4,7 +4,7 @@ import time
 import furniture_bench
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import torch  # needs to be after isaac gym imports
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import OmegaConf
 from src.behavior.base import Actor  # noqa
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
@@ -185,6 +185,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
+    parser.add_argument("--wt-type", type=str, default="test_loss")
     # Parse the arguments
     args = parser.parse_args()
 
@@ -345,7 +346,7 @@ if __name__ == "__main__":
                 # Make the actor
                 actor: Actor = get_actor(cfg=config, device=device)
 
-                load_model_weights(run=run, actor=actor)
+                load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
                 save_dir = (
                     trajectory_save_dir(

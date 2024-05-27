@@ -338,6 +338,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # Return the first action in the queue
         return self.actions.popleft()
 
+    # @torch.compile
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
         action = self.action(obs)
         return self.normalizer(action, "action", forward=True)
@@ -490,6 +491,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     def confusion_loss(self, batch, feature1, feature2):
         domain_idx = batch["domain"]
         # TODO: Refactor to do concat together the features and then compute the loss
+        # NOTE: May reward hack
 
         # Split the embeddings into the two domains (sim/real)
         sim_emb1 = feature1[domain_idx == 0]  # N1 x 128

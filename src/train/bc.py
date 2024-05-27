@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
+from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
@@ -252,6 +253,9 @@ def main(cfg: DictConfig):
         }
     )
 
+    starttime = now()
+    wandb.summary["start_time"] = starttime
+
     # Create model save dir
     model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -262,7 +266,7 @@ def main(cfg: DictConfig):
     best_success_rate = 0
     prev_best_success_rate = 0
 
-    print(f"Job started at: {now()}")
+    print(f"Job started at: {starttime}")
 
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
@@ -432,12 +436,13 @@ def main(cfg: DictConfig):
                 )
 
             best_success_rate = do_rollout_evaluation(
-                cfg,
-                env,
-                cfg.rollout.save_rollouts,
-                actor,
-                best_success_rate,
-                epoch_idx,
+                config=cfg,
+                env=env,
+                save_rollouts_to_file=cfg.rollout.save_rollouts,
+                save_rollouts_to_wandb=False,
+                actor=actor,
+                best_success_rate=best_success_rate,
+                epoch_idx=epoch_idx,
             )
 
             # Save the model if the success rate is the best so far

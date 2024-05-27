@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - state/base
+  - override /actor: mlp
+  - override /rollout: rollout
+
+actor:
+  hidden_dims: [1024]
+  residual: true
+
+pred_horizon: 1
+action_horizon: 1
