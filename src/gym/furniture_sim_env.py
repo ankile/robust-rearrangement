@@ -988,6 +988,11 @@ class FurnitureSimEnv(gym.Env):
         self.isaac_gym.refresh_rigid_body_state_tensor(self.sim)
         self.isaac_gym.refresh_jacobian_tensors(self.sim)
 
+        # Update viewer
+        if not self.headless:
+            self.isaac_gym.draw_viewer(self.viewer, self.sim, False)
+            self.isaac_gym.sync_frame_time(self.sim)
+
         obs = self.get_observation()
 
         return obs
@@ -1558,7 +1563,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         if self.randomness == Randomness.LOW:
             self.max_force_magnitude = 0.2
-            self.max_torque_magnitude = 0.005
+            self.max_torque_magnitude = 0.007
             self.max_obstacle_offset = 0.02
             self.franka_joint_rand_lim_deg = np.radians(5)
         elif self.randomness == Randomness.MEDIUM:
@@ -1567,8 +1572,8 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self.max_obstacle_offset = 0.04
             self.franka_joint_rand_lim_deg = np.radians(10)
         elif self.randomness == Randomness.HIGH:
-            self.max_force_magnitude = 1.0
-            self.max_torque_magnitude = 0.02
+            self.max_force_magnitude = 0.75
+            self.max_torque_magnitude = 0.015
             self.max_obstacle_offset = 0.06
             self.franka_joint_rand_lim_deg = np.radians(15)
         else:
@@ -1766,7 +1771,15 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Compute the rewards based on the newly assembled parts
         rewards = newly_assembled_mask.float().unsqueeze(-1)
 
+        if self.manual_done and (rewards == 1).any():
+            return print("Part assembled!")
+
         return rewards
+
+    def _done(self):
+        if self.manual_done:
+            return torch.zeros((self.num_envs, 1), dtype=torch.bool, device=self.device)
+        return (self.already_assembled == 1).unsqueeze(1)
 
     @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
@@ -1782,7 +1795,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         obs = self.get_observation()
         reward = self._reward()
-        done = (self.already_assembled == 1).unsqueeze(1)
+        done = self._done()
 
         self.env_steps += 1
 
