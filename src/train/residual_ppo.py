@@ -183,9 +183,6 @@ def main(cfg: DictConfig):
         f"Mini-batch size: {cfg.minibatch_size}, num iterations: {cfg.num_iterations}"
     )
 
-    # bc_actor = torch.compile(bc_actor)
-    # residual_policy = torch.compile(residual_policy)
-
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
     wandb.init(
@@ -201,7 +198,7 @@ def main(cfg: DictConfig):
     best_eval_success_rate = 0.0
     running_mean_success_rate = 0.0
 
-    obs = torch.zeros(
+    obs: torch.Tensor = torch.zeros(
         (
             steps_per_iteration,
             cfg.num_envs,
@@ -264,7 +261,7 @@ def main(cfg: DictConfig):
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
-            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
+            naction = base_naction + residual_naction * residual_policy.action_scale
 
             action = agent.normalizer(naction, "action", forward=False)
             next_obs, reward, next_done, truncated, _ = env.step(action)
@@ -341,12 +338,17 @@ def main(cfg: DictConfig):
             # iteration only if the reset_every_iteration flag is set
             continue
 
-        b_obs = obs.reshape((-1, agent.residual_policy.obs_dim))
+        b_obs = obs.reshape((-1, residual_policy.obs_dim))
         b_actions = actions.reshape((-1,) + env.action_space.shape)
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
-        next_value = agent.get_value(next_nobs).reshape(1, -1).cpu()
+        # Get the base normalized action
+        # Process the obs for the residual policy
+        base_naction = agent.action_normalized(next_obs)
+        next_nobs = agent.process_obs(next_obs)
+        next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
+        next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
         advantages, returns = calculate_advantage(

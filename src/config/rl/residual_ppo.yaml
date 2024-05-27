@@ -42,8 +42,8 @@ residual_policy:
   critic_last_layer_activation: null
 
   # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
-  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
-  pretrained_wts: null
+  pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
+  # pretrained_wts: null
 
 # Learning rates
 learning_rate_actor: 3e-4
