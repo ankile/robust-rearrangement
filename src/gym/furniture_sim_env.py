@@ -1771,7 +1771,15 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Compute the rewards based on the newly assembled parts
         rewards = newly_assembled_mask.float().unsqueeze(-1)
 
+        if self.manual_done and (rewards == 1).any():
+            return print("Part assembled!")
+
         return rewards
+
+    def _done(self):
+        if self.manual_done:
+            return torch.zeros((self.num_envs, 1), dtype=torch.bool, device=self.device)
+        return (self.already_assembled == 1).unsqueeze(1)
 
     @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
@@ -1787,7 +1795,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         obs = self.get_observation()
         reward = self._reward()
-        done = (self.already_assembled == 1).unsqueeze(1)
+        done = self._done()
 
         self.env_steps += 1
 
