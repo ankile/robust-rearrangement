@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-v100,vision-pulkitag-a100
-#SBATCH -q vision-pulkitag-main
+#SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --job-name=ol_res_ppo_new
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
