@@ -102,9 +102,6 @@ def main(cfg: DictConfig):
 
     device = torch.device("cuda")
 
-    # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
-
     turn_off_april_tags()
 
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(
@@ -125,7 +122,7 @@ def main(cfg: DictConfig):
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
-        cfg.base_policy.wandb_id, wr_type="best_success_rate"
+        cfg.base_policy.wandb_id, wt_type="best_success_rate"
     )
 
     # Add the contents of the base config to the current config under the base_policy key without overwriting anything
@@ -405,7 +402,7 @@ def main(cfg: DictConfig):
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
-                newvalue = newvalue.view(-1)
+                newvalue = train_val.value.view(-1)
                 if cfg.clip_vloss:
                     v_loss_unclipped = (newvalue - mb_returns) ** 2
                     v_clipped = mb_values + torch.clamp(

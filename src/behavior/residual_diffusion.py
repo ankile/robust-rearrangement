@@ -168,16 +168,21 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
     def get_action_and_value(
         self,
-        obs: Dict[str, torch.Tensor],
+        obs: Union[Dict[str, torch.Tensor], torch.Tensor],
         action: torch.Tensor = None,
         eval: bool = False,
     ) -> ResidualTrainingValues:
-        # Get the base normalized action
-        base_naction = self.base_action_normalized(obs)
+        if isinstance(obs, dict):
+            # Get the base normalized action
+            base_naction = self.base_action_normalized(obs)
 
-        # Process the obs for the residual policy
-        next_nobs = self.process_obs(obs)
-        next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
+            # Process the obs for the residual policy
+            next_nobs = self.process_obs(obs)
+            next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
+
+        else:
+            assert obs.shape[-1] == self.residual_policy.obs_dim
+            next_residual_nobs = obs
 
         # Get the residual action
         residual_naction_samp, logprob, ent, value, naction_mean = (
@@ -185,10 +190,14 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         )
 
         residual_naction = naction_mean if eval else residual_naction_samp
-        env_naction = (
-            base_naction + residual_naction * self.residual_policy.action_scale
-        )
-        env_action = self.normalizer(env_naction, "action", forward=False)
+
+        if action is None:
+            env_naction = (
+                base_naction + residual_naction * self.residual_policy.action_scale
+            )
+            env_action = self.normalizer(env_naction, "action", forward=False)
+        else:
+            env_action = action
 
         return ResidualTrainingValues(
             residual_naction_samp=residual_naction_samp,
