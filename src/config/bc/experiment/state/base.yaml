@@ -25,11 +25,11 @@ training:
   num_epochs: 5000
 
 rollout:
-  every: 1
-  max_steps: 850
-  num_envs: 256
+  every: 50
+  max_steps: 750
+  num_envs: 128
   loss_threshold: 0.1
-  randomness: low
+  randomness: med
 
 wandb:
   project: ol-state-dr-med-1
