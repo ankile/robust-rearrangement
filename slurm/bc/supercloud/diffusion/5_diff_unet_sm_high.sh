@@ -8,8 +8,8 @@
 
 python -m src.train.bc +experiment=state/diff_unet \
     actor.diffusion_model.down_dims='[64,128,256]' \
-    randomness='[high,high_perturb]' \
-    data.data_subset=25 \
+    randomness='[high]' \
+    data.data_subset=50 \
     rollout.randomness=high \
     wandb.mode=offline \
     wandb.project=ol-state-dr-high-1 \
