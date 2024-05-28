@@ -3,7 +3,7 @@
 #SBATCH -p xeon-g6-volta
 #SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
-#SBATCH --job-name=1_diff_unet_sm
+#SBATCH --job-name=5_diff_unet_sm_high
 #SBATCH -c 20
 
 python -m src.train.bc +experiment=state/diff_unet \

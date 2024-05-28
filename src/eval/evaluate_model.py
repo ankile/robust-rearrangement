@@ -53,11 +53,11 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     # Clear the cache to make sure we get the latest runs
     api.flush()
     if args.sweep_id:
-        runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
+        runs: List[Run] = list(api.sweep(args.sweep_id).runs)
     elif args.run_id:
         runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
     elif args.project_id:
-        runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
+        runs: List[Run] = list(api.runs(args.project_id))
     else:
         raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
@@ -346,7 +346,7 @@ if __name__ == "__main__":
                 # Make the actor
                 actor: Actor = get_actor(cfg=config, device=device)
 
-                load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+                actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
                 save_dir = (
                     trajectory_save_dir(
