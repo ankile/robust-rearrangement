@@ -10,6 +10,6 @@
 #SBATCH --time=0-04:00
 #SBATCH --gres=gpu:1
 
-python -m src.eval.evaluate_model --project-id robust-rearrangement/ol-state-dr-med-1 --n-envs 128 --n
--rollouts 128 -f one_leg --if-exists append --max-rollout-steps 700 --controller diffik --use-new-env --action-type pos --observation-space stat
-e --randomness med --wt-type best_test_loss --wandb
+python -m src.eval.evaluate_model --project-id robust-rearrangement/ol-state-dr-med-1 --n-envs 128 \
+    --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 700 --controller diffik \
+    --use-new-env --action-type pos --observation-space state --randomness med --wt-type best_test_loss --wandb
