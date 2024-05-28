@@ -235,8 +235,9 @@ class ResidualPolicyEnvWrapper:
         obs, reward, _, info = self.env.step(action)
         reward = reward.squeeze()
 
-        if self.reward_normalizer is not None:
-            reward = self.reward_normalizer(reward)
+        # Clip the obs
+        obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
+        obs["parts_poses"] = torch.clamp(obs["parts_poses"], -3, 3)
 
         if self.reset_on_failure:
             # Get the gripper width

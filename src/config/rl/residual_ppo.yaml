@@ -7,11 +7,12 @@ reset_on_failure: false
 reset_every_iteration: true
 reset_on_success: false
 eval_interval: 5
-eval_first: true
+eval_first: false
 checkpoint_interval: 10
 truncation_as_done: true
 base_policy: 
-  wandb_id: ol-state-dr-1/r9wm1uo6
+  # wandb_id: ol-state-dr-1/r9wm1uo6
+  wandb_id: ol-state-dr-med-1/9zjnzg4r
 
 moidels_we_depend_on:
 total_timesteps: 500_000_000

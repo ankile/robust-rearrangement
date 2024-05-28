@@ -162,7 +162,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         obs = torch.cat([robot_state, parts_poses], dim=-1)
 
         # Clamp the observation to be bounded to [-5, 5]
-        obs = torch.clamp(obs, -5, 5)
+        obs = torch.clamp(obs, -3, 3)
 
         return obs
 
