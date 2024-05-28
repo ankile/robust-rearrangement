@@ -124,6 +124,7 @@ class FurnitureSimEnv(gym.Env):
 
         self.assemble_idx = 0
         # Furniture for each environment (reward, reset).
+        self.furniture_name = furniture
         self.furnitures = [furniture_factory(furniture) for _ in range(num_envs)]
 
         if num_envs == 1:
@@ -1678,24 +1679,71 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
                 part_idxs = self.part_idxs[part.name]
                 self.rigid_body_index_by_env[env_idx, i] = part_idxs[env_idx]
 
-        self.force_multiplier = torch.tensor(
-            [25, 1, 1, 1, 1], device=self.device
-        ).unsqueeze(-1)
-        self.torque_multiplier = torch.tensor(
-            [70, 1, 1, 1, 1], device=self.device
-        ).unsqueeze(-1)
-
-        # Book keeping related to vectorized reward computation
-        self.already_assembled = torch.zeros(
-            (self.num_envs,),
-            dtype=torch.bool,
-            device=self.device,
+        if self.furniture_name == "one_leg":
+            force_mul = [25, 1, 1, 1, 1]
+            torque_mul = [70, 1, 1, 1, 1]
+        elif self.furniture_name == "lamp":
+            force_mul = [1, 1, 1]
+            torque_mul = [1, 1, 1]
+        elif self.furniture_name == "round_table":
+            force_mul = [1, 1, 1]
+            torque_mul = [1, 1, 1]
+        elif self.furniture_name == "square_table":
+            force_mul = [25, 1, 1, 1, 1]
+            torque_mul = [70, 1, 1, 1, 1]
+        else:
+            raise ValueError(
+                f"Have not set up the random force/torque multipliers for furniture {self.furniture_name}"
+            )
+        # TODO - something like this (tricky to get right due to one_leg/square_table inheritance)
+        # force_mul = [
+        #     config["furniture"][self.furniture_name][part.name]["rand_force_multiplier"]
+        #     for part in self.furniture.parts
+        # ]
+        # torque_mul = [
+        #     config["furniture"][self.furniture_name][part.name][
+        #         "rand_torque_multiplier"
+        #     ]
+        #     for part in self.furniture.parts
+        # ]
+        print(f"Force multiplier: {force_mul}")
+        print(f"Torque multiplier: {torque_mul}")
+        self.force_multiplier = torch.tensor(force_mul, device=self.device).unsqueeze(
+            -1
+        )
+        self.torque_multiplier = torch.tensor(torque_mul, device=self.device).unsqueeze(
+            -1
         )
 
-        self.pair_to_assemble = (0, 4)
+        # Book keeping related to vectorized reward computation
+        if self.furniture_name == "one_leg":
+            self.pairs_to_assemble = [(0, 4)]
+        elif self.furniture_name == "lamp":
+            self.pairs_to_assemble = [(0, 1), (0, 2)]
+        elif self.furniture_name == "round_table":
+            self.pairs_to_assemble = [(0, 1), (1, 2)]
+        elif self.furniture_name == "square_table":
+            self.pairs_to_assemble = [(0, 1), (0, 2), (0, 3), (0, 4)]
+        else:
+            raise ValueError(
+                f"Have not set up the pairs to assemble for furniture {self.furniture_name}"
+            )
 
-        self.assembled_rel_poses = torch.tensor(
-            self.furniture.assembled_rel_poses[self.pair_to_assemble],
+        rel_poses_arr = np.asarray(
+            [
+                self.furniture.assembled_rel_poses[pair_key]
+                for pair_key in self.pairs_to_assemble
+            ],
+        )
+
+        # Size (num_pairs) x (num_poses) x 4 x 4
+        self.assembled_rel_poses = (
+            torch.from_numpy(rel_poses_arr).float().to(self.device)
+        )
+
+        self.already_assembled = torch.zeros(
+            (self.num_envs, len(self.pairs_to_assemble)),
+            dtype=torch.bool,
             device=self.device,
         )
 
@@ -1745,31 +1793,47 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         num_parts = parts_poses.shape[1] // 7
         parts_poses = parts_poses.view(self.num_envs, num_parts, 7)
 
-        # Compute the relative pose for the specific pair of parts that should be assembled
-        pose_mat1 = pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
-        pose_mat2 = pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
-        rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
-
-        similar_rot = is_similar_rot(
-            rel_pose[..., :3, :3],
-            self.assembled_rel_poses[:, None, :3, :3],
-            self.furniture.ori_bound,
+        # Compute the rewards based on the newly assembled parts
+        newly_assembled_mask = torch.zeros(
+            (self.num_envs, len(self.pairs_to_assemble)),
+            dtype=torch.bool,
+            device=self.device,
         )
-        similar_pos = is_similar_pos(
-            rel_pose[..., :3, 3],
-            self.assembled_rel_poses[:, None, :3, 3],
-            torch.tensor(self.furniture.assembled_pos_threshold, device=self.device),
-        )
-        assembled_mask = similar_rot & similar_pos
+        # Loop over parts to be assembled (relatively small number)
+        for i, pair in enumerate(self.pairs_to_assemble):
+            # Compute the relative pose for the specific pair of parts that should be assembled
+            pose_mat1 = pose_from_vector(parts_poses[:, pair[0]])
+            pose_mat2 = pose_from_vector(parts_poses[:, pair[1]])
+            rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
 
-        # Check if the parts are newly assembled
-        newly_assembled_mask = assembled_mask.any(dim=0) & ~self.already_assembled
+            # Leading dimension is for checking if rel pose matches on of many possible assembled poses
+            if pair in self.furniture.position_only:
+                similar_rot = torch.tensor([True] * self.num_envs, device=self.device)
+            else:
+                similar_rot = is_similar_rot(
+                    rel_pose[..., :3, :3],
+                    self.assembled_rel_poses[i, :, :3, :3],
+                    self.furniture.ori_bound,
+                )
+            similar_pos = is_similar_pos(
+                rel_pose[..., :3, 3],
+                self.assembled_rel_poses[i, :, :3, 3],
+                torch.tensor(
+                    self.furniture.assembled_pos_threshold, device=self.device
+                ),
+            )
+            assembled_mask = similar_rot & similar_pos
 
-        # Update the already_assembled tensor
-        self.already_assembled |= newly_assembled_mask
+            # Check if the parts are newly assembled (.any() over the multiple possibly matched assembled posees)
+            newly_assembled_mask[:, i] = (
+                assembled_mask.any(dim=0) & ~self.already_assembled[:, i]
+            )
+
+            # Update the already_assembled tensor
+            self.already_assembled[:, i] |= newly_assembled_mask[:, i]
 
         # Compute the rewards based on the newly assembled parts
-        rewards = newly_assembled_mask.float().unsqueeze(-1)
+        rewards = newly_assembled_mask.any(dim=1).float().unsqueeze(-1)
 
         if self.manual_done and (rewards == 1).any():
             return print("Part assembled!")
