@@ -14,6 +14,8 @@
 
 # run_id="ol-state-dr-med-1/frmymr5x"
 run_id="ol-state-dr-low-1/runs/u0gf0sgx"
+run_id="ol-state-dr-high-1/c24b6odm"
+randomness="high"
 
 root_dir=outputs
 
@@ -30,7 +32,9 @@ echo "wt_type,success_rate" > "$csv_file"
 for ((i=99; i<=4999; i+=100)); do
     wt_type="_$i.pt"
     
-    output=$(python -m src.eval.evaluate_model --run-id "$run_id" --n-envs 128 --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 700 --controller diffik --use-new-env --action-type pos --observation-space state --randomness med --wt-type "$wt_type")
+    output=$(python -m src.eval.evaluate_model --run-id "$run_id" --n-envs 128 --n-rollouts 128 \
+        -f one_leg --if-exists append --max-rollout-steps 700 --controller diffik --use-new-env \
+        --action-type pos --observation-space state --randomness $randomness --wt-type "$wt_type")
     
     success_rate=$(echo "$output" | grep -oP "Success rate: \K[\d.]+")
     success_count=$(echo "$output" | grep -oP "Success rate: [\d.]+% \(\K\d+")
