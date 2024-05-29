@@ -1,3 +1,6 @@
+defaults:
+- actor: residual_diffusion
+
 seed: null
 torch_deterministic: false
 headless: true
@@ -9,7 +12,7 @@ eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
 base_policy:
-  wandb_id: ol-state-dr-low-1/6i7hupje
+  wandb_id: ???
 
 
 observation_type: state
@@ -24,22 +27,9 @@ data_collection_steps: ${num_env_steps}
 env:
   randomness: low
 
-residual_policy:
-  _target_: src.models.residual.ResidualPolicy
-  init_logstd: -1.5
-  action_head_std: 0.0
-  action_scale: 0.1
-  actor_hidden_size: 256
-  actor_num_layers: 2
-  critic_hidden_size: 256
-  critic_num_layers: 2
-  actor_activation: ReLU
-  critic_activation: ${residual_policy.actor_activation}
-  critic_last_layer_bias_const: 0.5
-  critic_last_layer_std: 0.25
-  critic_last_layer_activation: null
-
-  pretrained_wts: null
+actor:
+  residual_policy:
+    pretrained_wts: null
 
 # Learning rates
 learning_rate_actor: 3e-4
@@ -76,7 +66,8 @@ act_rot_repr: rot_6d
 
 wandb:
   entity: robust-rearrangement
-  project: residual-ppo-dr-${env.randomness}-1
+  project: ???
   mode: online
+  notes: null
 
 debug: false

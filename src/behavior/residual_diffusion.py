@@ -36,7 +36,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
     ) -> None:
         assert cfg.observation_type == "state"
 
-        super().__init__(device, cfg.base_policy)
+        super().__init__(device, cfg)
 
         # TODO: Reconsider the way we deal with this
         # E.g., can we separate out this so that it's not in the base class to be overwritten like this?
@@ -53,7 +53,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         # performance of the policy and to estimate the uncertainty of the
         # policy.
         self.residual_policy: ResidualPolicy = hydra.utils.instantiate(
-            cfg.residual_policy,
+            cfg.actor.residual_policy,
             obs_shape=(self.timestep_obs_dim,),
             action_shape=(self.action_dim,),
         )
@@ -88,6 +88,10 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
         residual_nobs = torch.cat([batch["obs"], naction], dim=-1)
         gt_residual_naction = batch["action"] - naction
+
+        # Don't start supervising the residual until the base model has started converging
+        if bc_loss > 0.03:
+            return bc_loss, losses
 
         # Residual loss
         residual_loss = self.residual_policy.bc_loss(residual_nobs, gt_residual_naction)

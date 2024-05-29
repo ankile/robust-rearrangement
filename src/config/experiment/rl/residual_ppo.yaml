@@ -1,0 +1,13 @@
+# @package _global_
+base_policy:
+  wandb_id: ol-state-dr-low-1/6i7hupje
+
+actor:
+  pretrained_wts: null
+
+wandb:
+  entity: robust-rearrangement
+  project: residual-ppo-dr-${env.randomness}-1
+  mode: online
+
+debug: false

@@ -315,7 +315,9 @@ def calculate_success_rate(
         )
         total_reward = 0
         table_rows = []
-        for rollout_idx in trange(n_rollouts, desc="Saving rollouts", leave=False):
+        for rollout_idx in trange(
+            len(all_robot_states), desc="Saving rollouts", leave=False
+        ):
             # Get the rewards and images for this rollout
             robot_states = tensordict_to_list_of_dicts(all_robot_states[rollout_idx])
             video1 = (

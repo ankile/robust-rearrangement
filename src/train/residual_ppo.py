@@ -72,7 +72,12 @@ def calculate_advantage(
     return advantages, returns
 
 
-@hydra.main(config_path="../config/rl", config_name="residual_ppo", version_base="1.2")
+# @hydra.main(config_path="../config/rl", config_name="residual_ppo", version_base="1.2")
+@hydra.main(
+    config_path="../config",
+    config_name="base_residual_rl",
+    version_base="1.2",
+)
 def main(cfg: DictConfig):
 
     OmegaConf.set_struct(cfg, False)
@@ -83,7 +88,7 @@ def main(cfg: DictConfig):
 
     # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
-    run_name = f"{int(time.time())}__residual_ppo__{cfg.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
+    run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
     run_directory = f"runs/debug-residual_ppo-residual-8"
     run_directory += "-delete" if cfg.debug else ""
@@ -121,9 +126,13 @@ def main(cfg: DictConfig):
 
     # Add the contents of the base config to the current config under the base_policy key without overwriting anything
     OmegaConf.update(cfg, "base_policy", base_cfg, merge=True)
+    OmegaConf.update(cfg, "actor", base_cfg.actor, merge=True)
+    OmegaConf.update(
+        base_cfg.actor, "residual_policy", cfg.actor.residual_policy, merge=True
+    )
     cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
 
-    agent = ResidualDiffusionPolicy(device, cfg)
+    agent = ResidualDiffusionPolicy(device, base_cfg)
     agent.load_base_state_dict(base_wts)
     agent.to(device)
     # agent.model.eval()
@@ -180,9 +189,14 @@ def main(cfg: DictConfig):
         num_training_steps=cfg.num_iterations,
     )
 
-    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
-        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
-        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
+    if (
+        "pretrained_wts" in cfg.actor.residual_policy
+        and cfg.actor.residual_policy.pretrained_wts
+    ):
+        print(
+            f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
+        )
+        run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
         residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
         # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])

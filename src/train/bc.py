@@ -74,7 +74,8 @@ def now():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
-@hydra.main(config_path="../config/bc", config_name="base")
+# @hydra.main(config_path="../config/bc", config_name="base")
+@hydra.main(config_path="../config", config_name="base")
 def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
@@ -224,7 +225,7 @@ def main(cfg: DictConfig):
         name=cfg.wandb.name,
         resume=cfg.wandb.continue_run_id is not None,
         project=cfg.wandb.project,
-        entity="ankile",
+        entity="robust-rearrangement",
         config=config_dict,
         mode=cfg.wandb.mode,
         notes=cfg.wandb.notes,

@@ -234,6 +234,7 @@ class ResidualPolicyEnvWrapper:
         # Move the robot
         obs, reward, done, info = self.env.step(action)
         reward = reward.squeeze()
+        done = done.squeeze()
 
         # Clip the obs
         obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
