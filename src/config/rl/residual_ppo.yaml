@@ -25,7 +25,7 @@ data_collection_steps: ${num_env_steps}
 observation_type: state
 
 env:
-  randomness: med
+  randomness: low
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
@@ -43,7 +43,7 @@ residual_policy:
   critic_last_layer_activation: null
 
   # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
-  pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
+  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
   # pretrained_wts: null
 
 # Learning rates
