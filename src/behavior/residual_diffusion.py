@@ -60,7 +60,6 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
     def load_base_state_dict(self, path: str):
         base_state_dict = torch.load(path)
-
         # Load the model weights
         base_model_state_dict = {
             key[len("model.") :]: value

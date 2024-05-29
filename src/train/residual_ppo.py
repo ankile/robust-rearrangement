@@ -122,7 +122,7 @@ def main(cfg: DictConfig):
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
-        cfg.base_policy.wandb_id, wt_type="best_success_rate"
+        cfg.base_policy.wandb_id, wt_type=cfg.base_policy.wt_type
     )
 
     merge_base_bc_config_with_root_config(cfg, base_cfg)

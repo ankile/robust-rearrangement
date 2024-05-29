@@ -1,6 +1,7 @@
 # @package _global_
 base_policy:
-  wandb_id: ol-state-dr-low-1/6i7hupje
+  wandb_id: ol-state-dr-high-1/zf8p0san
+  wt_type: "_1099.pt"
 
 actor:
   pretrained_wts: null

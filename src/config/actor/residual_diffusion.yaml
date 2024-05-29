@@ -5,7 +5,7 @@ name: residual_diffusion
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: 0
+  init_logstd: -2.0
   action_head_std: 0.0
   action_scale: 0.1
   actor_hidden_size: 512
@@ -15,4 +15,4 @@ residual_policy:
   actor_activation: ReLU
   critic_activation: ReLU
   critic_last_layer_bias_const: 0.5
-  critic_last_layer_std: 0.1
+  critic_last_layer_std: 0.25

@@ -53,7 +53,7 @@ def get_model_from_api_or_cached(run_id: str, wt_type: str):
                     for f in run.files()
                     if f.name.endswith(".pt") and wt_type in f.name
                 ][0]
-                .download(exist_ok=True)
+                .download(exist_ok=True, replace=True, root=cache_dir)
                 .name
             )
 

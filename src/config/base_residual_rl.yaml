@@ -25,7 +25,7 @@ num_env_steps: 700
 data_collection_steps: ${num_env_steps}
 
 env:
-  randomness: low
+  randomness: high
 
 actor:
   residual_policy:
