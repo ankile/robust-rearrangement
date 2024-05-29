@@ -76,6 +76,8 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         }
         self.normalizer.load_state_dict(base_normalizer_state_dict)
 
+        # self.model.eval()
+
     def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         # Cut off the unused observations before passing to the bc loss
         bc_loss, losses = super().compute_loss(batch)
@@ -96,41 +98,41 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
         return bc_loss + residual_loss, losses
 
-    @torch.no_grad()
-    def action(self, obs: Dict[str, torch.Tensor]):
-        """
-        Predict the action given the batch of observations
-        """
-        self.observations.append(obs)
+    # @torch.no_grad()
+    # def action(self, obs: Dict[str, torch.Tensor]):
+    #     """
+    #     Predict the action given the batch of observations
+    #     """
+    #     self.observations.append(obs)
 
-        # Normalize observations
-        nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
+    #     # Normalize observations
+    #     nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
 
-        if not self.base_nactions:
-            # If there are no base actions, predict the action
-            base_nactioon_pred = self._normalized_action(nobs)
+    #     if not self.base_nactions:
+    #         # If there are no base actions, predict the action
+    #         base_nactioon_pred = self._normalized_action(nobs)
 
-            # Add self.action_horizon base actions
-            start = self.obs_horizon - 1 if self.predict_past_actions else 0
-            end = start + self.action_horizon
-            for i in range(start, end):
-                self.base_nactions.append(base_nactioon_pred[:, i, :])
+    #         # Add self.action_horizon base actions
+    #         start = self.obs_horizon - 1 if self.predict_past_actions else 0
+    #         end = start + self.action_horizon
+    #         for i in range(start, end):
+    #             self.base_nactions.append(base_nactioon_pred[:, i, :])
 
-        # Pop off the next base action
-        base_naction = self.base_nactions.popleft()
+    #     # Pop off the next base action
+    #     base_naction = self.base_nactions.popleft()
 
-        # Concatenate the state and base action
-        nobs = nobs.flatten(start_dim=1)
-        residual_nobs = torch.cat([nobs, base_naction], dim=-1)
+    #     # Concatenate the state and base action
+    #     nobs = nobs.flatten(start_dim=1)
+    #     residual_nobs = torch.cat([nobs, base_naction], dim=-1)
 
-        # Predict the residual (already scaled)
-        residual = self.residual_policy.get_action(residual_nobs)
+    #     # Predict the residual (already scaled)
+    #     residual = self.residual_policy.get_action(residual_nobs)
 
-        # Add the residual to the base action
-        naction = base_naction + residual
+    #     # Add the residual to the base action
+    #     naction = base_naction + residual
 
-        # Denormalize and return the action
-        return self.normalizer(naction, "action", forward=False)
+    #     # Denormalize and return the action
+    #     return self.normalizer(naction, "action", forward=False)
 
     @torch.no_grad()
     def action_pred(self, batch):

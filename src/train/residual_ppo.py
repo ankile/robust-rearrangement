@@ -126,8 +126,10 @@ def main(cfg: DictConfig):
     agent = ResidualDiffusionPolicy(device, cfg)
     agent.load_base_state_dict(base_wts)
     agent.to(device)
+    # agent.model.eval()
+    agent.eval()
 
-    bp()
+    # bp()
 
     # for key, values in agent.normalizer.stats.items():
 
@@ -183,11 +185,11 @@ def main(cfg: DictConfig):
         run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
         residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        lr_scheduler_critic.load_state_dict(
-            run_state_dict["scheduler_critic_state_dict"]
-        )
+        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        # lr_scheduler_critic.load_state_dict(
+        #     run_state_dict["scheduler_critic_state_dict"]
+        # )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -475,7 +477,7 @@ def main(cfg: DictConfig):
                 optimizer_critic.step()
 
                 if cfg.target_kl is not None and approx_kl > cfg.target_kl:
-                    bp()
+                    # bp()
                     print(
                         f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
                     )
