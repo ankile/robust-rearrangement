@@ -49,6 +49,7 @@ class DiffusionPolicy(Actor):
 
         self.warmstart_timestep = 50
         self.prev_naction = None
+        self.eta = 0.0
 
     # === Inference ===
     def _normalized_action(self, nobs: torch.Tensor) -> torch.Tensor:
@@ -88,7 +89,7 @@ class DiffusionPolicy(Actor):
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
-                model_output=noise_pred, timestep=k, sample=naction
+                model_output=noise_pred, timestep=k, sample=naction, eta=self.eta,
             ).prev_sample
 
         # Store the remaining actions in the previous action to warm start the next horizon
