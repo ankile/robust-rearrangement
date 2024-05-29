@@ -12,7 +12,7 @@
 
 # ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5, otft0k6k, 9zjnzg4r
 
-run_id="ol-state-dr-med-1/9zjnzg4r"
+run_id="ol-state-dr-med-1/frmymr5x"
 
 root_dir=outputs
 

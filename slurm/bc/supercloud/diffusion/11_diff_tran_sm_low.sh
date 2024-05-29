@@ -9,6 +9,7 @@
 python -m src.train.bc +experiment=state/diff_tran \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
+    rollout.rollouts=false \
     wandb.project=ol-state-dr-low-1 \
     wandb.mode=offline \
     dryrun=false

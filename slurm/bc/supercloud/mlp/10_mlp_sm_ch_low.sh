@@ -10,5 +10,6 @@ python -m src.train.bc +experiment=state/mlp_sm_ch \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
     wandb.project=ol-state-dr-low-1 \
+    rollout.rollouts=false \
     wandb.mode=offline \
     dryrun=false
