@@ -7,4 +7,5 @@
 #SBATCH -c 20
 
 python -m src.train.residual_ppo \
+    wandb.mode=offline \
     debug=false

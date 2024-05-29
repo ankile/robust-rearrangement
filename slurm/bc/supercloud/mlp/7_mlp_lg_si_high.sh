@@ -11,5 +11,6 @@ python -m src.train.bc +experiment=state/mlp_lg_si \
     data.data_subset=50 \
     rollout.randomness=high \
     wandb.project=ol-state-dr-high-1 \
+    rollout.rollouts=false \
     wandb.mode=offline \
     dryrun=false
