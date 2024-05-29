@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a100,vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-free-cycles
-#SBATCH --job-name=ol_res_ppo_agent
+#SBATCH -p vision-pulkitag-v100
+#SBATCH -q vision-pulkitag-main
+#SBATCH --job-name=ol_rppo_low
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
