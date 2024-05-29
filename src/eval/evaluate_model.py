@@ -186,6 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
     parser.add_argument("--wt-type", type=str, default="test_loss")
+    parser.add_argument("--save-rollouts-suffix", type=str, default=None)
     # Parse the arguments
     args = parser.parse_args()
 
@@ -355,6 +356,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
+                        suffix=args.save_rollouts_suffix,
                         create=True,
                     )
                     if args.save_rollouts
