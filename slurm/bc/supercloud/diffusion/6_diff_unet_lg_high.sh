@@ -10,6 +10,7 @@ python -m src.train.bc +experiment=state/diff_unet \
     randomness='[high]' \
     data.data_subset=50 \
     rollout.randomness=high \
+    rollout.rollouts=false \
     wandb.mode=offline \
     wandb.project=ol-state-dr-high-1 \
     dryrun=false
