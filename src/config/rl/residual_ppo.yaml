@@ -1,5 +1,3 @@
-actor_name: residual_diffusion
-
 seed: null
 torch_deterministic: false
 headless: true
@@ -7,12 +5,14 @@ reset_on_failure: false
 reset_every_iteration: true
 reset_on_success: false
 eval_interval: 5
-eval_first: false
+eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-base_policy: 
-  # wandb_id: ol-state-dr-1/r9wm1uo6
-  wandb_id: ol-state-dr-med-1/9zjnzg4r
+# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
+# base_bc_policy: ol-state-dr-1/r9wm1uo6
+# base_bc_policy: ol-state-dr-med-1/9zjnzg4r
+# base_bc_policy: ol-state-dr-med-1/kmoy7cad
+base_bc_policy: ol-state-dr-low-1/6i7hupje
 
 moidels_we_depend_on:
 total_timesteps: 500_000_000
@@ -21,8 +21,6 @@ num_minibatches: 1
 update_epochs: 50
 num_env_steps: 700
 data_collection_steps: ${num_env_steps}
-
-observation_type: state
 
 env:
   randomness: low
@@ -38,13 +36,11 @@ residual_policy:
   critic_num_layers: 2
   actor_activation: ReLU
   critic_activation: ${residual_policy.actor_activation}
-  critic_last_layer_bias_const: 0.25
+  critic_last_layer_bias_const: 0.5
   critic_last_layer_std: 0.25
   critic_last_layer_activation: null
 
-  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
-  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716765855__residual_ppo__ResidualPolicy__559165968/eval_best.pt
-  # pretrained_wts: null
+  pretrained_wts: null
 
 # Learning rates
 learning_rate_actor: 3e-4
@@ -58,7 +54,7 @@ residual_l1: 0.0
 residual_l2: 0.01
 
 # Algorithm specific arguments
-discount: 0.999
+gamma: 0.999
 gae_lambda: 0.95
 norm_adv: true
 normalize_reward: true
@@ -79,15 +75,9 @@ num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
 action_type: pos
 act_rot_repr: rot_6d
 
-control:
-  act_rot_repr: rot_6d
-  control_mode: pos # delta, pos
-  controller: diffik  # diffik
-
-
 wandb:
   entity: robust-rearrangement
-  project: residual-ppo-dr-1
+  project: residual-ppo-dr-${env.randomness}-1
   mode: online
 
 debug: false
