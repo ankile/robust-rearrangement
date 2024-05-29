@@ -69,7 +69,6 @@ def get_model_weights(run_id: str):
 def get_demo_data_loader(
     control_mode,
     n_batches,
-    task,
     num_workers=4,
     action_horizon=1,
     add_relative_pose=False,
@@ -81,7 +80,7 @@ def get_demo_data_loader(
         domain="sim",
         task="one_leg",
         demo_source="teleop",
-        randomness=["low", "med"],
+        randomness=["low", "low_perturb"],
         demo_outcome="success",
     )
 
@@ -95,7 +94,6 @@ def get_demo_data_loader(
         pad_after=False,
         predict_past_actions=True,
         max_episode_count=None,
-        task=task,
         add_relative_pose=add_relative_pose,
         normalizer=normalizer,
     )
@@ -117,23 +115,20 @@ def get_demo_data_loader(
 
 @torch.no_grad()
 def calculate_advantage(
-    agent: SmallMLPAgent,
-    obs: torch.Tensor,
-    next_obs: torch.Tensor,
+    values: torch.Tensor,
+    next_value: torch.Tensor,
     rewards: torch.Tensor,
     dones: torch.Tensor,
+    next_done: torch.Tensor,
     gamma: float,
     gae_lambda: float,
 ):
-    values = agent.get_value(obs).squeeze()
-    next_value = agent.get_value(next_obs).reshape(1, -1)
-    num_steps = obs.shape[0]
-
-    advantages = torch.zeros_like(rewards).to(obs.device)
+    steps_per_iteration = values.size(0)
+    advantages = torch.zeros_like(rewards)
     lastgaelam = 0
-    for t in reversed(range(num_steps)):
-        if t == num_steps - 1:
-            nextnonterminal = 1.0 - dones[-1].to(torch.float)
+    for t in reversed(range(steps_per_iteration)):
+        if t == steps_per_iteration - 1:
+            nextnonterminal = 1.0 - next_done.to(torch.float)
             nextvalues = next_value
         else:
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
@@ -356,7 +351,7 @@ def main(cfg: DictConfig):
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if step > 0 and (env_step := step * agent.action_horizon) % 100 == 0:
+            if step > 0 and (env_step := step) % (100 // agent.action_horizon) == 0:
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
@@ -387,24 +382,23 @@ def main(cfg: DictConfig):
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_actions = actions.reshape((-1,) + env.action_space.shape)
         b_logprobs = logprobs.reshape(-1)
-        b_rewards = rewards.reshape(-1)
-        b_dones = dones.reshape(-1)
         b_values = values.reshape(-1)
 
         # bootstrap value if not done
-        b_advantages, b_returns = calculate_advantage(
-            agent,
-            b_obs.view((num_steps, cfg.num_envs) + env.observation_space.shape).to(
-                device
-            ),
-            next_obs.to(device),
-            b_rewards.view(num_steps, -1).to(device),
-            b_dones.view(num_steps, -1).to(device),
+        next_value = agent.get_value(next_obs).reshape(1, -1).cpu()
+
+        # bootstrap value if not done
+        advantages, returns = calculate_advantage(
+            values,
+            next_value,
+            rewards,
+            dones,
+            next_done,
             cfg.gamma,
             cfg.gae_lambda,
         )
-        b_advantages = b_advantages.reshape(-1).cpu()
-        b_returns = b_returns.reshape(-1).cpu()
+        b_advantages = advantages.reshape(-1).cpu()
+        b_returns = returns.reshape(-1).cpu()
 
         agent.train()
 
@@ -551,15 +545,6 @@ def main(cfg: DictConfig):
         var_y = np.var(y_true)
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
-        # Calculate return and advantage with the original experience sample for logging
-        advantages, returns = calculate_advantage(
-            device,
-            agent,
-            obs.to(device),
-            next_obs.to(device),
-            rewards.to(device),
-            dones.to(device),
-        )
         advantages = advantages.cpu()
         returns = returns.cpu()
 

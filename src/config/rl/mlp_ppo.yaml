@@ -17,9 +17,9 @@ agent: residual-separate
 chunk_size: 32
 
 total_timesteps: 500_000_000
-num_envs: 1024
+num_envs: 128
 num_minibatches: 1
-update_epochs: 50
+update_epochs: 10
 num_env_steps: 700
 data_collection_steps: ${eval:'${num_env_steps} // ${chunk_size}'}
 
@@ -52,6 +52,7 @@ max_grad_norm: 1.0
 bc_coef: 0.0
 kl_coef: 1.0
 learning_rate: 1e-4
+anneal_lr: false
 
 target_kl: 0.1
 n_iterations_train_only_value: 0

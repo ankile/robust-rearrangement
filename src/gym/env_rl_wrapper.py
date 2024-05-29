@@ -69,16 +69,8 @@ class FurnitureEnvRLWrapper:
 
         nobs = torch.cat([robot_state, parts_poses], dim=-1)
 
-        if self.add_relative_pose:
-            ee_pose = robot_state[..., :7].unsqueeze(1)
-            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
-                N, -1
-            )
-
-            nobs = torch.cat([obs, relative_poses], dim=-1)
-
         # Clamp the observation to be bounded to [-5, 5]
-        nobs = torch.clamp(obs, -5, 5)
+        nobs = torch.clamp(nobs, -5, 5)
 
         return nobs
 
