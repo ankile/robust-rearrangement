@@ -8,3 +8,6 @@ actor:
   hidden_dims: [1024, 1024, 1024, 1024, 1024]
   residual: true
 
+action_horizon: 8
+pred_horizon: 8
+obs_horizon: 1

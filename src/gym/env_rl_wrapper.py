@@ -23,14 +23,12 @@ class FurnitureEnvRLWrapper:
         max_env_steps=300,
         ee_dof=10,
         chunk_size=1,
-        task="oneleg",
         add_relative_pose=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.chunk_size: int = chunk_size
-        self.task = task
         self.add_relative_pose = add_relative_pose
         self.device = device
         self.normalizer = LinearNormalizer()
@@ -41,7 +39,7 @@ class FurnitureEnvRLWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
+            -float("inf"), float("inf"), shape=(16 + (5 + 1) * 7,)
         )
 
         # Define the maximum number of steps in the environment
@@ -68,8 +66,6 @@ class FurnitureEnvRLWrapper:
 
         if self.normalizer is not None:
             robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            if self.task != "reacher":
-                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         nobs = torch.cat([robot_state, parts_poses], dim=-1)
 
