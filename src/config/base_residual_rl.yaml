@@ -61,8 +61,10 @@ batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
 minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
 num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
 
-action_type: pos
-act_rot_repr: rot_6d
+control:
+  controller: diffik  # diffik
+  control_mode: pos
+  act_rot_repr: rot_6d
 
 wandb:
   entity: robust-rearrangement

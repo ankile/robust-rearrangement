@@ -84,18 +84,6 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Regularization
         self.augment_image = cfg.data.augment_image
-        self.feature_noise = cfg.regularization.get("feature_noise", None)
-        self.feature_dropout = cfg.regularization.get("feature_dropout", None)
-        self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
-        self.state_noise = cfg.regularization.get("state_noise", False)
-        self.proprioception_dropout = cfg.regularization.get(
-            "proprioception_dropout", 0.0
-        )
-        self.front_camera_dropout = cfg.regularization.get("front_camera_dropout", 0.0)
-
-        self.vib_front_feature_beta = cfg.regularization.get(
-            "vib_front_feature_beta", 0.0
-        )
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
@@ -103,6 +91,22 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # Convert the stats to tensors on the device
         if self.observation_type == "image":
             self._initiate_image_encoder(cfg)
+
+            self.feature_noise = cfg.regularization.get("feature_noise", None)
+            self.feature_dropout = cfg.regularization.get("feature_dropout", None)
+            self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
+            self.state_noise = cfg.regularization.get("state_noise", False)
+            self.proprioception_dropout = cfg.regularization.get(
+                "proprioception_dropout", 0.0
+            )
+            self.front_camera_dropout = cfg.regularization.get(
+                "front_camera_dropout", 0.0
+            )
+
+            self.vib_front_feature_beta = cfg.regularization.get(
+                "vib_front_feature_beta", 0.0
+            )
+
         elif self.observation_type == "state":
             self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
         else:

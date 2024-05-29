@@ -21,6 +21,7 @@ from diffusers.optimization import get_scheduler
 
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
+from src.common.config_util import merge_base_bc_config_with_root_config
 
 
 from src.gym.furniture_sim_env import (
@@ -104,11 +105,11 @@ def main(cfg: DictConfig):
     turn_off_april_tags()
 
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-        act_rot_repr=cfg.act_rot_repr,
-        action_type=cfg.action_type,
+        act_rot_repr=cfg.control.act_rot_repr,
+        action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
-        ctrl_mode="diffik",
+        ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
         furniture="one_leg",
         gpu_id=0,
@@ -124,12 +125,7 @@ def main(cfg: DictConfig):
         cfg.base_policy.wandb_id, wt_type="best_success_rate"
     )
 
-    # Add the contents of the base config to the current config under the base_policy key without overwriting anything
-    OmegaConf.update(cfg, "base_policy", base_cfg, merge=True)
-    OmegaConf.update(cfg, "actor", base_cfg.actor, merge=True)
-    OmegaConf.update(
-        base_cfg.actor, "residual_policy", cfg.actor.residual_policy, merge=True
-    )
+    merge_base_bc_config_with_root_config(cfg, base_cfg)
     cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
 
     agent = ResidualDiffusionPolicy(device, base_cfg)
