@@ -9,7 +9,10 @@ eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
 # base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
-base_bc_policy: ol-state-dr-1/r9wm1uo6
+# base_bc_policy: ol-state-dr-1/r9wm1uo6
+base_bc_policy: ol-state-dr-med-1/9zjnzg4r
+base_bc_policy: ol-state-dr-med-1/kmoy7cad
+# base_bc_policy: ol-state-dr-low-1/6i7hupje
 
 moidels_we_depend_on:
 total_timesteps: 500_000_000
@@ -75,7 +78,7 @@ act_rot_repr: rot_6d
 
 wandb:
   entity: robust-rearrangement
-  project: residual-ppo-dr-1
+  project: residual-ppo-dr-med-1
   mode: online
 
 debug: false
