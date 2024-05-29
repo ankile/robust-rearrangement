@@ -64,8 +64,8 @@ class FurnitureEnvRLWrapper:
         # Make the robot state have 6D proprioception
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
-        if self.normalizer is not None:
-            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
+        robot_state = self.normalizer(robot_state, "robot_state", forward=True)
+        parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         nobs = torch.cat([robot_state, parts_poses], dim=-1)
 

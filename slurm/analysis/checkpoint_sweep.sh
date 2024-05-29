@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090,vision-pulkitag-v100,vision-pulkitag-a100
 #SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -12,7 +12,8 @@
 
 # ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5, otft0k6k, 9zjnzg4r
 
-run_id="ol-state-dr-med-1/frmymr5x"
+# run_id="ol-state-dr-med-1/frmymr5x"
+run_id="ol-state-dr-low-1/runs/u0gf0sgx"
 
 root_dir=outputs
 

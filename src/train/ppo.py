@@ -58,7 +58,11 @@ def get_model_weights(run_id: str):
     api = wandb.Api()
     run = api.run(run_id)
     model_path = (
-        [f for f in run.files() if f.name.endswith(".pt")][0]
+        [
+            f
+            for f in run.files()
+            if f.name.endswith(".pt") and "best_test_loss" in f.name
+        ][0]
         .download(exist_ok=True)
         .name
     )
@@ -181,7 +185,7 @@ def main(cfg: DictConfig):
     )
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
 
-    env = FurnitureEnvRLWrapper(
+    env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
         chunk_size=cfg.chunk_size,
@@ -222,15 +226,6 @@ def main(cfg: DictConfig):
             init_logstd=cfg.init_logstd,
         )
 
-    # normalizer = None
-    normalizer = LinearNormalizer().to(device)
-    # assert normalizer.stats["action"]["min"].shape[-1] == env.action_space.shape[-1], (
-    #     f"Normalizer action shape {normalizer.stats['action']['min'].shape[-1]} "
-    #     f"does not match env action shape {env.action_space.shape[-1]}"
-    # )
-
-    env.normalizer = normalizer
-
     optimizer = optim.AdamW(
         agent.parameters(),
         lr=cfg.learning_rate,
@@ -263,6 +258,7 @@ def main(cfg: DictConfig):
     )
 
     running_mean_success_rate = 0.0
+    best_eval_success_rate = 0.0
 
     obs = torch.zeros((num_steps, cfg.num_envs) + env.observation_space.shape)
     actions = torch.zeros((num_steps, cfg.num_envs) + env.action_space.shape)
@@ -284,7 +280,11 @@ def main(cfg: DictConfig):
     normalizer_wts = {
         k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
     }
+
+    normalizer = LinearNormalizer()
     print(normalizer.load_state_dict(normalizer_wts))
+
+    env.set_normalizer(normalizer)
 
     if cfg.kl_coef > 0:
         ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
@@ -321,6 +321,15 @@ def main(cfg: DictConfig):
         agent.eval()
         iteration_start_time = time.time()
 
+        # If eval first flag is set, we will evaluate the model before doing any training
+        eval_mode = (iteration - int(cfg.eval_first)) % cfg.eval_interval == 0
+
+        # Also reset the env to have more consistent results
+        if eval_mode or cfg.reset_every_iteration:
+            next_obs = env.reset()
+
+        print(f"Eval mode: {eval_mode}")
+
         # Annealing the rate if instructed to do so.
         if cfg.anneal_lr:
             frac = 1.0 - (iteration - 1.0) / cfg.num_iterations
@@ -328,11 +337,10 @@ def main(cfg: DictConfig):
             optimizer.param_groups[0]["lr"] = lrnow
 
         for step in range(0, num_steps):
-            if iteration == 1 and cfg.bc_coef == 1 and False:
-                # Skip the first step to avoid the initial randomness if we're only doing BC
-                continue
+            if not eval_mode:
+                # Only count environment steps during training
+                global_step += cfg.num_envs
 
-            global_step += cfg.num_envs
             obs[step] = next_obs
             dones[step] = next_done
 
@@ -378,6 +386,37 @@ def main(cfg: DictConfig):
         print(
             f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {cfg.num_env_steps * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
         )
+
+        if eval_mode:
+            # If we are in eval mode, we don't need to do any training, so log the result and continue
+            wandb.log(
+                {"eval/success_rate": success_rate, "iteration": iteration},
+                step=global_step,
+            )
+
+            # Save the model if the evaluation success rate improves
+            if success_rate > best_eval_success_rate:
+                best_eval_success_rate = success_rate
+                model_path = str(model_save_dir / f"eval_best.pt")
+
+                torch.save(
+                    {
+                        "model_state_dict": agent.state_dict(),
+                        "optimizer_actor_state_dict": optimizer.state_dict(),
+                        "config": OmegaConf.to_container(cfg, resolve=True),
+                        "success_rate": success_rate,
+                        "iteration": iteration,
+                    },
+                    model_path,
+                )
+
+                wandb.save(model_path)
+                print(f"Evaluation success rate improved. Model saved to {model_path}")
+
+            # Start the data collection again
+            # NOTE: We're not resetting here now, that happens before the next
+            # iteration only if the reset_every_iteration flag is set
+            continue
 
         b_obs = obs.reshape((-1,) + env.observation_space.shape)
         b_actions = actions.reshape((-1,) + env.action_space.shape)

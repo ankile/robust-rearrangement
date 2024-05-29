@@ -9,12 +9,12 @@ eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
 
-bc_weights_run_id: robust-rearrangement/ol-state-dr-low-1/runs/u0gf0sgx
+bc_weights_run_id: robust-rearrangement/ol-state-dr-low-1/runs/173hhnou
 
-init_logstd: -3.0
+init_logstd: -5.0
 
 agent: residual-separate
-chunk_size: 32
+chunk_size: 8
 
 total_timesteps: 500_000_000
 num_envs: 128
