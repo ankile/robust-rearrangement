@@ -224,7 +224,7 @@ def main(cfg: DictConfig):
         name=cfg.wandb.name,
         resume=cfg.wandb.continue_run_id is not None,
         project=cfg.wandb.project,
-        entity="ankile",
+        entity=cfg.wandb.get("entity", "ankile"),
         config=config_dict,
         mode=cfg.wandb.mode,
         notes=cfg.wandb.notes,
