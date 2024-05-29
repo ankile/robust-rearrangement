@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-v100
+#SBATCH -p vision-pulkitag-a100
 #SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=ol_rppo_low
 #SBATCH --nodes=1

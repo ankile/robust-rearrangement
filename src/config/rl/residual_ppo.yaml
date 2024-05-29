@@ -53,7 +53,7 @@ residual_l1: 0.0
 residual_l2: 0.01
 
 # Algorithm specific arguments
-gamma: 0.999
+discount: 0.999
 gae_lambda: 0.95
 norm_adv: true
 normalize_reward: true
