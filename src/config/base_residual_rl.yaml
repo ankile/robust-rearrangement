@@ -11,11 +11,19 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
+<<<<<<< HEAD:src/config/base_residual_rl.yaml
 base_policy:
   wandb_id: ???
 
 
 observation_type: state
+=======
+# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
+# base_bc_policy: ol-state-dr-1/r9wm1uo6
+# base_bc_policy: ol-state-dr-med-1/9zjnzg4r
+# base_bc_policy: ol-state-dr-med-1/kmoy7cad
+base_bc_policy: ol-state-dr-low-1/6i7hupje
+>>>>>>> main:src/config/rl/residual_ppo.yaml
 
 total_timesteps: 500_000_000
 num_envs: 1024
@@ -25,7 +33,11 @@ num_env_steps: 700
 data_collection_steps: ${num_env_steps}
 
 env:
+<<<<<<< HEAD:src/config/base_residual_rl.yaml
   randomness: high
+=======
+  randomness: low
+>>>>>>> main:src/config/rl/residual_ppo.yaml
 
 actor:
   residual_policy:
@@ -68,7 +80,11 @@ control:
 
 wandb:
   entity: robust-rearrangement
+<<<<<<< HEAD:src/config/base_residual_rl.yaml
   project: ???
+=======
+  project: residual-ppo-dr-${env.randomness}-1
+>>>>>>> main:src/config/rl/residual_ppo.yaml
   mode: online
   notes: null
 

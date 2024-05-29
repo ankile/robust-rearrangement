@@ -358,7 +358,7 @@ if __name__ == "__main__":
         "--randomness",
         "-r",
         type=str,
-        choices=["low", "med", "med_perturb", "high"],
+        choices=["low", "low_perturb", "med", "med_perturb", "high", "high_perturb"],
         required=True,
         # default=None,
         # nargs="+",

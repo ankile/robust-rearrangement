@@ -191,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--stop-after-n-success", type=int, default=0)
     parser.add_argument("--break-on-n-success", action="store_true")
 
+    parser.add_argument("--save-rollouts-suffix", type=str, default=None)
     # Parse the arguments
     args = parser.parse_args()
 
@@ -339,7 +340,7 @@ if __name__ == "__main__":
                 if isinstance(actor, DiffusionPolicy):
                     actor.inference_steps = 4
 
-                load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+                actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
                 save_dir = (
                     trajectory_save_dir(
@@ -348,6 +349,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
+                        suffix=args.save_rollouts_suffix,
                         create=True,
                     )
                     if args.save_rollouts

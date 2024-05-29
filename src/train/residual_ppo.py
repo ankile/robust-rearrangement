@@ -37,7 +37,6 @@ from tqdm import trange
 
 import wandb
 
-
 from src.gym import turn_off_april_tags
 
 # Register the eval resolver for omegaconf

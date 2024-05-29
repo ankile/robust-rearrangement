@@ -23,14 +23,12 @@ class FurnitureEnvRLWrapper:
         max_env_steps=300,
         ee_dof=10,
         chunk_size=1,
-        task="oneleg",
         add_relative_pose=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.chunk_size: int = chunk_size
-        self.task = task
         self.add_relative_pose = add_relative_pose
         self.device = device
         self.normalizer = LinearNormalizer()
@@ -41,7 +39,7 @@ class FurnitureEnvRLWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 35 * (1 + add_relative_pose),)
+            -float("inf"), float("inf"), shape=(16 + (5 + 1) * 7,)
         )
 
         # Define the maximum number of steps in the environment
@@ -66,23 +64,13 @@ class FurnitureEnvRLWrapper:
         # Make the robot state have 6D proprioception
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
-        if self.normalizer is not None:
-            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            if self.task != "reacher":
-                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
+        robot_state = self.normalizer(robot_state, "robot_state", forward=True)
+        parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
 
         nobs = torch.cat([robot_state, parts_poses], dim=-1)
 
-        if self.add_relative_pose:
-            ee_pose = robot_state[..., :7].unsqueeze(1)
-            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
-                N, -1
-            )
-
-            nobs = torch.cat([obs, relative_poses], dim=-1)
-
         # Clamp the observation to be bounded to [-5, 5]
-        nobs = torch.clamp(obs, -5, 5)
+        nobs = torch.clamp(nobs, -5, 5)
 
         return nobs
 
