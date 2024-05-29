@@ -6,6 +6,7 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import torch  # needs to be after isaac gym imports
 from omegaconf import OmegaConf
 from src.behavior.base import Actor  # noqa
+from src.behavior.diffusion import DiffusionPolicy  # noqa
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
@@ -185,7 +186,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
-    parser.add_argument("--wt-type", type=str, default="test_loss")
+    parser.add_argument("--wt-type", type=str, default="best_success_rate")
+
+    parser.add_argument("--stop-after-n-success", type=int, default=0)
+    parser.add_argument("--break-on-n-success", action="store_true")
+
     # Parse the arguments
     args = parser.parse_args()
 
@@ -330,6 +335,10 @@ if __name__ == "__main__":
                 # Make the actor
                 actor: Actor = get_actor(cfg=cfg, device=device)
 
+                # Set the inference steps of the actor
+                if isinstance(actor, DiffusionPolicy):
+                    actor.inference_steps = 4
+
                 load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
                 save_dir = (
@@ -370,6 +379,8 @@ if __name__ == "__main__":
                     n_parts_assemble=args.n_parts_assemble,
                     compress_pickles=args.compress_pickles,
                     resize_video=not args.store_full_resolution_video,
+                    break_on_n_success=args.break_on_n_success,
+                    stop_after_n_success=args.stop_after_n_success,
                 )
 
                 if args.store_video_wandb:

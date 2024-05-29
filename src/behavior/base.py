@@ -260,6 +260,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
             # Concatenate the robot_state and parts_poses
             nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+
+            # Clamp the observation to be bounded to [-3, 3]
+            nobs = torch.clamp(nobs, -3, 3)
+
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 

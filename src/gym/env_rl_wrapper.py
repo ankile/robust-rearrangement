@@ -232,7 +232,7 @@ class ResidualPolicyEnvWrapper:
         assert action.shape[1:] == self.action_space.shape
 
         # Move the robot
-        obs, reward, _, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(action)
         reward = reward.squeeze()
 
         # Clip the obs
@@ -247,17 +247,15 @@ class ResidualPolicyEnvWrapper:
             # (means we closed the gripper witdt nothing in it)
             reward -= torch.where(gripper_width < 0.002, 0.1, 0.0)
 
-        # Episodes that received any reward are terminated
-        terminated = reward != 0
-
+        # TODO - come back to think about truncation vs. termination in long horizon tasks
         # Check if any envs have reached the max number of steps
-        truncated = self.env.env_steps >= self.max_env_steps
+        done |= self.env.env_steps >= self.max_env_steps
 
         # Reset the envs that have reached the max number of steps or got reward
-        if self.reset_on_success and torch.any(done := terminated | truncated):
+        if self.reset_on_success and torch.any(done):
             obs = self.env.reset(torch.nonzero(done).view(-1))
 
-        return obs, reward, terminated, truncated, info
+        return obs, reward, done, False, info
 
     def increment_randomness(self):
         self.env.increment_randomness()

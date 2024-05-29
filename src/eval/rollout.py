@@ -236,6 +236,8 @@ def calculate_success_rate(
     compress_pickles: bool = False,
     resize_video: bool = True,
     n_steps_padding: int = 30,
+    break_on_n_success: bool = False,
+    stop_after_n_success=0,
 ) -> RolloutStats:
 
     pbar = SuccessTqdm(
@@ -292,6 +294,12 @@ def calculate_success_rate(
         all_rewards.extend(rewards)
         all_parts_poses.extend(parts_poses)
         all_success.extend(success)
+
+        if break_on_n_success and n_success >= stop_after_n_success:
+            print(
+                f"Current number of success {n_success} greater than breaking threshold {stop_after_n_success}. Breaking"
+            )
+            break
 
     total_reward = np.sum([np.sum(rewards.numpy()) for rewards in all_rewards])
     episode_returns = [
