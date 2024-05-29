@@ -11,10 +11,14 @@
 #SBATCH --job-name=checkpoint_sweep
 
 # ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5, otft0k6k, 9zjnzg4r
-
 # run_id="ol-state-dr-med-1/frmymr5x"
-run_id="ol-state-dr-low-1/runs/u0gf0sgx"
-run_id="ol-state-dr-high-1/c24b6odm"
+
+# u0gf0sgx
+# run_id="ol-state-dr-low-1/runs/u0gf0sgx"
+
+# c24b6odm, zf8p0san
+run_id="ol-state-dr-high-1/zf8p0san"
+
 randomness="high"
 
 root_dir=outputs
