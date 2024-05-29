@@ -12,7 +12,7 @@
 
 project_id="ol-state-dr-low-1"
 n_rollouts=256
-randomness="med"
+randomness="low"
 
 python -m src.eval.evaluate_model --project-id robust-rearrangement/$project_id --n-envs $n_rollouts \
     --n-rollouts $n_rollouts -f one_leg --if-exists overwrite --max-rollout-steps 750 --controller diffik \

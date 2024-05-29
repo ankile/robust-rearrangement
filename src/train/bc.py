@@ -488,7 +488,10 @@ def main(cfg: DictConfig):
         )
 
         # If we are in offline mode, trigger the sync
-        if cfg.wandb.mode == "offline":
+        if (
+            cfg.wandb.mode == "offline"
+            and (epoch_idx % cfg.wandb.get("osh_sync_interval", 1)) == 0
+        ):
             trigger_sync()
 
         # Now that everything is logged and restored, we can check if we need to stop
