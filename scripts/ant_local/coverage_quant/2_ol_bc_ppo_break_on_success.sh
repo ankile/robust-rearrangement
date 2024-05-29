@@ -1,5 +1,6 @@
 # RUN_ID=ol-state-dr-med-1/9zjnzg4r
-RUN_ID=residual-ppo-dr-1/7mv6o4i9
+# RUN_ID=residual-ppo-dr-1/7mv6o4i9
+RUN_ID=residual-ppo-dr-low-1/8z64fcnf
 DATA_DIR_RAW=${DATA_DIR_RAW}/coverage/${RUN_ID}
 
 python -m src.eval.evaluate_model \
@@ -13,6 +14,6 @@ python -m src.eval.evaluate_model \
     --use-new-env \
     --action-type pos \
     --observation-space state \
-    --randomness med # \
-    # --save-rollouts --save-failures --break-on-n-success --stop-after-n-success 1024
+    --randomness low \
+    --save-rollouts --save-failures --break-on-n-success --stop-after-n-success 1024
 
