@@ -167,15 +167,15 @@ def get_raw_paths(
     # Add the randomness pattern to all paths
     paths = add_glob_part(paths, randomness)
 
+    # Add the suffix pattern to all paths
+    paths = add_glob_part(paths, suffix)
+
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)
 
     # Add ** if we are not using an explicit demo outcome
     if demo_outcome is None and paths[0].parts[-1] != "**":
         paths = add_glob_part(paths, "**")
-
-    # Add the suffix pattern to all paths
-    paths = add_glob_part(paths, suffix)
 
     # Add the extension pattern to all paths
     paths = [path / "*.pkl*" for path in paths]

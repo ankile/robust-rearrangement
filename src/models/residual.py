@@ -168,14 +168,16 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         the gt_res_action needs to be scaled by self.action_scale before passing it in
         """
         action_mean: torch.Tensor = self.actor_mean(res_nobs)
-        action_logstd = self.actor_logstd.expand_as(action_mean)
-        action_std = torch.exp(action_logstd)
-        probs = Normal(action_mean, action_std)
-
         gt_res_action_scaled = gt_res_action / self.action_scale
+        return torch.nn.functional.mse_loss(action_mean, gt_res_action_scaled)
+        # action_logstd = self.actor_logstd.expand_as(action_mean)
+        # action_std = torch.exp(action_logstd)
+        # probs = Normal(action_mean, action_std)
 
-        # Sum over the action dimension (last dimension)
-        return -probs.log_prob(gt_res_action_scaled).sum(dim=-1).mean()
+        # gt_res_action_scaled = gt_res_action / self.action_scale
+
+        # # Sum over the action dimension (last dimension)
+        # return -probs.log_prob(gt_res_action_scaled).sum(dim=-1).mean()
 
 
 class BiggerResidualPolicy(ResidualPolicy):

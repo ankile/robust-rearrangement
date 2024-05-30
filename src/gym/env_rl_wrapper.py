@@ -56,7 +56,6 @@ class FurnitureEnvRLWrapper:
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
         robot_state = obs["robot_state"]
-        N = robot_state.shape[0]
 
         # Parts poses is [pos, ori_quat] for each part
         parts_poses = obs["parts_poses"]
@@ -195,7 +194,6 @@ class ResidualPolicyEnvWrapper:
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
         self.device = device
-        self.normalizer = LinearNormalizer()
         self.reward_normalizer = (
             RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
         )
@@ -213,77 +211,24 @@ class ResidualPolicyEnvWrapper:
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
 
-    def set_normalizer(self, normalizer: LinearNormalizer):
-        self.normalizer.load_state_dict(normalizer.state_dict())
-
-    def process_obs(self, obs: Dict[str, torch.Tensor]):
-        # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
-        robot_state = obs["robot_state"]
-        N = robot_state.shape[0]
-
-        # Parts poses is [pos, ori_quat] for each part
-        parts_poses = obs["parts_poses"]
-
-        # Make the robot state have 6D proprioception
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-
-        if self.normalizer is not None:
-            robot_state = self.normalizer(robot_state, "robot_state", forward=True)
-            if self.task != "reacher":
-                parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
-
-        obs = torch.cat([robot_state, parts_poses], dim=-1)
-
-        if self.add_relative_pose:
-            ee_pose = robot_state[..., :7].unsqueeze(1)
-            relative_poses = G.pose_error(ee_pose, parts_poses.view(N, -1, 7)).view(
-                N, -1
-            )
-
-            obs = torch.cat([obs, relative_poses], dim=-1)
-
-        # Clamp the observation to be bounded to [-5, 5]
-        obs = torch.clamp(obs, -5, 5)
-
-        return obs
-
-    def process_action(self, action: torch.Tensor):
-        """
-        Done any desired processing to the action before
-        it is passed to the environment.
-        """
-        return action
-
     def reset(self, **kwargs):
         obs = self.env.reset()
         return obs
 
-    def jerkinesss_penalty(self, action: torch.Tensor):
-        # Get the current end-effector velocity
-        ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
-
-        # Calculate the dot product between the action and the end-effector velocity
-        dot_product = torch.sum(action[..., :3] * ee_velocity, dim=1, keepdim=True)
-
-        # Calculate the velocity-based penalty
-        velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
-
-        # Add the velocity-based penalty to the rewards
-        return velocity_penalty
-
-    def step(self, naction: torch.Tensor):
-        assert naction.shape[1:] == self.action_space.shape
-        # bp()
-
-        # First denormalize the action
-        action = self.normalizer(naction, "action", forward=False)
+    def step(self, action: torch.Tensor):
+        assert action.shape[1:] == self.action_space.shape
 
         # Move the robot
-        obs, reward, _, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(action)
         reward = reward.squeeze()
+        done = done.squeeze()
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
+
+        # Clip the obs
+        obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
+        obs["parts_poses"] = torch.clamp(obs["parts_poses"], -3, 3)
 
         if self.reset_on_failure:
             # Get the gripper width
@@ -293,17 +238,15 @@ class ResidualPolicyEnvWrapper:
             # (means we closed the gripper witdt nothing in it)
             reward -= torch.where(gripper_width < 0.002, 0.1, 0.0)
 
-        # Episodes that received any reward are terminated
-        terminated = reward != 0
-
+        # TODO - come back to think about truncation vs. termination in long horizon tasks
         # Check if any envs have reached the max number of steps
-        truncated = self.env.env_steps >= self.max_env_steps
+        done |= self.env.env_steps >= self.max_env_steps
 
         # Reset the envs that have reached the max number of steps or got reward
-        if self.reset_on_success and torch.any(done := terminated | truncated):
+        if self.reset_on_success and torch.any(done):
             obs = self.env.reset(torch.nonzero(done).view(-1))
 
-        return obs, reward, terminated, truncated, info
+        return obs, reward, done, False, info
 
     def increment_randomness(self):
         self.env.increment_randomness()

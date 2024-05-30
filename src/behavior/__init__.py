@@ -5,7 +5,7 @@ from src.behavior.base import Actor
 
 def get_actor(cfg: DictConfig, device) -> Actor:
     """Returns an actor model."""
-    actor_name = cfg.actor.name
+    actor_name = cfg.actor_name if "actor_name" in cfg else cfg.actor.name
     obs_type = cfg.observation_type
 
     assert obs_type in ["image", "state"], f"Invalid observation type: {obs_type}"

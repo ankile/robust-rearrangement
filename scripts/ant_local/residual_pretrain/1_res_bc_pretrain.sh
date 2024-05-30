@@ -1,0 +1,12 @@
+python -m src.train.bc +experiment=state/residual_diffusion \
+    actor/diffusion_model=unet \
+    training.actor_lr=1e-4 \
+    training.num_epochs=2000 \
+    training.batch_size=64 \
+    demo_source=teleop \
+    furniture='[one_leg]' \
+    rollout.furniture=one_leg \
+    randomness='[med,med_perturb]' \
+    environment='[sim]' \
+    wandb.mode=online \
+    dryrun=false

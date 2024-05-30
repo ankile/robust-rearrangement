@@ -1,3 +1,6 @@
+defaults:
+- actor: residual_diffusion
+
 seed: null
 torch_deterministic: false
 headless: true
@@ -8,13 +11,12 @@ eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true
-# base_bc_policy: ankile/ol-state-dr-1/runs/klnpg80g
-# base_bc_policy: ol-state-dr-1/r9wm1uo6
-# base_bc_policy: ol-state-dr-med-1/9zjnzg4r
-# base_bc_policy: ol-state-dr-med-1/kmoy7cad
-base_bc_policy: ol-state-dr-low-1/6i7hupje
+base_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
 
-moidels_we_depend_on:
+observation_type: state
+
 total_timesteps: 500_000_000
 num_envs: 1024
 num_minibatches: 1
@@ -23,25 +25,11 @@ num_env_steps: 700
 data_collection_steps: ${num_env_steps}
 
 env:
-  randomness: low
+  randomness: med
 
-residual_policy:
-  _target_: src.models.residual.ResidualPolicy
-  init_logstd: -1.5
-  action_head_std: 0.0
-  action_scale: 0.1
-  actor_hidden_size: 256
-  actor_num_layers: 2
-  critic_hidden_size: 256
-  critic_num_layers: 2
-  actor_activation: ReLU
-  critic_activation: ${residual_policy.actor_activation}
-  critic_last_layer_bias_const: 0.25
-  critic_last_layer_std: 0.25
-  critic_last_layer_activation: null
-
-  # pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716310794__residual_ppo__ResidualPolicy__907769811/iter_520.pt
-  pretrained_wts: null
+actor:
+  residual_policy:
+    pretrained_wts: null
 
 # Learning rates
 learning_rate_actor: 3e-4
@@ -55,7 +43,7 @@ residual_l1: 0.0
 residual_l2: 0.01
 
 # Algorithm specific arguments
-gamma: 0.999
+discount: 0.999
 gae_lambda: 0.95
 norm_adv: true
 normalize_reward: true
@@ -73,12 +61,15 @@ batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
 minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
 num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
 
-action_type: pos
-act_rot_repr: rot_6d
+control:
+  controller: diffik  # diffik
+  control_mode: pos
+  act_rot_repr: rot_6d
 
 wandb:
   entity: robust-rearrangement
-  project: residual-ppo-dr-${env.randomness}-1
+  project: ???
   mode: online
+  notes: null
 
 debug: false

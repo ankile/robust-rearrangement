@@ -4,23 +4,24 @@ import furniture_bench  # noqa
 from ipdb import set_trace as bp
 
 
-from collections import deque
-from typing import Literal, Tuple
-
 import random
 import time
 from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from src.behavior.base import Actor
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.eval.eval_utils import load_bc_actor
+from src.behavior.residual_diffusion import (
+    ResidualDiffusionPolicy,
+    ResidualTrainingValues,
+)
+from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
+from src.common.config_util import merge_base_bc_config_with_root_config
 
 
 from src.gym.furniture_sim_env import (
@@ -29,8 +30,6 @@ from src.gym.furniture_sim_env import (
 
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
-from src.common.context import suppress_all_output
-from src.models.residual import ResidualPolicy
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -52,7 +51,7 @@ def calculate_advantage(
     dones: torch.Tensor,
     next_done: torch.Tensor,
     steps_per_iteration: int,
-    gamma: float,
+    discount: float,
     gae_lambda: float,
 ):
     advantages = torch.zeros_like(rewards)
@@ -65,16 +64,22 @@ def calculate_advantage(
             nextnonterminal = 1.0 - dones[t + 1].to(torch.float)
             nextvalues = values[t + 1]
 
-        delta = rewards[t] + gamma * nextvalues * nextnonterminal - values[t]
+        delta = rewards[t] + discount * nextvalues * nextnonterminal - values[t]
         advantages[t] = lastgaelam = (
-            delta + gamma * gae_lambda * nextnonterminal * lastgaelam
+            delta + discount * gae_lambda * nextnonterminal * lastgaelam
         )
     returns = advantages + values
     return advantages, returns
 
 
-@hydra.main(config_path="../config/rl", config_name="residual_ppo", version_base="1.2")
+@hydra.main(
+    config_path="../config",
+    config_name="base_residual_rl",
+    version_base="1.2",
+)
 def main(cfg: DictConfig):
+
+    OmegaConf.set_struct(cfg, False)
 
     # TRY NOT TO MODIFY: seeding
     if cfg.seed is None:
@@ -82,7 +87,7 @@ def main(cfg: DictConfig):
 
     # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
-    run_name = f"{int(time.time())}__residual_ppo__{cfg.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
+    run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
     run_directory = f"runs/debug-residual_ppo-residual-8"
     run_directory += "-delete" if cfg.debug else ""
@@ -95,17 +100,14 @@ def main(cfg: DictConfig):
 
     device = torch.device("cuda")
 
-    # Load the behavior cloning actor
-    bc_actor: Actor = load_bc_actor(cfg.base_bc_policy)
-
     turn_off_april_tags()
 
     env: FurnitureRLSimEnv = FurnitureRLSimEnv(
-        act_rot_repr=cfg.act_rot_repr,
-        action_type=cfg.action_type,
+        act_rot_repr=cfg.control.act_rot_repr,
+        action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
-        ctrl_mode="diffik",
+        ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
         furniture="one_leg",
         gpu_id=0,
@@ -116,9 +118,26 @@ def main(cfg: DictConfig):
         max_env_steps=100_000_000,
     )
 
+    # Load the behavior cloning actor
+    base_cfg, base_wts = get_model_from_api_or_cached(
+        cfg.base_policy.wandb_id,
+        wt_type=cfg.base_policy.wt_type,
+        wandb_mode=cfg.wandb.mode,
+    )
+
+    merge_base_bc_config_with_root_config(cfg, base_cfg)
+    cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
+
+    agent = ResidualDiffusionPolicy(device, base_cfg)
+    agent.load_base_state_dict(base_wts)
+    agent.to(device)
+    agent.eval()
+
+    residual_policy = agent.residual_policy
+
     # Set the inference steps of the actor
-    if isinstance(bc_actor, DiffusionPolicy):
-        bc_actor.inference_steps = 4
+    if isinstance(agent, DiffusionPolicy):
+        agent.inference_steps = 4
 
     env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
         env,
@@ -127,26 +146,9 @@ def main(cfg: DictConfig):
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
     )
-    env.set_normalizer(bc_actor.normalizer)
-
-    # Residual policy setup
-    residual_policy: ResidualPolicy = hydra.utils.instantiate(
-        cfg.residual_policy,
-        obs_shape=env.observation_space.shape,
-        action_shape=env.action_space.shape,
-    )
-
-    residual_policy.to(device)
-
-    actor_parameters = [
-        p for n, p in residual_policy.named_parameters() if "critic" not in n
-    ]
-    critic_parameters = [
-        p for n, p in residual_policy.named_parameters() if "critic" in n
-    ]
 
     optimizer_actor = optim.AdamW(
-        actor_parameters,
+        agent.actor_parameters,
         lr=cfg.learning_rate_actor,
         eps=1e-5,
         weight_decay=1e-6,
@@ -160,7 +162,7 @@ def main(cfg: DictConfig):
     )
 
     optimizer_critic = optim.AdamW(
-        critic_parameters,
+        agent.critic_parameters,
         lr=cfg.learning_rate_critic,
         eps=1e-5,
         weight_decay=1e-6,
@@ -173,11 +175,21 @@ def main(cfg: DictConfig):
         num_training_steps=cfg.num_iterations,
     )
 
-    if "pretrained_wts" in cfg.residual_policy and cfg.residual_policy.pretrained_wts:
-        print(f"Loading pretrained weights from {cfg.residual_policy.pretrained_wts}")
-        run_state_dict = torch.load(cfg.residual_policy.pretrained_wts)
+    if (
+        "pretrained_wts" in cfg.actor.residual_policy
+        and cfg.actor.residual_policy.pretrained_wts
+    ):
+        print(
+            f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
+        )
+        run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
         residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        # lr_scheduler_critic.load_state_dict(
+        #     run_state_dict["scheduler_critic_state_dict"]
+        # )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -185,9 +197,6 @@ def main(cfg: DictConfig):
     print(
         f"Mini-batch size: {cfg.minibatch_size}, num iterations: {cfg.num_iterations}"
     )
-
-    # bc_actor = torch.compile(bc_actor)
-    # residual_policy = torch.compile(residual_policy)
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
@@ -204,7 +213,13 @@ def main(cfg: DictConfig):
     best_eval_success_rate = 0.0
     running_mean_success_rate = 0.0
 
-    obs = torch.zeros((steps_per_iteration, cfg.num_envs, residual_policy.obs_dim))
+    obs: torch.Tensor = torch.zeros(
+        (
+            steps_per_iteration,
+            cfg.num_envs,
+            residual_policy.obs_dim,
+        )
+    )
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
     logprobs = torch.zeros((steps_per_iteration, cfg.num_envs))
     rewards = torch.zeros((steps_per_iteration, cfg.num_envs))
@@ -215,10 +230,10 @@ def main(cfg: DictConfig):
     iteration = 0
     start_time = time.time()
     training_cum_time = 0
-    # bp()
+
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
-    bc_actor.reset()
+    agent.reset()
 
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
@@ -236,7 +251,7 @@ def main(cfg: DictConfig):
         # Also reset the env to have more consistent results
         if eval_mode or cfg.reset_every_iteration:
             next_obs = env.reset()
-            bc_actor.reset()
+            agent.reset()
 
         print(f"Eval mode: {eval_mode}")
 
@@ -246,10 +261,10 @@ def main(cfg: DictConfig):
                 global_step += cfg.num_envs
 
             # Get the base normalized action
-            base_naction = bc_actor.action_normalized(next_obs)
+            base_naction = agent.base_action_normalized(next_obs)
 
             # Process the obs for the residual policy
-            next_nobs = env.process_obs(next_obs)
+            next_nobs = agent.process_obs(next_obs)
             next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
 
             dones[step] = next_done
@@ -261,9 +276,10 @@ def main(cfg: DictConfig):
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
-            naction = base_naction + residual_naction * cfg.residual_policy.action_scale
+            naction = base_naction + residual_naction * residual_policy.action_scale
 
-            next_obs, reward, next_done, truncated, _ = env.step(naction)
+            action = agent.normalizer(naction, "action", forward=False)
+            next_obs, reward, next_done, truncated, _ = env.step(action)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
@@ -312,10 +328,11 @@ def main(cfg: DictConfig):
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = str(model_save_dir / f"eval_best.pt")
+                model_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
                 torch.save(
                     {
-                        "model_state_dict": residual_policy.state_dict(),
+                        # Save the weights of the residual policy (base + residual)
+                        "model_state_dict": agent.state_dict(),
                         "optimizer_actor_state_dict": optimizer_actor.state_dict(),
                         "optimizer_critic_state_dict": optimizer_critic.state_dict(),
                         "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
@@ -341,6 +358,11 @@ def main(cfg: DictConfig):
         b_logprobs = logprobs.reshape(-1)
         b_values = values.reshape(-1)
 
+        # Get the base normalized action
+        # Process the obs for the residual policy
+        base_naction = agent.base_action_normalized(next_obs)
+        next_nobs = agent.process_obs(next_obs)
+        next_residual_nobs = torch.cat([next_nobs, base_naction], dim=-1)
         next_value = residual_policy.get_value(next_residual_nobs).reshape(1, -1).cpu()
 
         # bootstrap value if not done
@@ -351,7 +373,7 @@ def main(cfg: DictConfig):
             dones,
             next_done,
             steps_per_iteration,
-            cfg.gamma,
+            cfg.discount,
             cfg.gae_lambda,
         )
 
@@ -362,6 +384,7 @@ def main(cfg: DictConfig):
         b_inds = np.arange(cfg.batch_size)
         clipfracs = []
         for epoch in trange(cfg.update_epochs, desc="Policy update"):
+            early_stop = False
 
             np.random.shuffle(b_inds)
             for start in range(0, cfg.batch_size, cfg.minibatch_size):
@@ -451,10 +474,14 @@ def main(cfg: DictConfig):
                 optimizer_actor.step()
                 optimizer_critic.step()
 
-            if cfg.target_kl is not None and approx_kl > cfg.target_kl:
-                print(
-                    f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
-                )
+                if cfg.target_kl is not None and approx_kl > cfg.target_kl:
+                    print(
+                        f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
+                    )
+                    early_stop = True
+                    break
+
+            if early_stop:
                 break
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -505,10 +532,10 @@ def main(cfg: DictConfig):
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
-            model_path = str(model_save_dir / f"iter_{iteration}.pt")
+            model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {
-                    "model_state_dict": residual_policy.state_dict(),
+                    "model_state_dict": agent.state_dict(),
                     "optimizer_actor_state_dict": optimizer_actor.state_dict(),
                     "optimizer_critic_state_dict": optimizer_critic.state_dict(),
                     "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),

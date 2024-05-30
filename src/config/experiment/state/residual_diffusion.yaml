@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - state/diffusion
+  - state/diff_unet
   - override /actor: residual_diffusion
 
 
