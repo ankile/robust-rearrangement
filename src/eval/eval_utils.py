@@ -141,7 +141,14 @@ def load_model_weights(
             f
             for f in run.files()
             if f.name.endswith(".pt") and checkpoint_type in f.name
-        ][0]
+        ]
+
+        if len(model_file) == 0:
+            print(f"Could not find model file for run {run.name} wts {wt_type}")
+            return None
+
+        model_file = model_file[0]
+
         print(f"Loading checkpoint: {model_file.name}")
         model_path = model_file.download(
             root=f"./models/{run.name}", exist_ok=True, replace=True
@@ -182,6 +189,10 @@ def load_model_weights(
     # else:
 
     model_path = get_model_path_from_run(run)
+
+    if model_path is None:
+        return None
+
     state_dict = torch.load(model_path)
 
     if "model_state_dict" in state_dict:

@@ -342,6 +342,12 @@ if __name__ == "__main__":
 
                 actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
 
+                if actor is None:
+                    print(
+                        f"Skipping run: {run.name} as no weights for wt_type: {args.wt_type} was found"
+                    )
+                    continue
+
                 save_dir = (
                     trajectory_save_dir(
                         controller=args.controller,
