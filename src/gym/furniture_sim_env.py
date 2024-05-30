@@ -1637,12 +1637,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self.max_force_magnitude = 0.75
             self.max_torque_magnitude = 0.015
             self.max_obstacle_offset = 0.06
-            self.franka_joint_rand_lim_deg = np.radians(15)
+            self.franka_joint_rand_lim_deg = np.radians(13)
         else:
             raise ValueError("Invalid randomness level")
 
-        self.max_force_magnitude = 0
-        self.max_torque_magnitude = 0
+        # Uncomment these to do tuning of initial parts positions
+        # self.max_force_magnitude = 0
+        # self.max_torque_magnitude = 0
+        # self.max_obstacle_offset = 0
 
         print(
             f"Max force magnitude: {self.max_force_magnitude} "
@@ -1766,8 +1768,8 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             force_mul = [8, 15, 30]
             torque_mul = [16, 20, 60]
         elif self.furniture_name == "round_table":
-            force_mul = [1, 1, 1]
-            torque_mul = [1, 1, 1]
+            force_mul = [30, 4, 20]
+            torque_mul = [60, 4, 10]
         elif self.furniture_name == "square_table":
             force_mul = [25, 1, 1, 1, 1]
             torque_mul = [70, 1, 1, 1, 1]
@@ -2003,13 +2005,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         assert success, "Failed to set franka state"
 
     def _reset_part_poses(self, env_idxs: torch.Tensor):
-        # Reset the parts to the initial pose
-        self.root_pos[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.parts_initial_pos.clone()
-        )
-        self.root_quat[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.parts_initial_ori.clone()
-        )
 
         # Find the position we want to place the obstacle at here
         # We randomize the obstacle here because we want it fixed and don't apply forces to it later
@@ -2019,8 +2014,17 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ) * self.max_obstacle_offset
         obstacle_pos_offsets[..., 2] = 0.0  # Don't move the obstacle in the z direction
 
-        obstacle_pos_offsets[..., 0] = -0.03
-        obstacle_pos_offsets[..., 1] = 0.03
+        # Uncomment these to do tuning of initial parts positions
+        # obstacle_pos_offsets[..., 0] = -0.06
+        # obstacle_pos_offsets[..., 1] = -0.06
+
+        # Reset the parts to the initial pose
+        self.root_pos[env_idxs.unsqueeze(1), self.parts_idx_list] = (
+            self.parts_initial_pos.clone()  # + obstacle_pos_offsets
+        )
+        self.root_quat[env_idxs.unsqueeze(1), self.parts_idx_list] = (
+            self.parts_initial_ori.clone()
+        )
 
         self.root_pos[env_idxs.unsqueeze(1), self.obstacles_idx_list] = (
             self.obstacle_initial_pos.clone() + obstacle_pos_offsets
