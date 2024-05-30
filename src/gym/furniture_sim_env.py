@@ -428,6 +428,7 @@ class FurnitureSimEnv(gym.Env):
             self.isaac_gym.set_actor_dof_states(
                 env, franka_handle, default_dof_state, gymapi.STATE_ALL
             )
+
             # Add furniture parts.
             poses = []
             for part in self.furniture.parts:
@@ -464,6 +465,20 @@ class FurnitureSimEnv(gym.Env):
             [torch.tensor(self.part_idxs[part.name]) for part in self.furniture.parts],
             dim=0,
         ).T
+
+        if self.furniture_name == "lamp":
+            self.lamp_bulb_rb_indices = torch.stack(
+                [
+                    torch.tensor(self.part_idxs[part.name])
+                    for part in self.furniture.parts
+                    if part.name == "lamp_bulb"
+                ],
+                dim=0,
+            ).T
+
+            self.hand_bulb_pos_thresh = torch.tensor(
+                [0.03, 0.03, 0.03], dtype=torch.float32, device=self.device
+            )
         # Make a tensor that contains the RB indices of all the furniture parts.
         # Add a dimension for the part number to be compatible with the parts RB indices.
         self.obstacle_front_rb_indices = torch.tensor(
@@ -788,6 +803,41 @@ class FurnitureSimEnv(gym.Env):
 
         return gym.spaces.Dict(obs_dict)
 
+    def _handle_bulb_rest_pose(self):
+
+        # if we're not in lamp mode
+        if self.furniture_name != "lamp":
+            return False, None
+
+        # if we're already half way through the episode, let them all go
+        if torch.any(self.env_steps > (self.max_env_steps / 2)):
+            return False, None
+
+        # start with all envs
+        to_rest = torch.tensor(
+            [True] * self.num_envs, dtype=torch.bool, device=self.device
+        )
+
+        # first, un-check all those that are already moving
+        to_rest = to_rest & ~self._moving_bulbs
+
+        # next, check the distance between the hand poses and the bulb poses
+        lb_pos = self.rb_states[self.lamp_bulb_rb_indices, :3].view(self.num_envs, 3)
+        hand_pos = self.rb_states[self.ee_idxs, :3].view(self.num_envs, 3)
+        hand_bulb_close = is_similar_pos(
+            lb_pos, hand_pos, pos_threshold=self.hand_bulb_pos_thresh
+        )
+        to_rest = to_rest & ~hand_bulb_close
+
+        # finally, track all those that are now moving
+        env_idx_to_rest = torch.where(to_rest)[0]
+        self._moving_bulbs[torch.where(~to_rest)[0]] = True
+
+        # only return True if we have some that need to rest
+        if env_idx_to_rest.shape[0] > 0:
+            return True, env_idx_to_rest
+        return False, None
+
     @torch.no_grad()
     def step(self, action):
         """Robot takes an action.
@@ -907,7 +957,13 @@ class FurnitureSimEnv(gym.Env):
             self.sim, gymtorch.unwrap_tensor(torque_action)
         )
 
+        # specific to lamp task (will be ignored if not in "lamp" task)
+        any_bulbs_unsettled, rest_bulb_env_idxs = self._handle_bulb_rest_pose()
         for _ in range(self.sim_steps):
+
+            if any_bulbs_unsettled:
+                self._set_bulb_poses(env_idxs=rest_bulb_env_idxs)
+
             self.isaac_gym.simulate(self.sim)
 
         self.isaac_gym.fetch_results(self.sim, True)
@@ -1598,6 +1654,16 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self.obstacle_handles, device=self.device, dtype=torch.int32
         )
 
+        self.bulb_idx_list = torch.tensor(
+            [
+                self.parts_handles[part.name]
+                for part in self.furniture.parts
+                if part.name == "lamp_bulb"
+            ],
+            device=self.device,
+            dtype=torch.int32,
+        ).reshape(self.num_envs, -1)
+
         part_actor_idx_by_env = torch.tensor(
             [self.part_actor_idx_by_env[i] for i in range(self.num_envs)],
             device=self.device,
@@ -1763,6 +1829,18 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.env_steps[env_idxs] = 0
 
         self.refresh()
+
+        # if we are using the lamp, get the reset pose and start setting the state
+        if self.furniture_name == "lamp":
+            for _ in range(10):
+                self.refresh()
+            lb_poses = self.rb_states[self.lamp_bulb_rb_indices, :7]
+            self.lb_rest_poses = lb_poses.reshape(self.num_envs, 7)
+
+            self._set_bulb_poses(env_idxs=env_idxs)
+            self._moving_bulbs = torch.tensor(
+                [False] * self.num_envs, dtype=torch.bool, device=self.device
+            )
 
         return self.get_observation()
 
@@ -1930,6 +2008,31 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.root_pos[env_idxs.unsqueeze(1), self.obstacles_idx_list] = (
             self.obstacle_initial_pos.clone() + obstacle_pos_offsets
         )
+
+        # # Get the actor and rigid body indices for the parts in question
+        actor_idxs = self.actor_idx_by_env[env_idxs].view(-1)
+
+        # Update the sim state tensors
+        self.isaac_gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.root_tensor),
+            gymtorch.unwrap_tensor(actor_idxs),
+            len(actor_idxs),
+        )
+
+    def _set_bulb_poses(self, env_idxs: torch.Tensor):
+        if env_idxs.shape[0] == 0:
+            print(
+                f"[Warning] Tried to set bulb poses with no environment inds! Something is wrong.. "
+            )
+            return
+        # Reset the parts to the initial pose
+        self.root_pos[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
+            env_idxs, :3
+        ]
+        self.root_quat[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
+            env_idxs, 3:7
+        ]
 
         # # Get the actor and rigid body indices for the parts in question
         actor_idxs = self.actor_idx_by_env[env_idxs].view(-1)
