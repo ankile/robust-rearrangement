@@ -72,7 +72,6 @@ def calculate_advantage(
     return advantages, returns
 
 
-# @hydra.main(config_path="../config/rl", config_name="residual_ppo", version_base="1.2")
 @hydra.main(
     config_path="../config",
     config_name="base_residual_rl",
@@ -132,17 +131,7 @@ def main(cfg: DictConfig):
     agent = ResidualDiffusionPolicy(device, base_cfg)
     agent.load_base_state_dict(base_wts)
     agent.to(device)
-    # agent.model.eval()
     agent.eval()
-
-    # bp()
-
-    # for key, values in agent.normalizer.stats.items():
-
-    #     isclose = torch.isclose(values["min"], values["max"], atol=1e-3)
-    #     # If the min and max are very close, we need to expand the range
-    #     agent.normalizer.stats["min"] -= 1 * isclose
-    #     agent.normalizer.stats["max"] += 1 * isclose
 
     residual_policy = agent.residual_policy
 
@@ -246,8 +235,6 @@ def main(cfg: DictConfig):
     next_obs = env.reset()
     agent.reset()
 
-    print(next_obs["robot_state"][0])
-
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -264,7 +251,6 @@ def main(cfg: DictConfig):
         # Also reset the env to have more consistent results
         if eval_mode or cfg.reset_every_iteration:
             next_obs = env.reset()
-            print(next_obs["robot_state"][0])
             agent.reset()
 
         print(f"Eval mode: {eval_mode}")
@@ -274,7 +260,6 @@ def main(cfg: DictConfig):
                 # Only count environment steps during training
                 global_step += cfg.num_envs
 
-            # bp()
             # Get the base normalized action
             base_naction = agent.base_action_normalized(next_obs)
 
@@ -418,7 +403,6 @@ def main(cfg: DictConfig):
                 _, newlogprob, entropy, newvalue, action_mean = (
                     residual_policy.get_action_and_value(mb_obs, mb_actions)
                 )
-                # bp()
                 logratio = newlogprob - mb_logprobs
                 ratio = logratio.exp()
 
@@ -491,7 +475,6 @@ def main(cfg: DictConfig):
                 optimizer_critic.step()
 
                 if cfg.target_kl is not None and approx_kl > cfg.target_kl:
-                    # bp()
                     print(
                         f"Early stopping at epoch {epoch} due to reaching max kl: {approx_kl:.4f} > {cfg.target_kl:.4f}"
                     )
