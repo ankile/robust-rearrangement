@@ -121,7 +121,9 @@ def main(cfg: DictConfig):
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
-        cfg.base_policy.wandb_id, wt_type=cfg.base_policy.wt_type
+        cfg.base_policy.wandb_id,
+        wt_type=cfg.base_policy.wt_type,
+        wandb_mode=cfg.wandb.mode,
     )
 
     merge_base_bc_config_with_root_config(cfg, base_cfg)
@@ -244,6 +246,8 @@ def main(cfg: DictConfig):
     next_obs = env.reset()
     agent.reset()
 
+    print(next_obs["robot_state"][0])
+
     # Create model save dir
     model_save_dir: Path = Path("models") / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -260,6 +264,7 @@ def main(cfg: DictConfig):
         # Also reset the env to have more consistent results
         if eval_mode or cfg.reset_every_iteration:
             next_obs = env.reset()
+            print(next_obs["robot_state"][0])
             agent.reset()
 
         print(f"Eval mode: {eval_mode}")

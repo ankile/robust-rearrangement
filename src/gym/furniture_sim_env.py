@@ -681,6 +681,7 @@ class FurnitureSimEnv(gym.Env):
         self.forces = _forces.view(self.num_envs, 9)
 
         # Get DoF tensor
+        # bp()
         _dof_states = self.isaac_gym.acquire_dof_state_tensor(self.sim)
         self.dof_states = gymtorch.wrap_tensor(
             _dof_states
@@ -1845,6 +1846,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             len(actor_idx),
         )
         assert success, "Failed to set franka state"
+
+        success = self.isaac_gym.set_dof_position_target_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(dof_pos),
+            gymtorch.unwrap_tensor(actor_idx),
+            len(actor_idx),
+        )
+        assert success, "Failed to set franka target"
 
     def _reset_part_poses(self, env_idxs: torch.Tensor):
         # Reset the parts to the initial pose
