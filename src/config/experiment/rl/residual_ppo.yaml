@@ -1,16 +1,19 @@
 # @package _global_
 base_policy:
-  wandb_id: ol-state-dr-med-1/9zjnzg4r
-  wt_type: best_success_rate
+  # wandb_id: ol-state-dr-low-1/6i7hupje
+  # wt_type: best_success_rate
+  wandb_id: ol-state-dr-med-1/runs/otft0k6k
+  wt_type: "_1499.pt"
 
 actor:
   residual_policy:
-    # pretrained_wts: /data/scratch/ankile/robust-rearrangement/outputs/actor_chkpt_best_success_rate.pt
-    pretrained_wts: /data/scratch/ankile/robust-rearrangement/outputs/eval_best.pt
-    # pretrained_wts: null
+    pretrained_wts: null
+
+env:
+  randomness: med
 
 wandb:
-  entity: robust-rearrangement
+  entity: robust-assembly
   project: residual-ppo-dr-${env.randomness}-1
   mode: online
 

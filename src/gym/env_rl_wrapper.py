@@ -56,7 +56,6 @@ class FurnitureEnvRLWrapper:
     def process_obs(self, obs: Dict[str, torch.Tensor]):
         # Robot state is [pos, ori_quat, pos_vel, ori_vel, gripper]
         robot_state = obs["robot_state"]
-        N = robot_state.shape[0]
 
         # Parts poses is [pos, ori_quat] for each part
         parts_poses = obs["parts_poses"]
