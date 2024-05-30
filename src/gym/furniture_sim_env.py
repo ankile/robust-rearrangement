@@ -686,7 +686,7 @@ class FurnitureSimEnv(gym.Env):
         self.dof_states = gymtorch.wrap_tensor(
             _dof_states
         )  # (num_dofs, 2), 2 for pos and vel.
-        self.dof_pos = self.dof_states[:, 0].view(self.num_envs, 9)
+        self.dof_pos: torch.Tensor = self.dof_states[:, 0].view(self.num_envs, 9)
         self.dof_vel = self.dof_states[:, 1].view(self.num_envs, 9)
         # Get jacobian tensor
         # for fixed-base franka, tensor has shape (num envs, 10, 6, 9)
@@ -1849,7 +1849,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         success = self.isaac_gym.set_dof_position_target_tensor_indexed(
             self.sim,
-            gymtorch.unwrap_tensor(dof_pos),
+            gymtorch.unwrap_tensor(self.dof_pos.contiguous()),
             gymtorch.unwrap_tensor(actor_idx),
             len(actor_idx),
         )

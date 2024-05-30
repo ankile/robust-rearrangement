@@ -8,13 +8,11 @@ import math
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from src.common.config_util import merge_base_bc_config_with_root_config
 from src.common.files import get_processed_paths
+from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
-from src.gym.furniture_sim_env import (
-    FurnitureRLSimEnv,
-    FurnitureRLSimEnvPlaceTabletop,
-    FurnitureRLSimEnvReacher,
-)
+from src.gym.furniture_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
@@ -28,14 +26,8 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 from src.dataset.normalizer import LinearNormalizer
-import src.common.geometry as G
 
-from src.behavior.mlp import (
-    SmallMLPAgent,
-    BigMLPAgent,
-    ResidualMLPAgent,
-    ResidualMLPAgentSeparate,
-)
+from src.behavior.mlp import MLPActor
 
 from ipdb import set_trace as bp
 
@@ -146,13 +138,13 @@ def calculate_advantage(
     return advantages, returns
 
 
-@hydra.main(config_path="../config/rl", config_name="mlp_ppo", version_base="1.2")
+@hydra.main(config_path="../config", config_name="base_mlp_ppo", version_base="1.2")
 def main(cfg: DictConfig):
 
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
 
-    run_name = f"{int(time.time())}__mlp_ppo__{cfg.agent}__{cfg.seed}"
+    run_name = f"{int(time.time())}__mlp_ppo__{cfg.seed}"
 
     run_directory = f"runs/mlp-ppo"
     run_directory += "-delete" if cfg.debug else ""
@@ -165,15 +157,30 @@ def main(cfg: DictConfig):
 
     device = torch.device("cuda")
 
+    # Load the behavior cloning actor
+    base_cfg, base_wts = get_model_from_api_or_cached(
+        cfg.base_policy.wandb_id,
+        wt_type=cfg.base_policy.wt_type,
+        wandb_mode=cfg.wandb.mode,
+    )
+
+    merge_base_bc_config_with_root_config(cfg, base_cfg)
+    cfg.actor_name = cfg.base_policy.actor.name
+
+    agent = MLPActor(device, base_cfg)
+    agent.load_bc_weights(base_wts)
+    agent.to(device)
+    agent.eval()
+
     turn_off_april_tags()
 
     # env setup
-    kwargs = dict(
-        act_rot_repr=cfg.act_rot_repr,
-        action_type=cfg.action_type,
+    env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+        act_rot_repr=cfg.control.act_rot_repr,
+        action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
-        ctrl_mode="diffik",
+        ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
         furniture="one_leg",
         gpu_id=0,
@@ -183,48 +190,21 @@ def main(cfg: DictConfig):
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
     )
-    env: FurnitureRLSimEnv = FurnitureRLSimEnv(**kwargs)
 
     env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
-        chunk_size=cfg.chunk_size,
+        chunk_size=agent.action_horizon,
     )
 
-    if cfg.agent == "small":
-        agent = SmallMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=cfg.init_logstd,
-        )
-    elif cfg.agent == "big":
-        agent = BigMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=cfg.init_logstd,
-        )
-    elif cfg.agent == "residual":
-        agent = ResidualMLPAgent(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=cfg.init_logstd,
-            dropout=0.1,
-        )
-    elif cfg.agent == "residual-separate":
-        agent = ResidualMLPAgentSeparate(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=cfg.init_logstd,
-        )
-    else:
-        raise ValueError(f"Unknown agent type: {cfg.agent}")
+    normalizer = LinearNormalizer()
+    print(normalizer.load_state_dict(agent.normalizer.state_dict()))
+    env.set_normalizer(normalizer)
 
     if cfg.kl_coef > 0:
-        ref_agent = ResidualMLPAgentSeparate(
-            obs_shape=env.observation_space.shape,
-            action_shape=env.action_space.shape,
-            init_logstd=cfg.init_logstd,
-        )
+        ref_agent = MLPActor(device, base_cfg)
+        ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
+        ref_agent = ref_agent.to(device)
 
     optimizer = optim.AdamW(
         agent.parameters(),
@@ -267,32 +247,9 @@ def main(cfg: DictConfig):
     dones = torch.zeros((num_steps, cfg.num_envs))
     values = torch.zeros((num_steps, cfg.num_envs))
 
-    wts = get_model_weights(cfg.bc_weights_run_id)
-
-    # Filter out keys not starting with "model"
-    model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
-    # Change the "model" prefix to "actor_mean"
-    model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
-
-    print(agent.actor_mean[0].load_state_dict(model_wts, strict=True))
-
-    # Load in the weights for the normalizer
-    normalizer_wts = {
-        k.replace("normalizer.", ""): v for k, v in wts.items() if "normalizer" in k
-    }
-
-    normalizer = LinearNormalizer()
-    print(normalizer.load_state_dict(normalizer_wts))
-
-    env.set_normalizer(normalizer)
-
-    if cfg.kl_coef > 0:
-        ref_agent.load_state_dict(copy.deepcopy(agent.state_dict()))
-        ref_agent = ref_agent.to(device)
-
     # Get the dataloader for the demo data for the behavior cloning
     demo_data_loader = get_demo_data_loader(
-        control_mode=cfg.action_type,
+        control_mode=cfg.control.control_mode,
         n_batches=cfg.num_minibatches,
         normalizer=normalizer,
         action_horizon=agent.action_horizon,
@@ -351,7 +308,7 @@ def main(cfg: DictConfig):
             # Clamp action to be [-5, 5], arbitrary value
             naction = torch.clamp(naction, -5, 5)
 
-            next_obs, reward, next_done, truncated, infos = env.step(naction)
+            next_obs, reward, next_done, infos = env.step(naction)
 
             actions[step] = naction.cpu()
             logprobs[step] = logprob.cpu()
@@ -397,7 +354,7 @@ def main(cfg: DictConfig):
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = str(model_save_dir / f"eval_best.pt")
+                model_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
 
                 torch.save(
                     {
@@ -620,7 +577,7 @@ def main(cfg: DictConfig):
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
-            model_path = str(model_save_dir / f"iter_{iteration}.pt")
+            model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {
                     "model_state_dict": agent.state_dict(),

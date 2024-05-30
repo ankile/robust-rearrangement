@@ -23,13 +23,13 @@ class FurnitureEnvRLWrapper:
         max_env_steps=300,
         ee_dof=10,
         chunk_size=1,
-        add_relative_pose=False,
+        reset_on_success=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.chunk_size: int = chunk_size
-        self.add_relative_pose = add_relative_pose
+        self.reset_on_success = reset_on_success
         self.device = device
         self.normalizer = LinearNormalizer()
 
@@ -125,13 +125,15 @@ class FurnitureEnvRLWrapper:
         # Check if any envs have reached the max number of steps
         truncated = self.env.env_steps >= self.max_env_steps
 
+        done = terminated | truncated
+
         # Reset the envs that have reached the max number of steps or got reward
-        if torch.any(done := terminated | truncated):
+        if self.reset_on_success and torch.any(done):
             obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 
-        return obs, reward, terminated, truncated, info
+        return obs, reward, done, info
 
     def increment_randomness(self):
         self.env.increment_randomness()

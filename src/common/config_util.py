@@ -14,6 +14,7 @@ def merge_base_bc_config_with_root_config(cfg: DictConfig, base_cfg: DictConfig)
     """
 
     # put all things relating to base policy in "base_policy" key
+    OmegaConf.set_struct(cfg, False)
     OmegaConf.update(cfg, "base_policy", base_cfg, merge=True)
 
     # "actor" expected to have things populated that we only populate during BC training
@@ -21,9 +22,14 @@ def merge_base_bc_config_with_root_config(cfg: DictConfig, base_cfg: DictConfig)
 
     # instantiating the residual policy with "base_cfg", we need to bring in the
     # residual policy INTO the base_cfg
-    OmegaConf.update(
-        base_cfg.actor, "residual_policy", cfg.actor.residual_policy, merge=True
-    )
+    if "residual_policy" in cfg.actor:
+        OmegaConf.update(
+            base_cfg.actor, "residual_policy", cfg.actor.residual_policy, merge=True
+        )
+
+    if "critic" in cfg:
+        OmegaConf.update(base_cfg.actor, "critic", cfg.critic, merge=True)
+        OmegaConf.update(base_cfg.actor, "init_logstd", cfg.init_logstd, merge=True)
 
     # good to know what data the BC was trained on + some cfg.data expected in Actor
     OmegaConf.update(cfg, "data", base_cfg.data)
