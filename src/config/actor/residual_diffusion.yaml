@@ -8,9 +8,9 @@ residual_policy:
   init_logstd: -2.0
   action_head_std: 0.0
   action_scale: 0.1
-  actor_hidden_size: 512
+  actor_hidden_size: 256
   actor_num_layers: 2
-  critic_hidden_size: 512
+  critic_hidden_size: 256
   critic_num_layers: 2
   actor_activation: ReLU
   critic_activation: ReLU
