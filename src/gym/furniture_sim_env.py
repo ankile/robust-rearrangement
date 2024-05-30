@@ -503,6 +503,7 @@ class FurnitureSimEnv(gym.Env):
         self.part_actor_idx_all = []  # global list of indices, when resetting all parts
         self.part_actor_idx_by_env = {}
         self.obstacle_actor_idxs_by_env = {}
+        self.bulb_actor_idxs_by_env = {}
         for env_idx in range(self.num_envs):
             self.franka_actor_idx_all.append(
                 self.isaac_gym.find_actor_index(
@@ -510,12 +511,16 @@ class FurnitureSimEnv(gym.Env):
                 )
             )
             self.part_actor_idx_by_env[env_idx] = []
+            self.bulb_actor_idxs_by_env[env_idx] = []
             for part in self.furnitures[env_idx].parts:
                 part_actor_idx = self.isaac_gym.find_actor_index(
                     self.envs[env_idx], part.name, gymapi.DOMAIN_SIM
                 )
                 self.part_actor_idx_all.append(part_actor_idx)
                 self.part_actor_idx_by_env[env_idx].append(part_actor_idx)
+
+                if part.name == "lamp_bulb":
+                    self.bulb_actor_idxs_by_env[env_idx].append(part_actor_idx)
 
             self.obstacle_actor_idxs_by_env[env_idx] = []
             for name in ["obstacle_front", "obstacle_right", "obstacle_left"]:
@@ -1636,6 +1641,9 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         else:
             raise ValueError("Invalid randomness level")
 
+        self.max_force_magnitude = 0
+        self.max_torque_magnitude = 0
+
         print(
             f"Max force magnitude: {self.max_force_magnitude} "
             f"Max torque magnitude: {self.max_torque_magnitude} "
@@ -1678,6 +1686,12 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         self.actor_idx_by_env = torch.cat(
             [obstacle_actor_idx_by_env, part_actor_idx_by_env], dim=1
+        )
+
+        self.bulb_actor_idx_by_env = torch.tensor(
+            [self.bulb_actor_idxs_by_env[i] for i in range(self.num_envs)],
+            device=self.device,
+            dtype=torch.int32,
         )
 
         self.parts_initial_pos = torch.zeros(
@@ -1749,8 +1763,8 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             force_mul = [25, 1, 1, 1, 1]
             torque_mul = [70, 1, 1, 1, 1]
         elif self.furniture_name == "lamp":
-            force_mul = [1, 1, 1]
-            torque_mul = [1, 1, 1]
+            force_mul = [8, 15, 30]
+            torque_mul = [16, 20, 60]
         elif self.furniture_name == "round_table":
             force_mul = [1, 1, 1]
             torque_mul = [1, 1, 1]
@@ -1828,8 +1842,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self._reset_parts_multiple(env_idxs)
         self.env_steps[env_idxs] = 0
 
-        self.refresh()
-
         # if we are using the lamp, get the reset pose and start setting the state
         if self.furniture_name == "lamp":
             for _ in range(10):
@@ -1841,6 +1853,8 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self._moving_bulbs = torch.tensor(
                 [False] * self.num_envs, dtype=torch.bool, device=self.device
             )
+
+        self.refresh()
 
         return self.get_observation()
 
@@ -2005,6 +2019,9 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ) * self.max_obstacle_offset
         obstacle_pos_offsets[..., 2] = 0.0  # Don't move the obstacle in the z direction
 
+        obstacle_pos_offsets[..., 0] = -0.03
+        obstacle_pos_offsets[..., 1] = 0.03
+
         self.root_pos[env_idxs.unsqueeze(1), self.obstacles_idx_list] = (
             self.obstacle_initial_pos.clone() + obstacle_pos_offsets
         )
@@ -2035,7 +2052,7 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ]
 
         # # Get the actor and rigid body indices for the parts in question
-        actor_idxs = self.actor_idx_by_env[env_idxs].view(-1)
+        actor_idxs = self.bulb_actor_idx_by_env[env_idxs].view(-1)
 
         # Update the sim state tensors
         self.isaac_gym.set_actor_root_state_tensor_indexed(
