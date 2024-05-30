@@ -31,18 +31,18 @@ def load_bc_actor(run_id: str, wt_type="best_success_rate", device="cuda"):
     return bc_actor
 
 
-def get_model_from_api_or_cached(run_id: str, wt_type: str):
+def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online"):
     cache_dir = os.environ.get("WANDB_CACHE_DIR", "./wandb_cache")
     cache_file = os.path.join(cache_dir, f"{run_id.replace('/', '-')}_{wt_type}.pkl")
 
-    if os.path.exists(cache_file):
+    if wandb_mode == "offline" and os.path.exists(cache_file):
         # Load the cached data from the file system
         with open(cache_file, "rb") as f:
             cfg, model_path = pickle.load(f)
     else:
         try:
             # Try to fetch the data using the Weights and Biases API
-            api = wandb.Api(overrides=dict(entity="robust-rearrangement"))
+            api = wandb.Api(overrides=dict(entity="robust-assembly"))
             run = api.run(run_id)
 
             cfg: DictConfig = OmegaConf.create(run.config)

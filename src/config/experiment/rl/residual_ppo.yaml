@@ -1,13 +1,15 @@
 # @package _global_
-base_policy:
+# base_policy:
   # wandb_id: ol-state-dr-low-1/6i7hupje
   # wt_type: best_success_rate
-  wandb_id: ol-state-dr-med-1/runs/otft0k6k
-  wt_type: "_1499.pt"
+  # wandb_id: ol-state-dr-med-1/runs/otft0k6k
+  # wt_type: "_1499.pt"
+  # wandb_id: ol-state-dr-med-1/9zjnzg4r
+  # wt_type: best_success_rate
 
 actor:
   residual_policy:
-    pretrained_wts: null
+    pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716951701__residual_ppo__ResidualPolicy__3992312234/eval_best.pt
 
 env:
   randomness: med

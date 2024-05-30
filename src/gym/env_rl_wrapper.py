@@ -223,6 +223,9 @@ class ResidualPolicyEnvWrapper:
         reward = reward.squeeze()
         done = done.squeeze()
 
+        if self.reward_normalizer is not None:
+            reward = self.reward_normalizer(reward)
+
         # Clip the obs
         obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
         obs["parts_poses"] = torch.clamp(obs["parts_poses"], -3, 3)
