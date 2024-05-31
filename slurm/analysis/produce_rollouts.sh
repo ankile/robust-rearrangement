@@ -21,6 +21,8 @@ rollout_suffix="rppo_2"
 
 wt_type="best_success_rate"
 
+git checkout main
+
 while true; do
     git checkout main
     python -m src.eval.evaluate_model --run-id $run_id --n-envs 32 \

@@ -124,6 +124,7 @@ class FurnitureSimEnv(gym.Env):
 
         self.assemble_idx = 0
         # Furniture for each environment (reward, reset).
+        self.furniture_name = furniture
         self.furnitures = [furniture_factory(furniture) for _ in range(num_envs)]
 
         if num_envs == 1:
@@ -427,6 +428,7 @@ class FurnitureSimEnv(gym.Env):
             self.isaac_gym.set_actor_dof_states(
                 env, franka_handle, default_dof_state, gymapi.STATE_ALL
             )
+
             # Add furniture parts.
             poses = []
             for part in self.furniture.parts:
@@ -463,6 +465,20 @@ class FurnitureSimEnv(gym.Env):
             [torch.tensor(self.part_idxs[part.name]) for part in self.furniture.parts],
             dim=0,
         ).T
+
+        if self.furniture_name == "lamp":
+            self.lamp_bulb_rb_indices = torch.stack(
+                [
+                    torch.tensor(self.part_idxs[part.name])
+                    for part in self.furniture.parts
+                    if part.name == "lamp_bulb"
+                ],
+                dim=0,
+            ).T
+
+            self.hand_bulb_pos_thresh = torch.tensor(
+                [0.03, 0.03, 0.03], dtype=torch.float32, device=self.device
+            )
         # Make a tensor that contains the RB indices of all the furniture parts.
         # Add a dimension for the part number to be compatible with the parts RB indices.
         self.obstacle_front_rb_indices = torch.tensor(
@@ -487,6 +503,7 @@ class FurnitureSimEnv(gym.Env):
         self.part_actor_idx_all = []  # global list of indices, when resetting all parts
         self.part_actor_idx_by_env = {}
         self.obstacle_actor_idxs_by_env = {}
+        self.bulb_actor_idxs_by_env = {}
         for env_idx in range(self.num_envs):
             self.franka_actor_idx_all.append(
                 self.isaac_gym.find_actor_index(
@@ -494,12 +511,16 @@ class FurnitureSimEnv(gym.Env):
                 )
             )
             self.part_actor_idx_by_env[env_idx] = []
+            self.bulb_actor_idxs_by_env[env_idx] = []
             for part in self.furnitures[env_idx].parts:
                 part_actor_idx = self.isaac_gym.find_actor_index(
                     self.envs[env_idx], part.name, gymapi.DOMAIN_SIM
                 )
                 self.part_actor_idx_all.append(part_actor_idx)
                 self.part_actor_idx_by_env[env_idx].append(part_actor_idx)
+
+                if part.name == "lamp_bulb":
+                    self.bulb_actor_idxs_by_env[env_idx].append(part_actor_idx)
 
             self.obstacle_actor_idxs_by_env[env_idx] = []
             for name in ["obstacle_front", "obstacle_right", "obstacle_left"]:
@@ -788,6 +809,41 @@ class FurnitureSimEnv(gym.Env):
 
         return gym.spaces.Dict(obs_dict)
 
+    def _handle_bulb_rest_pose(self):
+
+        # if we're not in lamp mode
+        if self.furniture_name != "lamp":
+            return False, None
+
+        # if we're already half way through the episode, let them all go
+        if torch.any(self.env_steps > (self.max_env_steps / 2)):
+            return False, None
+
+        # start with all envs
+        to_rest = torch.tensor(
+            [True] * self.num_envs, dtype=torch.bool, device=self.device
+        )
+
+        # first, un-check all those that are already moving
+        to_rest = to_rest & ~self._moving_bulbs
+
+        # next, check the distance between the hand poses and the bulb poses
+        lb_pos = self.rb_states[self.lamp_bulb_rb_indices, :3].view(self.num_envs, 3)
+        hand_pos = self.rb_states[self.ee_idxs, :3].view(self.num_envs, 3)
+        hand_bulb_close = is_similar_pos(
+            lb_pos, hand_pos, pos_threshold=self.hand_bulb_pos_thresh
+        )
+        to_rest = to_rest & ~hand_bulb_close
+
+        # finally, track all those that are now moving
+        env_idx_to_rest = torch.where(to_rest)[0]
+        self._moving_bulbs[torch.where(~to_rest)[0]] = True
+
+        # only return True if we have some that need to rest
+        if env_idx_to_rest.shape[0] > 0:
+            return True, env_idx_to_rest
+        return False, None
+
     @torch.no_grad()
     def step(self, action):
         """Robot takes an action.
@@ -907,7 +963,13 @@ class FurnitureSimEnv(gym.Env):
             self.sim, gymtorch.unwrap_tensor(torque_action)
         )
 
+        # specific to lamp task (will be ignored if not in "lamp" task)
+        any_bulbs_unsettled, rest_bulb_env_idxs = self._handle_bulb_rest_pose()
         for _ in range(self.sim_steps):
+
+            if any_bulbs_unsettled:
+                self._set_bulb_poses(env_idxs=rest_bulb_env_idxs)
+
             self.isaac_gym.simulate(self.sim)
 
         self.isaac_gym.fetch_results(self.sim, True)
@@ -1576,9 +1638,14 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self.max_force_magnitude = 0.75
             self.max_torque_magnitude = 0.015
             self.max_obstacle_offset = 0.06
-            self.franka_joint_rand_lim_deg = np.radians(15)
+            self.franka_joint_rand_lim_deg = np.radians(13)
         else:
             raise ValueError("Invalid randomness level")
+
+        # Uncomment these to do tuning of initial parts positions
+        # self.max_force_magnitude = 0
+        # self.max_torque_magnitude = 0
+        # self.max_obstacle_offset = 0
 
         print(
             f"Max force magnitude: {self.max_force_magnitude} "
@@ -1598,6 +1665,16 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             self.obstacle_handles, device=self.device, dtype=torch.int32
         )
 
+        self.bulb_idx_list = torch.tensor(
+            [
+                self.parts_handles[part.name]
+                for part in self.furniture.parts
+                if part.name == "lamp_bulb"
+            ],
+            device=self.device,
+            dtype=torch.int32,
+        ).reshape(self.num_envs, -1)
+
         part_actor_idx_by_env = torch.tensor(
             [self.part_actor_idx_by_env[i] for i in range(self.num_envs)],
             device=self.device,
@@ -1612,6 +1689,12 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         self.actor_idx_by_env = torch.cat(
             [obstacle_actor_idx_by_env, part_actor_idx_by_env], dim=1
+        )
+
+        self.bulb_actor_idx_by_env = torch.tensor(
+            [self.bulb_actor_idxs_by_env[i] for i in range(self.num_envs)],
+            device=self.device,
+            dtype=torch.int32,
         )
 
         self.parts_initial_pos = torch.zeros(
@@ -1679,24 +1762,71 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
                 part_idxs = self.part_idxs[part.name]
                 self.rigid_body_index_by_env[env_idx, i] = part_idxs[env_idx]
 
-        self.force_multiplier = torch.tensor(
-            [25, 1, 1, 1, 1], device=self.device
-        ).unsqueeze(-1)
-        self.torque_multiplier = torch.tensor(
-            [70, 1, 1, 1, 1], device=self.device
-        ).unsqueeze(-1)
-
-        # Book keeping related to vectorized reward computation
-        self.already_assembled = torch.zeros(
-            (self.num_envs,),
-            dtype=torch.bool,
-            device=self.device,
+        if self.furniture_name == "one_leg":
+            force_mul = [25, 1, 1, 1, 1]
+            torque_mul = [70, 1, 1, 1, 1]
+        elif self.furniture_name == "lamp":
+            force_mul = [8, 15, 30]
+            torque_mul = [16, 20, 60]
+        elif self.furniture_name == "round_table":
+            force_mul = [30, 4, 20]
+            torque_mul = [60, 4, 10]
+        elif self.furniture_name == "square_table":
+            force_mul = [25, 1, 1, 1, 1]
+            torque_mul = [70, 1, 1, 1, 1]
+        else:
+            raise ValueError(
+                f"Have not set up the random force/torque multipliers for furniture {self.furniture_name}"
+            )
+        # TODO - something like this (tricky to get right due to one_leg/square_table inheritance)
+        # force_mul = [
+        #     config["furniture"][self.furniture_name][part.name]["rand_force_multiplier"]
+        #     for part in self.furniture.parts
+        # ]
+        # torque_mul = [
+        #     config["furniture"][self.furniture_name][part.name][
+        #         "rand_torque_multiplier"
+        #     ]
+        #     for part in self.furniture.parts
+        # ]
+        print(f"Force multiplier: {force_mul}")
+        print(f"Torque multiplier: {torque_mul}")
+        self.force_multiplier = torch.tensor(force_mul, device=self.device).unsqueeze(
+            -1
+        )
+        self.torque_multiplier = torch.tensor(torque_mul, device=self.device).unsqueeze(
+            -1
         )
 
-        self.pair_to_assemble = (0, 4)
+        # Book keeping related to vectorized reward computation
+        if self.furniture_name == "one_leg":
+            self.pairs_to_assemble = [(0, 4)]
+        elif self.furniture_name == "lamp":
+            self.pairs_to_assemble = [(0, 1), (0, 2)]
+        elif self.furniture_name == "round_table":
+            self.pairs_to_assemble = [(0, 1), (1, 2)]
+        elif self.furniture_name == "square_table":
+            self.pairs_to_assemble = [(0, 1), (0, 2), (0, 3), (0, 4)]
+        else:
+            raise ValueError(
+                f"Have not set up the pairs to assemble for furniture {self.furniture_name}"
+            )
 
-        self.assembled_rel_poses = torch.tensor(
-            np.array(self.furniture.assembled_rel_poses[self.pair_to_assemble]),
+        rel_poses_arr = np.asarray(
+            [
+                self.furniture.assembled_rel_poses[pair_key]
+                for pair_key in self.pairs_to_assemble
+            ],
+        )
+
+        # Size (num_pairs) x (num_poses) x 4 x 4
+        self.assembled_rel_poses = (
+            torch.from_numpy(rel_poses_arr).float().to(self.device)
+        )
+
+        self.already_assembled = torch.zeros(
+            (self.num_envs, len(self.pairs_to_assemble)),
+            dtype=torch.bool,
             device=self.device,
         )
 
@@ -1714,6 +1844,18 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self._reset_frankas(env_idxs)
         self._reset_parts_multiple(env_idxs)
         self.env_steps[env_idxs] = 0
+
+        # if we are using the lamp, get the reset pose and start setting the state
+        if self.furniture_name == "lamp":
+            for _ in range(10):
+                self.refresh()
+            lb_poses = self.rb_states[self.lamp_bulb_rb_indices, :7]
+            self.lb_rest_poses = lb_poses.reshape(self.num_envs, 7)
+
+            self._set_bulb_poses(env_idxs=env_idxs)
+            self._moving_bulbs = torch.tensor(
+                [False] * self.num_envs, dtype=torch.bool, device=self.device
+            )
 
         self.refresh()
 
@@ -1746,31 +1888,52 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         num_parts = parts_poses.shape[1] // 7
         parts_poses = parts_poses.view(self.num_envs, num_parts, 7)
 
-        # Compute the relative pose for the specific pair of parts that should be assembled
-        pose_mat1 = pose_from_vector(parts_poses[:, self.pair_to_assemble[0]])
-        pose_mat2 = pose_from_vector(parts_poses[:, self.pair_to_assemble[1]])
-        rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
-
-        similar_rot = is_similar_rot(
-            rel_pose[..., :3, :3],
-            self.assembled_rel_poses[:, None, :3, :3],
-            self.furniture.ori_bound,
+        # Compute the rewards based on the newly assembled parts
+        newly_assembled_mask = torch.zeros(
+            (self.num_envs, len(self.pairs_to_assemble)),
+            dtype=torch.bool,
+            device=self.device,
         )
-        similar_pos = is_similar_pos(
-            rel_pose[..., :3, 3],
-            self.assembled_rel_poses[:, None, :3, 3],
-            torch.tensor(self.furniture.assembled_pos_threshold, device=self.device),
-        )
-        assembled_mask = similar_rot & similar_pos
+        # Loop over parts to be assembled (relatively small number)
+        for i, pair in enumerate(self.pairs_to_assemble):
+            # Compute the relative pose for the specific pair of parts that should be assembled
+            pose_mat1 = pose_from_vector(parts_poses[:, pair[0]])
+            pose_mat2 = pose_from_vector(parts_poses[:, pair[1]])
+            rel_pose = torch.matmul(torch.inverse(pose_mat1), pose_mat2)
 
-        # Check if the parts are newly assembled
-        newly_assembled_mask = assembled_mask.any(dim=0) & ~self.already_assembled
+            # Leading dimension is for checking if rel pose matches on of many possible assembled poses
+            if pair in self.furniture.position_only:
+                similar_rot = torch.tensor([True] * self.num_envs, device=self.device)
+            else:
+                similar_rot = is_similar_rot(
+                    rel_pose[..., :3, :3],
+                    self.assembled_rel_poses[i, :, None, :3, :3],
+                    self.furniture.ori_bound,
+                )
+            similar_pos = is_similar_pos(
+                rel_pose[..., :3, 3],
+                self.assembled_rel_poses[i, :, None, :3, 3],
+                torch.tensor(
+                    self.furniture.assembled_pos_threshold, device=self.device
+                ),
+            )
+            assembled_mask = similar_rot & similar_pos
 
-        # Update the already_assembled tensor
-        self.already_assembled |= newly_assembled_mask
+            # Check if the parts are newly assembled (.any() over the multiple possibly matched assembled posees)
+            newly_assembled_mask[:, i] = (
+                assembled_mask.any(dim=0) & ~self.already_assembled[:, i]
+            )
+
+            # Update the already_assembled tensor
+            self.already_assembled[:, i] |= newly_assembled_mask[:, i]
 
         # Compute the rewards based on the newly assembled parts
-        rewards = newly_assembled_mask.float().unsqueeze(-1)
+        rewards = newly_assembled_mask.any(dim=1).float().unsqueeze(-1)
+
+        # print(f"Already assembled: {self.already_assembled.sum(dim=1)}")
+        # print(
+        #     f"Done envs: {torch.where(self.already_assembled.sum(dim=1) == len(self.pairs_to_assemble))[0]}"
+        # )
 
         if self.manual_done and (rewards == 1).any():
             return print("Part assembled!")
@@ -1780,7 +1943,9 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
     def _done(self):
         if self.manual_done:
             return torch.zeros((self.num_envs, 1), dtype=torch.bool, device=self.device)
-        return (self.already_assembled == 1).unsqueeze(1)
+        return (
+            self.already_assembled.sum(dim=1) == len(self.pairs_to_assemble)
+        ).unsqueeze(1)
 
     @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
@@ -1856,13 +2021,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         assert success, "Failed to set franka target"
 
     def _reset_part_poses(self, env_idxs: torch.Tensor):
-        # Reset the parts to the initial pose
-        self.root_pos[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.parts_initial_pos.clone()
-        )
-        self.root_quat[env_idxs.unsqueeze(1), self.parts_idx_list] = (
-            self.parts_initial_ori.clone()
-        )
 
         # Find the position we want to place the obstacle at here
         # We randomize the obstacle here because we want it fixed and don't apply forces to it later
@@ -1872,12 +2030,49 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         ) * self.max_obstacle_offset
         obstacle_pos_offsets[..., 2] = 0.0  # Don't move the obstacle in the z direction
 
+        # Uncomment these to do tuning of initial parts positions
+        # obstacle_pos_offsets[..., 0] = -0.06
+        # obstacle_pos_offsets[..., 1] = -0.06
+
+        # Reset the parts to the initial pose
+        self.root_pos[env_idxs.unsqueeze(1), self.parts_idx_list] = (
+            self.parts_initial_pos.clone()  # + obstacle_pos_offsets
+        )
+        self.root_quat[env_idxs.unsqueeze(1), self.parts_idx_list] = (
+            self.parts_initial_ori.clone()
+        )
+
         self.root_pos[env_idxs.unsqueeze(1), self.obstacles_idx_list] = (
             self.obstacle_initial_pos.clone() + obstacle_pos_offsets
         )
 
         # # Get the actor and rigid body indices for the parts in question
         actor_idxs = self.actor_idx_by_env[env_idxs].view(-1)
+
+        # Update the sim state tensors
+        self.isaac_gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.root_tensor),
+            gymtorch.unwrap_tensor(actor_idxs),
+            len(actor_idxs),
+        )
+
+    def _set_bulb_poses(self, env_idxs: torch.Tensor):
+        if env_idxs.shape[0] == 0:
+            print(
+                f"[Warning] Tried to set bulb poses with no environment inds! Something is wrong.. "
+            )
+            return
+        # Reset the parts to the initial pose
+        self.root_pos[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
+            env_idxs, :3
+        ]
+        self.root_quat[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
+            env_idxs, 3:7
+        ]
+
+        # # Get the actor and rigid body indices for the parts in question
+        actor_idxs = self.bulb_actor_idx_by_env[env_idxs].view(-1)
 
         # Update the sim state tensors
         self.isaac_gym.set_actor_root_state_tensor_indexed(
@@ -2072,7 +2267,6 @@ def pose_from_vector(vec):
     return pose_matrix
 
 
-@torch.jit.script
 def cosine_sim(w, v):
     # Compute the dot product and norms along the last dimension
     dot_product = torch.sum(w * v, dim=-1)
