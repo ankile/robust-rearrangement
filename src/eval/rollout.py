@@ -11,6 +11,7 @@ from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from typing import Dict, Union
+from pathlib import Path
 
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
@@ -229,7 +230,7 @@ def calculate_success_rate(
     rollout_max_steps: int,
     epoch_idx: int,
     discount: float = 0.99,
-    rollout_save_dir: Union[str, None] = None,
+    rollout_save_dir: Union[Path, None] = None,
     save_rollouts_to_wandb: bool = False,
     save_failures: bool = False,
     n_parts_assemble: Union[int, None] = None,
@@ -237,7 +238,8 @@ def calculate_success_rate(
     resize_video: bool = True,
     n_steps_padding: int = 30,
     break_on_n_success: bool = False,
-    stop_after_n_success=0,
+    stop_after_n_success: int = 0,
+    record_first_state_only: bool = False,
 ) -> RolloutStats:
 
     pbar = SuccessTqdm(
@@ -307,6 +309,11 @@ def calculate_success_rate(
         for rewards in all_rewards
     ]
 
+    if record_first_state_only:
+        first_robot_states = []
+        first_part_poses = []
+        first_success = []
+
     print(f"Checking if we should save rollouts (rollout_save_dir: {rollout_save_dir})")
     if rollout_save_dir is not None or save_rollouts_to_wandb:
         have_img_obs = len(all_imgs1) > 0
@@ -320,6 +327,18 @@ def calculate_success_rate(
         ):
             # Get the rewards and images for this rollout
             robot_states = tensordict_to_list_of_dicts(all_robot_states[rollout_idx])
+            actions = all_actions[rollout_idx].numpy()
+            rewards = all_rewards[rollout_idx].numpy()
+            parts_poses = all_parts_poses[rollout_idx].numpy()
+            success = all_success[rollout_idx].item()
+            furniture = env.furniture_name
+
+            if record_first_state_only:
+                first_robot_states.append(robot_states[0])
+                first_part_poses.append(parts_poses[0])
+                first_success.append(success)
+                continue
+
             video1 = (
                 all_imgs1[rollout_idx].numpy()
                 if have_img_obs
@@ -334,11 +353,6 @@ def calculate_success_rate(
                     (len(robot_states), 2, 2, 3), dtype=np.uint8
                 )  # dummy video
             )
-            actions = all_actions[rollout_idx].numpy()
-            rewards = all_rewards[rollout_idx].numpy()
-            parts_poses = all_parts_poses[rollout_idx].numpy()
-            success = all_success[rollout_idx].item()
-            furniture = env.furniture_name
 
             # Number of steps until success, i.e., the index of the final reward received
             n_steps = (
@@ -386,6 +400,16 @@ def calculate_success_rate(
                     rollout_save_dir=rollout_save_dir,
                     compress_pickles=compress_pickles,
                 )
+
+        if record_first_state_only:
+            first_state_npz = str(rollout_save_dir / "first_states.npz")
+            print(f"Saving first states to: {first_state_npz}")
+            np.savez(
+                first_state_npz,
+                robot_states=np.asarray(first_robot_states),
+                part_poses=np.asarray(first_part_poses),
+                success=np.asarray(first_success),
+            )
 
         if save_rollouts_to_wandb:
             # Sort the table rows by return (highest at the top)

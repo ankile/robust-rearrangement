@@ -190,6 +190,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--stop-after-n-success", type=int, default=0)
     parser.add_argument("--break-on-n-success", action="store_true")
+    parser.add_argument("--record-for-coverage", action="store_true")
 
     parser.add_argument("--save-rollouts-suffix", type=str, default=None)
     # Parse the arguments
@@ -389,6 +390,7 @@ if __name__ == "__main__":
                     resize_video=not args.store_full_resolution_video,
                     break_on_n_success=args.break_on_n_success,
                     stop_after_n_success=args.stop_after_n_success,
+                    record_first_state_only=args.record_for_coverage,
                 )
 
                 if args.store_video_wandb:
