@@ -1907,12 +1907,12 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             else:
                 similar_rot = is_similar_rot(
                     rel_pose[..., :3, :3],
-                    self.assembled_rel_poses[i, :, :3, :3],
+                    self.assembled_rel_poses[i, :, None, :3, :3],
                     self.furniture.ori_bound,
                 )
             similar_pos = is_similar_pos(
                 rel_pose[..., :3, 3],
-                self.assembled_rel_poses[i, :, :3, 3],
+                self.assembled_rel_poses[i, :, None, :3, 3],
                 torch.tensor(
                     self.furniture.assembled_pos_threshold, device=self.device
                 ),
@@ -1930,6 +1930,11 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         # Compute the rewards based on the newly assembled parts
         rewards = newly_assembled_mask.any(dim=1).float().unsqueeze(-1)
 
+        # print(f"Already assembled: {self.already_assembled.sum(dim=1)}")
+        # print(
+        #     f"Done envs: {torch.where(self.already_assembled.sum(dim=1) == len(self.pairs_to_assemble))[0]}"
+        # )
+
         if self.manual_done and (rewards == 1).any():
             return print("Part assembled!")
 
@@ -1938,7 +1943,9 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
     def _done(self):
         if self.manual_done:
             return torch.zeros((self.num_envs, 1), dtype=torch.bool, device=self.device)
-        return (self.already_assembled == 1).unsqueeze(1)
+        return (
+            self.already_assembled.sum(dim=1) == len(self.pairs_to_assemble)
+        ).unsqueeze(1)
 
     @torch.no_grad()
     def step(self, action: torch.Tensor, sample_perturbations: bool = False):
