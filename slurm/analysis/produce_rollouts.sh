@@ -21,6 +21,8 @@ rollout_suffix="rppo_2"
 
 wt_type="best_success_rate"
 
+git checkout main
+
 while true; do
     python -m src.eval.evaluate_model --run-id $run_id --n-envs 32 \
         --n-rollouts 32 -f one_leg --if-exists append --max-rollout-steps 750 --controller diffik \

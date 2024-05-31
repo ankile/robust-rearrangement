@@ -1824,8 +1824,9 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             torch.from_numpy(rel_poses_arr).float().to(self.device)
         )
 
-        self.assembled_rel_poses = torch.tensor(
-            np.array(self.furniture.assembled_rel_poses[self.pair_to_assemble]),
+        self.already_assembled = torch.zeros(
+            (self.num_envs, len(self.pairs_to_assemble)),
+            dtype=torch.bool,
             device=self.device,
         )
 
@@ -2259,7 +2260,6 @@ def pose_from_vector(vec):
     return pose_matrix
 
 
-@torch.jit.script
 def cosine_sim(w, v):
     # Compute the dot product and norms along the last dimension
     dot_product = torch.sum(w * v, dim=-1)
