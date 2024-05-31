@@ -11,8 +11,8 @@ action_horizon: 8
 pred_horizon: 32
 obs_horizon: 1
 
-furniture: one_leg
-randomness: [med, med_perturb]
+furniture: ???
+randomness: ???
 demo_source: teleop
 
 early_stopper:
@@ -32,5 +32,5 @@ rollout:
   randomness: med
 
 wandb:
-  project: ol-state-dr-med-1
-  entity: robust-rearrangement
+  project: ???
+  entity: robust-assembly

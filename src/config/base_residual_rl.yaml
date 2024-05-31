@@ -6,7 +6,7 @@ torch_deterministic: false
 headless: true
 reset_on_failure: false
 reset_every_iteration: true
-reset_on_success: false
+reset_on_success: true
 eval_interval: 5
 eval_first: true
 checkpoint_interval: 10
@@ -36,11 +36,11 @@ learning_rate_actor: 3e-4
 learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 8
+  warmup_steps: 5
 
 # Residual specific arguments
 residual_l1: 0.0
-residual_l2: 0.01
+residual_l2: 0.0
 
 # Algorithm specific arguments
 discount: 0.999
@@ -54,7 +54,7 @@ ent_coef: 0.0
 vf_coef: 1.0
 max_grad_norm: 1.0
 target_kl: 0.1
-n_iterations_train_only_value: 0
+n_iterations_train_only_value: 5
 
 # Calculate the batch size as the data collection steps times the number of environments
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}

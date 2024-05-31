@@ -404,8 +404,13 @@ if __name__ == "__main__":
         print(f"Using random seed: {args.random_seed}")
         random.seed(args.random_seed)
         random.shuffle(pickle_paths)
-
-    pickle_paths = pickle_paths[args.offset : args.offset + args.max_files]
+    start = args.offset
+    end = (
+        args.offset + args.max_files
+        if args.max_files is not None
+        else len(pickle_paths)
+    )
+    pickle_paths = pickle_paths[start:end]
 
     print(f"Found {len(pickle_paths)} pickle files")
 
