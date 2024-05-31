@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=12_mlp_lg_ch_low
+#SBATCH --job-name=2_rt_mlp_sm_ch_low
 
 python -m src.train.bc +experiment=state/mlp_sm_ch \
     randomness='[low,low_perturb]' \
