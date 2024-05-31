@@ -753,19 +753,32 @@ def main():
     sim_steps = 1
     print(f"Sim steps: {sim_steps}")
 
+    prev_goal_pos = torch.tensor(
+        data["observations"][0]["robot_state"]["joint_positions"]
+    )
+
+    parts_prev_goal_pos = []
+    parts_prev_goal_ori = []
+    part_idx_offset = 1
+
+    fj1 = data["observations"][0]["robot_state"]["gripper_finger_1_pos"]
+    fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
+
     # Initialize robot state
     robot.set_dof_state(
         torch.concat(
             [
                 torch.tensor(data["observations"][0]["robot_state"]["joint_positions"]),
                 torch.from_numpy(
-                    np.array([data["observations"][0]["robot_state"]["gripper_width"]])
-                )
-                / 2,
+                    fj1.reshape(
+                        1,
+                    )
+                ).float(),
                 torch.from_numpy(
-                    np.array([data["observations"][0]["robot_state"]["gripper_width"]])
-                )
-                / 2,
+                    fj2.reshape(
+                        1,
+                    )
+                ).float(),
             ]
         ),
         torch.concat(
@@ -778,17 +791,6 @@ def main():
             ]
         ),
     )
-
-    prev_goal_pos = torch.tensor(
-        data["observations"][0]["robot_state"]["joint_positions"]
-    )
-
-    parts_prev_goal_pos = []
-    parts_prev_goal_ori = []
-    part_idx_offset = 1
-
-    fj1 = data["observations"][0]["robot_state"]["gripper_finger_1_pos"]
-    fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
 
     # initialize parts
     for i in range(5):
