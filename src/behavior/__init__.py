@@ -15,7 +15,7 @@ def get_actor(cfg: DictConfig, device) -> Actor:
         from src.behavior.mlp import MLPActor
 
         return MLPActor(
-            config=cfg,
+            cfg=cfg,
             device=device,
         )
 

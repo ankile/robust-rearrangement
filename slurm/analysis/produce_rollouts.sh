@@ -12,11 +12,12 @@
 
 # Make an infinite loop that runs the rollout script
 
-run_id="ol-state-dr-med-1/9zjnzg4r"
-rollout_suffix="bc_unet"
+# run_id="ol-state-dr-med-1/9zjnzg4r"
+# rollout_suffix="bc_unet"
 
 # run_id="residual-ppo-dr-med-1/6xmgqdiw"
-# rollout_suffix="rppo_1"
+run_id="residual-ppo-dr-med-1/h7dg0og4"
+rollout_suffix="rppo_2"
 
 wt_type="best_success_rate"
 

@@ -10,18 +10,17 @@
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=checkpoint_sweep
 
-
 # u0gf0sgx
 # run_id="ol-state-dr-low-1/u0gf0sgx"
+# randomness="low"
 
 # ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5, otft0k6k, 9zjnzg4r, l8avaysq
-run_id="ol-state-dr-med-1/l8avaysq"
-randomness="med"
+# run_id="ol-state-dr-med-1/l8avaysq"
+# randomness="med"
 
-# c24b6odm, zf8p0san
-# run_id="ol-state-dr-high-1/zf8p0san"
-# randomness="high"
-
+# c24b6odm, zf8p0san, 93sr48mc
+run_id="ol-state-dr-high-1/93sr48mc"
+randomness="high"
 
 root_dir=outputs
 

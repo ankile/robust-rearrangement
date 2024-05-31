@@ -13,7 +13,7 @@ from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
-from src.eval.eval_utils import load_eval_config, load_model_weights
+from src.eval.eval_utils import load_model_weights
 
 from typing import List
 from ipdb import set_trace as bp  # noqa
@@ -21,7 +21,7 @@ import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
-api = Api()
+api = Api(overrides=dict(entity="robust-assembly"))
 
 
 def validate_args(args: argparse.Namespace):
