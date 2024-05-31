@@ -6,13 +6,14 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import torch  # needs to be after isaac gym imports
 from omegaconf import OmegaConf
 from src.behavior.base import Actor  # noqa
+from src.behavior.diffusion import DiffusionPolicy  # noqa
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
-from src.eval.eval_utils import load_eval_config, load_model_weights
+from src.eval.eval_utils import load_model_weights
 
 from typing import List
 from ipdb import set_trace as bp  # noqa
@@ -20,7 +21,7 @@ import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
-api = Api()
+api = Api(overrides=dict(entity="robust-assembly"))
 
 
 def validate_args(args: argparse.Namespace):
@@ -53,11 +54,11 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     # Clear the cache to make sure we get the latest runs
     api.flush()
     if args.sweep_id:
-        runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
+        runs: List[Run] = list(api.sweep(args.sweep_id).runs)
     elif args.run_id:
-        runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
+        runs: List[Run] = [api.run(run_id) for run_id in args.run_id]
     elif args.project_id:
-        runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
+        runs: List[Run] = list(api.runs(args.project_id))
     else:
         raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
@@ -185,7 +186,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
-    parser.add_argument("--wt-type", type=str, default="test_loss")
+    parser.add_argument("--wt-type", type=str, default="best_success_rate")
+
+    parser.add_argument("--stop-after-n-success", type=int, default=0)
+    parser.add_argument("--break-on-n-success", action="store_true")
+
+    parser.add_argument("--save-rollouts-suffix", type=str, default=None)
     # Parse the arguments
     args = parser.parse_args()
 
@@ -317,36 +323,30 @@ if __name__ == "__main__":
                     f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}"
                 )
 
-                # # Create the config object with the project name
-                print(f"Fix me!!!")
-                config = load_eval_config(
-                    run=run,
-                    actor_name=(
-                        "residual_diffusion"
-                        if "actor" not in run.config
-                        else run.config["actor"]["name"]
-                    ),
-                    action_horizon=args.action_horizon,
-                )
-
-                if "predict_past_actions" not in config.actor:
-                    config.actor.predict_past_actions = True
-
-                if "confusion_loss_beta" not in config.actor:
-                    config.actor.confusion_loss_beta = 0.0
+                cfg = OmegaConf.create(run.config)
 
                 # Check that we didn't set the wrong action type above
-                assert config.control.control_mode == args.action_type, (
-                    f"Control mode in the config: {config.control.control_mode} "
+                assert cfg.control.control_mode == args.action_type, (
+                    f"Control mode in the config: {cfg.control.control_mode} "
                     f"does not match the action type: {args.action_type}"
                 )
 
-                print(OmegaConf.to_yaml(config))
+                print(OmegaConf.to_yaml(cfg))
 
                 # Make the actor
-                actor: Actor = get_actor(cfg=config, device=device)
+                actor: Actor = get_actor(cfg=cfg, device=device)
 
-                load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+                # Set the inference steps of the actor
+                if isinstance(actor, DiffusionPolicy):
+                    actor.inference_steps = 4
+
+                actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+
+                if actor is None:
+                    print(
+                        f"Skipping run: {run.name} as no weights for wt_type: {args.wt_type} was found"
+                    )
+                    continue
 
                 save_dir = (
                     trajectory_save_dir(
@@ -355,6 +355,7 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
+                        suffix=args.save_rollouts_suffix,
                         create=True,
                     )
                     if args.save_rollouts
@@ -380,12 +381,14 @@ if __name__ == "__main__":
                     n_rollouts=args.n_rollouts,
                     rollout_max_steps=rollout_max_steps,
                     epoch_idx=0,
-                    gamma=config.discount,
+                    discount=cfg.discount,
                     rollout_save_dir=save_dir,
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,
                     compress_pickles=args.compress_pickles,
                     resize_video=not args.store_full_resolution_video,
+                    break_on_n_success=args.break_on_n_success,
+                    stop_after_n_success=args.stop_after_n_success,
                 )
 
                 if args.store_video_wandb:

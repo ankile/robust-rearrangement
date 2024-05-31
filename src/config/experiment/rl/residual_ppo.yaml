@@ -1,0 +1,18 @@
+# @package _global_
+actor:
+  residual_policy:
+    pretrained_wts: /data/scratch/ankile/robust-rearrangement/models/1716951701__residual_ppo__ResidualPolicy__3992312234/eval_best.pt
+
+base_policy:
+  wandb_id: ol-state-dr-med-1/9zjnzg4r
+  wt_type: best_success_rate
+
+env:
+  randomness: med
+
+wandb:
+  entity: robust-assembly
+  project: residual-ppo-dr-${env.randomness}-1
+  mode: online
+
+debug: false

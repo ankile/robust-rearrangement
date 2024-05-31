@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - image/base
+  - override /actor: diffusion
+  - override /actor/diffusion_model: unet
+

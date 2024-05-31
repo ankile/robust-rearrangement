@@ -1,0 +1,49 @@
+actor_name: ${actor.name}
+
+defaults:
+  - _self_
+  - actor: diffusion
+  - vision_encoder: null
+  - early_stopper
+  - rollout: default
+  - training
+  - regularization
+  - data
+  - multitask: default
+
+hydra:
+  run:
+    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S.%f}"
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+predict_past_actions: false
+
+observation_type: ???
+furniture: ???
+environment: sim
+demo_source: teleop
+randomness: low
+discount: 0.999
+demo_outcome: success
+
+control:
+  act_rot_repr: rot_6d
+  control_mode: pos # delta, pos
+  controller: diffik  # diffik
+
+lr_scheduler:
+  name: cosine
+  warmup_steps: 500
+
+wandb:
+  project: ???
+  notes: null
+  mode: online
+  continue_run_id: null
+  name: null
+  # Call the osh service not every epoch
+  osh_sync_interval: 10
+
+dryrun: false

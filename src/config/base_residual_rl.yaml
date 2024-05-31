@@ -1,0 +1,75 @@
+defaults:
+- actor: residual_diffusion
+
+seed: null
+torch_deterministic: false
+headless: true
+reset_on_failure: false
+reset_every_iteration: true
+reset_on_success: false
+eval_interval: 5
+eval_first: true
+checkpoint_interval: 10
+truncation_as_done: true
+base_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
+
+observation_type: state
+
+total_timesteps: 500_000_000
+num_envs: 1024
+num_minibatches: 1
+update_epochs: 50
+num_env_steps: 700
+data_collection_steps: ${num_env_steps}
+
+env:
+  randomness: med
+
+actor:
+  residual_policy:
+    pretrained_wts: null
+
+# Learning rates
+learning_rate_actor: 3e-4
+learning_rate_critic: 5e-3
+lr_scheduler:
+  name: cosine
+  warmup_steps: 8
+
+# Residual specific arguments
+residual_l1: 0.0
+residual_l2: 0.01
+
+# Algorithm specific arguments
+discount: 0.999
+gae_lambda: 0.95
+norm_adv: true
+normalize_reward: true
+clip_reward: 5.0
+clip_coef: 0.2
+clip_vloss: false
+ent_coef: 0.0
+vf_coef: 1.0
+max_grad_norm: 1.0
+target_kl: 0.1
+n_iterations_train_only_value: 0
+
+# Calculate the batch size as the data collection steps times the number of environments
+batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
+minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
+num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
+
+control:
+  controller: diffik  # diffik
+  control_mode: pos
+  act_rot_repr: rot_6d
+
+wandb:
+  entity: robust-rearrangement
+  project: ???
+  mode: online
+  notes: null
+
+debug: false

@@ -358,7 +358,7 @@ if __name__ == "__main__":
         "--randomness",
         "-r",
         type=str,
-        choices=["low", "med", "med_perturb", "high"],
+        choices=["low", "low_perturb", "med", "med_perturb", "high", "high_perturb"],
         required=True,
         # default=None,
         # nargs="+",
@@ -377,12 +377,16 @@ if __name__ == "__main__":
         type=str,
         default=None,
     )
+    parser.add_argument("--output-suffix", type=str, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--max-files", type=int, default=None)
+    parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--randomize-order", action="store_true")
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--n-cpus", type=int, default=1)
     args = parser.parse_args()
+
+    assert not args.randomize_order or args.offset == 0, "Cannot offset with randomize"
 
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
@@ -401,8 +405,7 @@ if __name__ == "__main__":
         random.seed(args.random_seed)
         random.shuffle(pickle_paths)
 
-    if args.max_files is not None:
-        pickle_paths = pickle_paths[: args.max_files]
+    pickle_paths = pickle_paths[args.offset : args.offset + args.max_files]
 
     print(f"Found {len(pickle_paths)} pickle files")
 
@@ -413,7 +416,7 @@ if __name__ == "__main__":
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
-        suffix=args.suffix,
+        suffix=args.output_suffix,
     )
 
     print(f"Output path: {output_path}")
