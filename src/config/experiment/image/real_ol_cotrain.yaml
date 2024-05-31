@@ -40,5 +40,5 @@ early_stopper:
   patience: inf
 
 wandb:
-  entity: ankile
-  project: real-one_leg_cotrain-1
+  entity: robust-assembly
+  project: real-one_leg-cotrain-1
