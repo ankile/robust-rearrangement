@@ -3,7 +3,7 @@
 #SBATCH -p xeon-g6-volta
 #SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
-#SBATCH --job-name=real_ol_cotrain_trans
+#SBATCH --job-name=4_r_ol_ct_cf0001
 #SBATCH -c 20
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
