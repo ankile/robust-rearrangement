@@ -85,7 +85,7 @@ def main(cfg: DictConfig):
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    if cfg.data.data_paths_override is not None:
+    if cfg.data.data_paths_override is None:
         data_path = get_processed_paths(
             controller=to_native(cfg.control.controller),
             domain=to_native(cfg.data.environment),
@@ -96,7 +96,7 @@ def main(cfg: DictConfig):
             suffix=to_native(cfg.data.suffix),
         )
     else:
-        data_path = path_override(cfg.data.data_paths)
+        data_path = path_override(cfg.data.data_paths_override)
 
     print(f"Using data from {data_path}")
 
