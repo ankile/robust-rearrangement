@@ -9,7 +9,7 @@ api = wandb.Api()
 from ipdb import set_trace as bp
 
 # Specify the path to the folder containing the CSV files
-csv_path = "/data/scratch/ankile/robust-rearrangement/outputs/rt-state-dr-low-1/99ao7drw_results.csv"
+csv_path = "/data/scratch/ankile/robust-rearrangement/outputs/ol-state-dr-high-1/c24b6odm_results.csv"
 
 # Initialize variables to store the best weight, its success rate, and the corresponding run ID
 

@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=00-04:00
+#SBATCH --time=00-02:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=produce_rollouts
 
