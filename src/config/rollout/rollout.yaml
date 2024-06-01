@@ -9,4 +9,3 @@ save_failures: false
 randomness: low
 furniture: ${furniture}
 n_parts_assemble: null
-
