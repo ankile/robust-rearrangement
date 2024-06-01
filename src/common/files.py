@@ -119,6 +119,15 @@ def get_processed_paths(
     return paths
 
 
+def path_override(
+    paths: List[Path],
+) -> List[Path]:
+
+    root = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
+    paths = [root / path for path in paths]
+    return paths
+
+
 def add_glob_part(paths, part) -> List[Path]:
     if part is None:
         if paths[0].parts[-1] == "**":

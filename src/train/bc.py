@@ -26,7 +26,7 @@ from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_to_device
 from torch.utils.data import random_split, DataLoader
 from src.common.earlystop import EarlyStopper
-from src.common.files import get_processed_paths
+from src.common.files import get_processed_paths, path_override
 from src.models.ema import SwitchEMA
 
 from gym import logger
@@ -85,15 +85,18 @@ def main(cfg: DictConfig):
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
 
-    data_path = get_processed_paths(
-        controller=to_native(cfg.control.controller),
-        domain=to_native(cfg.data.environment),
-        task=to_native(cfg.data.furniture),
-        demo_source=to_native(cfg.data.demo_source),
-        randomness=to_native(cfg.data.randomness),
-        demo_outcome=to_native(cfg.data.demo_outcome),
-        suffix=to_native(cfg.data.suffix),
-    )
+    if cfg.data.data_paths_override is not None:
+        data_path = get_processed_paths(
+            controller=to_native(cfg.control.controller),
+            domain=to_native(cfg.data.environment),
+            task=to_native(cfg.data.furniture),
+            demo_source=to_native(cfg.data.demo_source),
+            randomness=to_native(cfg.data.randomness),
+            demo_outcome=to_native(cfg.data.demo_outcome),
+            suffix=to_native(cfg.data.suffix),
+        )
+    else:
+        data_path = path_override(cfg.data.data_paths)
 
     print(f"Using data from {data_path}")
 
