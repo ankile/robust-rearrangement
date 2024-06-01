@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
+from src.eval.eval_utils import load_model_weights
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
@@ -226,7 +227,7 @@ def main(cfg: DictConfig):
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
         name=cfg.wandb.name,
-        resume=cfg.wandb.continue_run_id is not None,
+        resume=cfg.wandb.continue_run_id or "must",
         project=cfg.wandb.project,
         entity=cfg.wandb.get("entity", "ankile"),
         config=config_dict,
@@ -237,7 +238,11 @@ def main(cfg: DictConfig):
     if cfg.wandb.continue_run_id is not None:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-    bp()
+        bp()
+        cfg.training.start_epoch = run.summary.get("epoch", 0)
+
+        # Load the weights from the run
+        actor = load_model_weights(run, actor, wt_type="best_test_loss", device=device)
 
     # Print the run name and storage location
     print(f"Run name: {run.name}")
