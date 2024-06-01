@@ -227,7 +227,7 @@ def main(cfg: DictConfig):
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
         name=cfg.wandb.name,
-        resume=cfg.wandb.continue_run_id or "must",
+        resume=None if cfg.wandb.continue_run_id is None else "must",
         project=cfg.wandb.project,
         entity=cfg.wandb.get("entity", "ankile"),
         config=config_dict,
