@@ -12,4 +12,5 @@ python -m src.train.bc +experiment=state/diff_unet \
     furniture=lamp \
     rollout.max_steps=1000 \
     wandb.project=lp-state-dr-med-1 \
+    wandb.mode=offline \
     dryrun=false

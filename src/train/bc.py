@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
-from src.eval.eval_utils import load_model_weights
+from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
 from src.gym.furniture_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
@@ -238,11 +238,15 @@ def main(cfg: DictConfig):
     if cfg.wandb.continue_run_id is not None:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        bp()
         cfg.training.start_epoch = run.summary.get("epoch", 0)
 
+        run_id = run.project + "/" + run.id
+
         # Load the weights from the run
-        actor = load_model_weights(run, actor, wt_type="best_test_loss", device=device)
+        _, wts = get_model_from_api_or_cached(run_id, "best_test_loss")
+
+        actor.load_state_dict(torch.load(wts))
+        print(f"Loaded weights from run {run_id}")
 
     # Print the run name and storage location
     print(f"Run name: {run.name}")
