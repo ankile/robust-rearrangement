@@ -21,7 +21,7 @@ early_stopper:
 training:
   batch_size: 256
   steps_per_epoch: -1
-  checkpoint_interval: 100
+  checkpoint_interval: 50
   num_epochs: 5000
 
 wandb:

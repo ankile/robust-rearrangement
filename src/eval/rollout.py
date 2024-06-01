@@ -141,10 +141,10 @@ def rollout(
         obs = env.reset()
         actor.reset()
 
-    if env.furniture_name == "lamp":
-        # Before we start, let the environment settle by doing nothing for 5 second
-        for _ in range(50):
-            obs, reward, done, _ = env.noop()
+    # if env.furniture_name == "lamp":
+    #     # Before we start, let the environment settle by doing nothing for 5 second
+    #     for _ in range(50):
+    #         obs = env.noop()
 
     video_obs = deepcopy(obs)
 

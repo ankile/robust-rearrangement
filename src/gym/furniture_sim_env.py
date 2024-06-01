@@ -1673,7 +1673,11 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             ],
             device=self.device,
             dtype=torch.int32,
-        ).reshape(self.num_envs, -1)
+        )
+
+        # bp()
+
+        # self.bulb_idx_list = self.bulb_idx_list.reshape(self.num_envs, -1)
 
         part_actor_idx_by_env = torch.tensor(
             [self.part_actor_idx_by_env[i] for i in range(self.num_envs)],
@@ -2064,12 +2068,11 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             )
             return
         # Reset the parts to the initial pose
-        self.root_pos[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
-            env_idxs, :3
-        ]
-        self.root_quat[env_idxs.unsqueeze(1), self.bulb_idx_list] = self.lb_rest_poses[
-            env_idxs, 3:7
-        ]
+
+        # bp()
+        env_idxs = env_idxs.unsqueeze(1)
+        self.root_pos[env_idxs, self.bulb_idx_list] = self.lb_rest_poses[env_idxs, :3]
+        self.root_quat[env_idxs, self.bulb_idx_list] = self.lb_rest_poses[env_idxs, 3:7]
 
         # # Get the actor and rigid body indices for the parts in question
         actor_idxs = self.bulb_actor_idx_by_env[env_idxs].view(-1)

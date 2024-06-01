@@ -6,9 +6,10 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=00-4:00
+#SBATCH --time=0-02:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=checkpoint_sweep
+
 
 # u0gf0sgx
 # run_id="ol-state-dr-low-1/u0gf0sgx"
@@ -18,17 +19,22 @@
 # run_id="ol-state-dr-med-1/l8avaysq"
 # randomness="med"
 
-# c24b6odm, zf8p0san, 93sr48mc
-# run_id="ol-state-dr-high-1/93sr48mc"
+# c24b6odm, zf8p0san, 93sr48mc, rwnni8cs
+# run_id="ol-state-dr-high-1/rwnni8cs"
 # randomness="high"
 
-# 9s7hrl4i, nv48q2hd
-run_id="rt-state-dr-low-1/nv48q2hd"
+
+# 9s7hrl4i, nv48q2hd, ub3omf25, 99ao7drw
+run_id="rt-state-dr-low-1/99ao7drw"
 randomness="low"
+
+# one_leg, round_table
 task="round_table"
 
-root_dir=outputs
+# 750, 1000
+timesteps=1000
 
+root_dir=outputs
 folder=$(dirname "$root_dir/$run_id")
 
 if [ ! -d "$folder" ]; then
@@ -43,7 +49,7 @@ for ((i=99; i<=4999; i+=100)); do
     wt_type="_$i.pt"
     
     output=$(python -m src.eval.evaluate_model --run-id "$run_id" --n-envs 128 --n-rollouts 128 \
-        -f "$task" --if-exists append --max-rollout-steps 700 --controller diffik --use-new-env \
+        -f "$task" --if-exists append --max-rollout-steps $timesteps --controller diffik --use-new-env \
         --action-type pos --observation-space state --randomness $randomness --wt-type "$wt_type")
     
     success_rate=$(echo "$output" | grep -oP "Success rate: \K[\d.]+")

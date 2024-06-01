@@ -8,12 +8,12 @@
 #SBATCH --mem=64GB
 #SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=1_rt_unet_lg_low
+#SBATCH --job-name=3_lp_tran_lg_med
 
-python -m src.train.bc +experiment=state/diff_unet \
-    randomness='[low,low_perturb]' \
-    rollout.randomness=low \
-    furniture=round_table \
+python -m src.train.bc +experiment=state/diff_tran \
+    randomness='[med,med_perturb]' \
+    rollout.randomness=med \
+    furniture=lamp \
     rollout.max_steps=1000 \
-    wandb.project=rt-state-dr-low-1 \
+    wandb.project=lp-state-dr-med-1 \
     dryrun=false
