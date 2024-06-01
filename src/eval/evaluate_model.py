@@ -289,7 +289,7 @@ if __name__ == "__main__":
 
                 # Only actually load the environment after we know we've got at least one run to evaluate
                 if env is None:
-                    kwargs = dict(
+                    env: FurnitureRLSimEnv = get_rl_env(
                         gpu_id=args.gpu,
                         furniture=args.furniture,
                         num_envs=args.n_envs,
@@ -304,11 +304,6 @@ if __name__ == "__main__":
                         verbose=args.verbose,
                         headless=not args.visualize,
                     )
-                    if args.use_new_env:
-                        env: FurnitureRLSimEnv = get_rl_env(**kwargs)
-                    else:
-                        print("[WARNING] Using old env! Why?")
-                        env: FurnitureSimEnv = get_env(**kwargs)
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if args.wandb:

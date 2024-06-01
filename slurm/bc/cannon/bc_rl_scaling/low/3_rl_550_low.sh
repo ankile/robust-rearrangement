@@ -6,16 +6,16 @@
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
 #SBATCH --account=parkes_low_priority
-#SBATCH --job-name=2_300_low
+#SBATCH --job-name=3_550_low
 
 # Run vision-based training on one_leg furniture with low randomness
-# with the original 50 teleop demos plus 250 rollout demos from RL training
+# with the original 50 teleop demos plus 500 rollout demos from RL training
 
 python -m src.train.bc +experiment=image/diff_unet \
     rollout=rollout \
     rollout.num_envs=128 \
+    rollout.every=50 \
     furniture=one_leg \
-    wandb.mode=offline \
-    data.data_paths_override='[diffik/sim/one_leg/teleop/low/success.zarr,diffik/sim/one_leg/teleop/low_perturb/success.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_000.zarr]' \
+    data.data_paths_override='[diffik/sim/one_leg/teleop/low/success.zarr,diffik/sim/one_leg/teleop/low_perturb/success.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_000.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_250.zarr]' \
     wandb.project=ol-vision-scaling-low-1 \
     dryrun=false

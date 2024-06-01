@@ -234,6 +234,11 @@ def main(cfg: DictConfig):
         notes=cfg.wandb.notes,
     )
 
+    if cfg.wandb.continue_run_id is not None:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+
+    bp()
+
     # Print the run name and storage location
     print(f"Run name: {run.name}")
     print(f"Run storage location: {run.dir}")

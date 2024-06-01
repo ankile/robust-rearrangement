@@ -15,5 +15,6 @@ python -m src.train.bc +experiment=state/diff_unet \
     rollout.randomness=low \
     furniture=round_table \
     rollout.max_steps=1000 \
+    wandb.continue_run_id=z3efusm6 \
     wandb.project=rt-state-dr-low-1 \
     dryrun=false

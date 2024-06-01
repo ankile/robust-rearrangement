@@ -8,18 +8,30 @@
 #SBATCH --mem=64GB
 #SBATCH --time=00-02:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=produce_rollouts
+#SBATCH --job-name=make_traj_bc_low
 
 # Make an infinite loop that runs the rollout script
 
+# Low BC run
+run_id="ol-state-dr-low-1/6i7hupje"
+rollout_suffix="bc_unet"
+randomness="low"
+
+# Low RL run
+# run_id="residual-ppo-dr-low-1/kzlx4y3f"
+# rollout_suffix="rppo_low" 
+# randomness="low"
+
+# Med BC run
 # run_id="ol-state-dr-med-1/9zjnzg4r"
 # rollout_suffix="bc_unet"
+# randomness="med"
 
+# Med RL run
 # run_id="residual-ppo-dr-med-1/6xmgqdiw"
 # run_id="residual-ppo-dr-med-1/h7dg0og4"
-run_id="residual-ppo-dr-low-1/kzlx4y3f"
-rollout_suffix="rppo_low"
-randomness="low"
+# rollout_suffix="rppo_med"
+# randomness="med"
 
 wt_type="best_success_rate"
 
