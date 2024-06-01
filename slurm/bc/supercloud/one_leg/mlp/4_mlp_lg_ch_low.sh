@@ -4,13 +4,12 @@
 #SBATCH -t 0-12:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH -c 20
-#SBATCH --job-name=8_mlp_lg_ch_high
+#SBATCH --job-name=12_mlp_lg_ch_low
 
 python -m src.train.bc +experiment=state/mlp_lg_ch \
-    randomness='[high]' \
-    data.data_subset=50 \
-    rollout.randomness=high \
-    wandb.project=ol-state-dr-high-1 \
-    wandb.mode=offline \
+    randomness='[low,low_perturb]' \
+    wandb.project=ol-state-dr-low-1 \
+    furniture=one_leg \
     rollout.rollouts=false \
+    wandb.mode=offline \
     dryrun=false

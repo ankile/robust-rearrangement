@@ -10,7 +10,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=ankile@mit.edu
-#SBATCH --job-name=cps_ol-high/rwnni8cs
+#SBATCH --job-name=cps_ol-high/3e6q7tg4
 
 # u0gf0sgx
 # run_id="ol-state-dr-low-1/u0gf0sgx"
@@ -20,8 +20,8 @@
 # run_id="ol-state-dr-med-1/l8avaysq"
 # randomness="med"
 
-# c24b6odm, zf8p0san, 93sr48mc, rwnni8cs, w6e26aaf
-run_id="ol-state-dr-high-1/rwnni8cs"
+# c24b6odm, zf8p0san, 93sr48mc, rwnni8cs, w6e26aaf, 3e6q7tg4
+run_id="ol-state-dr-high-1/3e6q7tg4"
 randomness="high"
 
 # 9s7hrl4i, nv48q2hd, ub3omf25, 99ao7drw
