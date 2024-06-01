@@ -5,6 +5,8 @@
 #SBATCH --mem=256G
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
+#SBATCH --account=parkes_low_priority
+#SBATCH --job-name=1_diff_bc_rollouts
 
 # Run vision-based training on one_leg furniture with low randomness
 # with only the original 50 teleop demos as a baseline

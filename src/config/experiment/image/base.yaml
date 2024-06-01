@@ -20,9 +20,9 @@ early_stopper:
 
 training:
   batch_size: 256
-  steps_per_epoch: -1
+  steps_per_epoch: 100
   checkpoint_interval: 50
-  num_epochs: 5000
+  num_epochs: 2000
 
 wandb:
   project: ol-image-med-1
