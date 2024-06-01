@@ -11,7 +11,7 @@
 #SBATCH --gres=gpu:1
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
-    base_policy.wandb_id=ol-state-dr-high-1/jukzzw0p \
+    base_policy.wandb_id=ol-state-dr-high-1/c24b6odm \
     base_policy.wt_type=best_success_rate \
     env.randomness=high \
-    debug=false
+    debug=true
