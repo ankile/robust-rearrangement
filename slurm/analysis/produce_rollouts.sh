@@ -12,6 +12,8 @@
 
 # Make an infinite loop that runs the rollout script
 
+# === One Leg ===
+
 # Low BC run
 # run_id="ol-state-dr-low-1/6i7hupje"
 # rollout_suffix="bc_unet"
@@ -23,21 +25,39 @@
 # randomness="low"
 
 # Med BC run
-run_id="ol-state-dr-med-1/9zjnzg4r"
-rollout_suffix="bc_unet"
-randomness="med"
+# run_id="ol-state-dr-med-1/9zjnzg4r"
+# rollout_suffix="bc_unet"
+# randomness="med"
 
 # Med RL run
 # run_id="residual-ppo-dr-med-1/6xmgqdiw"
 # run_id="residual-ppo-dr-med-1/h7dg0og4"
 # rollout_suffix="rppo_med"
 # randomness="med"
+# task="one_leg"
+
+# === Round Table ===
+# Low BC run
+# run_id="rt-state-dr-low-1/z3efusm6"
+# randomness="low"
+# task="round_table"
+
+
+# === Lamp ===
+# Low BC run
+# run_id="lp-state-dr-low-1/yba4cgsy"
+run_id="lp-state-dr-low-1/xumfizob"
+randomness="low"
+
+task="lamp"
 
 wt_type="best_success_rate"
+rollout_steps=1000
 
 while true; do
     python -m src.eval.evaluate_model --run-id $run_id --n-envs 32 \
-        --n-rollouts 32 -f one_leg --if-exists append --max-rollout-steps 750 --controller diffik \
+        --n-rollouts 32 -f $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
         --use-new-env --action-type pos --observation-space image --randomness $randomness --wt-type $wt_type \
-        --save-rollouts --save-rollouts-suffix $rollout_suffix
+        --save-rollouts
+        # --save-rollouts-suffix $rollout_suffix
 done

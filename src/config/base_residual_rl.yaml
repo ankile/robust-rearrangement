@@ -71,5 +71,6 @@ wandb:
   project: ???
   mode: online
   notes: null
+  continue_run_id: null
 
 debug: false

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-a100,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-free-cycles
+#SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=ol_rppo_high
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -12,7 +12,8 @@
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=ol-state-dr-high-1/jukzzw0p \
+    wandb.continue_run_id="8jgv7faa" \
     base_policy.wt_type=best_success_rate \
-    actor.residual_policy.pretrained_wts=/data/scratch/ankile/robust-rearrangement/models/1717128838__residual_ppo__ResidualPolicy__3457553568/actor_chkpt_best_success_rate.pt \
+    actor.residual_policy.pretrained_wts=/data/scratch/ankile/robust-rearrangement/models/1717128838__residual_ppo__ResidualPolicy__3457553568/actor_chkpt_490.pt \
     env.randomness=high \
-    debug=true
+    debug=false

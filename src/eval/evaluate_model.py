@@ -192,7 +192,7 @@ if __name__ == "__main__":
     parser.add_argument("--break-on-n-success", action="store_true")
     parser.add_argument("--record-for-coverage", action="store_true")
 
-    parser.add_argument("--save-rollouts-suffix", type=str, default=None)
+    parser.add_argument("--save-rollouts-suffix", type=str, default="")
     # Parse the arguments
     args = parser.parse_args()
 

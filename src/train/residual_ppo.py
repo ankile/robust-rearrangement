@@ -183,13 +183,13 @@ def main(cfg: DictConfig):
             f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
         )
         run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
-        residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        agent.load_state_dict(run_state_dict["model_state_dict"])
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        # lr_scheduler_critic.load_state_dict(
-        #     run_state_dict["scheduler_critic_state_dict"]
-        # )
+        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        lr_scheduler_critic.load_state_dict(
+            run_state_dict["scheduler_critic_state_dict"]
+        )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -200,7 +200,9 @@ def main(cfg: DictConfig):
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
-    wandb.init(
+    run = wandb.init(
+        id=cfg.wandb.continue_run_id,
+        resume=None if cfg.wandb.continue_run_id is None else "must",
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         config=OmegaConf.to_container(cfg, resolve=True),
@@ -209,9 +211,39 @@ def main(cfg: DictConfig):
         mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
 
-    # ALGO Logic: Storage setup
-    best_eval_success_rate = 0.0
-    running_mean_success_rate = 0.0
+    if cfg.wandb.continue_run_id is not None:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+
+        # run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+
+        # # Load the weights from the run
+        # _, wts = get_model_from_api_or_cached(
+        #     run_id, "best_success_rate", wandb_mode=cfg.wandb.mode
+        # )
+
+        # run_state_dict = torch.load(wts)
+
+        # agent.load_state_dict(run_state_dict["model_state_dict"])
+        # optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        # lr_scheduler_critic.load_state_dict(
+        #     run_state_dict["scheduler_critic_state_dict"]
+        # )
+
+        # Set the best test loss and success rate to the one from the run
+        try:
+            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
+        except KeyError:
+            best_eval_success_rate = run.summary["eval/success_rate"]
+
+        iteration = run.summary["iteration"]
+        global_step = run.step
+
+    else:
+        global_step = 0
+        iteration = 0
+        best_eval_success_rate = 0.0
 
     obs: torch.Tensor = torch.zeros(
         (
@@ -226,10 +258,9 @@ def main(cfg: DictConfig):
     dones = torch.zeros((steps_per_iteration, cfg.num_envs))
     values = torch.zeros((steps_per_iteration, cfg.num_envs))
 
-    global_step = 0
-    iteration = 0
     start_time = time.time()
     training_cum_time = 0
+    running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -321,7 +352,11 @@ def main(cfg: DictConfig):
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
             wandb.log(
-                {"eval/success_rate": success_rate, "iteration": iteration},
+                {
+                    "eval/success_rate": success_rate,
+                    "eval/best_eval_success_rate": best_eval_success_rate,
+                    "iteration": iteration,
+                },
                 step=global_step,
             )
 
