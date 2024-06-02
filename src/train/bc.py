@@ -240,10 +240,12 @@ def main(cfg: DictConfig):
 
         cfg.training.start_epoch = run.summary.get("epoch", 0)
 
-        run_id = run.project + "/" + run.id
+        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
 
         # Load the weights from the run
-        _, wts = get_model_from_api_or_cached(run_id, "best_test_loss")
+        _, wts = get_model_from_api_or_cached(
+            run_id, "best_test_loss", wandb_mode=cfg.wandb.mode
+        )
 
         actor.load_state_dict(torch.load(wts))
         print(f"Loaded weights from run {run_id}")
