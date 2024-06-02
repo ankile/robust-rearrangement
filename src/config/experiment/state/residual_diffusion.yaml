@@ -1,8 +1,8 @@
 # @package _global_
 defaults:
-  - state/diff_unet
+  - state/base
   - override /actor: residual_diffusion
-
+  - override /actor/diffusion_model: unet
 
 data:
   include_future_obs: true
@@ -19,5 +19,5 @@ rollout:
   loss_threshold: 1000
 
 wandb:
-  entity: ankile
+  entity: robust-assembly
   project: residual-diffusion-bc-1
