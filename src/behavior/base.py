@@ -110,13 +110,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self.vib_front_feature_beta = cfg.regularization.get(
                 "vib_front_feature_beta", 0.0
             )
-            self.rescale_loss_for_domain = cfg.regularization.get(
+            self.rescale_loss_for_domain = actor_cfg.get(
                 "rescale_loss_for_domain", False
             )
-            self.confusion_loss_anchored = cfg.regularization.get(
+            self.confusion_loss_anchored = actor_cfg.get(
                 "confusion_loss_anchored", False
             )
-            self.weight_confusion_loss_by_action = cfg.regularization.get(
+            self.weight_confusion_loss_by_action = actor_cfg.get(
                 "weight_confusion_loss_by_action", False
             )
 
@@ -133,7 +133,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         )
 
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
+        self.loss_fn = getattr(nn, loss_fn_name)(reduction="none")
 
     def __post_init__(self, *args, **kwargs):
 
@@ -510,12 +510,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         raise NotImplementedError
 
     def confusion_loss(self, batch, feature1, feature2):
-        domain_idx = batch["domain"]
-        actions = batch["action"]  # Shape: (B, T, D)
-
-        # Split the actions into the two domains (sim/real)
-        sim_actions = actions[domain_idx == 0]  # N1 x T x D
-        real_actions = actions[domain_idx == 1]  # N2 x T x D
+        domain_idx: torch.Tensor = batch["domain"]
 
         # Split the embeddings into the two domains (sim/real)
         sim_emb1 = feature1[domain_idx == 0]  # N1 x 128
@@ -533,9 +528,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             anchor_domain = random.randint(0, 1)
             if anchor_domain == 0:
                 # Use sim embeddings as the anchor
-                sim_emb = (
-                    sim_emb.detach()
-                )  # Detach the anchor embeddings to prevent gradient flow
+                sim_emb = sim_emb.detach()
             else:
                 # Use real embeddings as the anchor
                 real_emb = real_emb.detach()
@@ -547,6 +540,14 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         differences = torch.norm((real_emb_expanded - sim_emb_expanded), dim=-1)
 
         if self.weight_confusion_loss_by_action:
+
+            actions = batch["action"]  # Shape: (B, T, D)
+            domain_idx = domain_idx.squeeze()  # Shape: (B,)
+
+            # Split the actions into the two domains (sim/real)
+            sim_actions = actions[domain_idx == 0]  # N1 x T x D
+            real_actions = actions[domain_idx == 1]  # N2 x T x D
+
             # Compute the pairwise distances between actions
             sim_actions_expanded = sim_actions.unsqueeze(1)  # N1 x 1 x T x D
             real_actions_expanded = real_actions.unsqueeze(0)  # 1 x N2 x T x D

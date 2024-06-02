@@ -85,7 +85,8 @@ class MLPActor(Actor):
             naction.shape[0], self.pred_horizon, self.action_dim
         )
 
-        loss = self.loss_fn(naction_pred, naction)
+        # The loss function does not have reduction on by default, need to take the mean
+        loss = self.loss_fn(naction_pred, naction).mean()
 
         losses = {"bc_loss": loss.item()}
 

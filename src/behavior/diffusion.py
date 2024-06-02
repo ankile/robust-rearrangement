@@ -127,20 +127,27 @@ class DiffusionPolicy(Actor):
         noisy_action = self.train_noise_scheduler.add_noise(naction, noise, timesteps)
 
         # forward pass
-        noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
-        loss = self.loss_fn(noise_pred, noise)
+        noise_pred: torch.Tensor = self.model(
+            noisy_action, timesteps, global_cond=obs_cond.float()
+        )
+
+        # Without reuction so is of shape (B, H, A)
+        loss: torch.Tensor = self.loss_fn(noise_pred, noise)
+
+        # Take the mean over the last to dimensions to get the loss for each example in the batch
+        loss = loss.mean(dim=[1, 2]).unsqueeze(1)
 
         if self.rescale_loss_for_domain:
             # Calculate class weights
-            class_sizes = torch.bincount(batch["domain"])
-            class_weights = torch.pow(class_sizes.float(), 1.0 / 3)
+            class_sizes = torch.bincount(batch["domain"].squeeze())
+            class_weights = torch.pow(class_sizes.float(), -1.0 / 2)
             class_weights = class_weights / class_weights.sum()
 
             # Apply class weights to the loss
             class_weights = class_weights[batch["domain"]]
-            scaled_loss = self.loss_fn(noise_pred, noise) * class_weights
-            loss = scaled_loss.mean()
+            loss *= class_weights
 
+        loss = loss.mean()
         losses = {"bc_loss": loss.item()}
 
         # Add the VIB loss

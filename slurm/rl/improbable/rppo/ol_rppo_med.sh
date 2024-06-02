@@ -14,4 +14,4 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=ol-state-dr-med-1/9zjnzg4r \
     reset_every_iteration=false \
     reset_on_success=true \
-    debug=true
+    debug=false
