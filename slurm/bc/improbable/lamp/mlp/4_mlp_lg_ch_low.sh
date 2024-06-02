@@ -7,6 +7,7 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
 #SBATCH --time=01-00:00
+#SBATCH --requeue
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=4_lp_mlp_lg_ch_low
 
@@ -15,5 +16,6 @@ python -m src.train.bc +experiment=state/mlp_lg_ch \
     rollout.randomness=low \
     furniture=lamp \
     rollout.max_steps=1000 \
+    wandb.continue_run_id=xumfizob \
     wandb.project=lp-state-dr-low-1 \
     dryrun=false

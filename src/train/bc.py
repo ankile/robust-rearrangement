@@ -248,6 +248,18 @@ def main(cfg: DictConfig):
         actor.load_state_dict(torch.load(wts))
         print(f"Loaded weights from run {run_id}")
 
+        # Set the best test loss and success rate to the one from the run
+        best_test_loss = run.summary.get("test_epoch_loss", float("inf"))
+        best_success_rate = run.summary.get("best_success_rate", 0)
+        prev_best_success_rate = best_success_rate
+
+    else:
+        # Train loop
+        best_test_loss = float("inf")
+        test_loss_mean = float("inf")
+        best_success_rate = 0
+        prev_best_success_rate = 0
+
     # Print the run name and storage location
     print(f"Run name: {run.name}")
     print(f"Run storage location: {run.dir}")
@@ -277,12 +289,6 @@ def main(cfg: DictConfig):
     # Create model save dir
     model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Train loop
-    best_test_loss = float("inf")
-    test_loss_mean = float("inf")
-    best_success_rate = 0
-    prev_best_success_rate = 0
 
     print(f"Job started at: {starttime}")
 

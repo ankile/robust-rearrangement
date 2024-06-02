@@ -24,7 +24,7 @@ training:
   batch_size: 256
   checkpoint_interval: 100
   num_epochs: 2000
-  steps_per_epoch: -1
+  steps_per_epoch: 100
   encoder_lr: 1e-5
 
 regularization:
@@ -41,4 +41,4 @@ early_stopper:
 
 wandb:
   entity: robust-assembly
-  project: real-one_leg-cotrain-1
+  project: real-one_leg-cotrain-2

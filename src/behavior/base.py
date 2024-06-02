@@ -1,3 +1,4 @@
+import random
 from typing import Dict, Tuple, Union
 from collections import deque
 from src.data_processing.utils import filter_and_concat_robot_state
@@ -45,6 +46,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     wrist_camera_dropout: float = 0.0
     vib_front_feature_beta: float = 0.0
     confusion_loss_beta: float = 0.0
+    rescale_loss_for_domain: bool = False
+    confusion_loss_anchored: bool = False
+    weight_confusion_loss_by_action: bool = False
 
     encoding_dim: int
     augment_image: bool
@@ -105,6 +109,15 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
             self.vib_front_feature_beta = cfg.regularization.get(
                 "vib_front_feature_beta", 0.0
+            )
+            self.rescale_loss_for_domain = cfg.regularization.get(
+                "rescale_loss_for_domain", False
+            )
+            self.confusion_loss_anchored = cfg.regularization.get(
+                "confusion_loss_anchored", False
+            )
+            self.weight_confusion_loss_by_action = cfg.regularization.get(
+                "weight_confusion_loss_by_action", False
             )
 
         elif self.observation_type == "state":
@@ -498,32 +511,60 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
     def confusion_loss(self, batch, feature1, feature2):
         domain_idx = batch["domain"]
-        # TODO: Refactor to do concat together the features and then compute the loss
-        # NOTE: May reward hack
+        actions = batch["action"]  # Shape: (B, T, D)
+
+        # Split the actions into the two domains (sim/real)
+        sim_actions = actions[domain_idx == 0]  # N1 x T x D
+        real_actions = actions[domain_idx == 1]  # N2 x T x D
 
         # Split the embeddings into the two domains (sim/real)
         sim_emb1 = feature1[domain_idx == 0]  # N1 x 128
         real_emb1 = feature1[domain_idx == 1]  # N2 x 128
 
-        real_emb1_expanded = real_emb1.unsqueeze(1)
-        sim_emb1_expanded = sim_emb1.unsqueeze(0)
-
-        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
-        differences1 = torch.norm((real_emb1_expanded - sim_emb1_expanded), dim=-1)
-
-        # Split the embeddings into the two domains (sim/real)
         sim_emb2 = feature2[domain_idx == 0]
         real_emb2 = feature2[domain_idx == 1]
 
-        real_emb2_expanded = real_emb2.unsqueeze(1)
-        sim_emb2_expanded = sim_emb2.unsqueeze(0)
+        # Concatenate the embeddings along a new dimension
+        sim_emb = torch.stack((sim_emb1, sim_emb2), dim=1)  # N1 x 2 x 128
+        real_emb = torch.stack((real_emb1, real_emb2), dim=1)  # N2 x 2 x 128
 
-        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
-        differences2 = torch.norm((real_emb2_expanded - sim_emb2_expanded), dim=-1)
+        # Randomly select the anchor domain (0 for sim, 1 for real)
+        if self.confusion_loss_anchored:
+            anchor_domain = random.randint(0, 1)
+            if anchor_domain == 0:
+                # Use sim embeddings as the anchor
+                sim_emb = (
+                    sim_emb.detach()
+                )  # Detach the anchor embeddings to prevent gradient flow
+            else:
+                # Use real embeddings as the anchor
+                real_emb = real_emb.detach()
+
+        sim_emb_expanded = sim_emb.unsqueeze(1)  # N1 x 1 x 2 x 128
+        real_emb_expanded = real_emb.unsqueeze(0)  # 1 x N2 x 2 x 128
+
+        # Compute the differences using broadcasting, N1 x N2 x 2
+        differences = torch.norm((real_emb_expanded - sim_emb_expanded), dim=-1)
+
+        if self.weight_confusion_loss_by_action:
+            # Compute the pairwise distances between actions
+            sim_actions_expanded = sim_actions.unsqueeze(1)  # N1 x 1 x T x D
+            real_actions_expanded = real_actions.unsqueeze(0)  # 1 x N2 x T x D
+
+            # N1 x N2 x T
+            action_distances = torch.norm(
+                (real_actions_expanded - sim_actions_expanded), dim=-1
+            )
+
+            # Compute the weights based on action distances
+            weights = torch.exp(-action_distances)  # N1 x N2 x T
+            weights = weights.mean(dim=-1)  # N1 x N2
+
+            # Weight the differences using the computed weights
+            differences = differences * weights.unsqueeze(-1)  # N1 x N2 x 2
 
         # Sum along all dimensions except the last to compute the accumulated loss
-        # Final shape after sum will be [128], so another sum over the last dimension is needed
-        loss = differences1.mean(dim=(0, 1)) + differences2.mean(dim=(0, 1))
+        loss = differences.mean(dim=(0, 1, 2))
 
         return loss
 

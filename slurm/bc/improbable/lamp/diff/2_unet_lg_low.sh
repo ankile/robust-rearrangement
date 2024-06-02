@@ -8,6 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
+#SBATCH --requeue
 #SBATCH --job-name=2_lp_unet_lg_low
 
 python -m src.train.bc +experiment=state/diff_unet \
@@ -15,6 +16,6 @@ python -m src.train.bc +experiment=state/diff_unet \
     rollout.randomness=low \
     furniture=lamp \
     rollout.max_steps=1000 \
-    wandb.continue_run_id=wrtp6k1e \
+    wandb.continue_run_id=oprcjr3s \
     wandb.project=lp-state-dr-low-1 \
     dryrun=false
