@@ -85,6 +85,9 @@ def main(cfg: DictConfig):
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
 
+    if "task" not in cfg.env:
+        cfg.env.task = "one_leg"
+
     # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
     run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
@@ -109,7 +112,7 @@ def main(cfg: DictConfig):
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture="one_leg",
+        furniture=cfg.env.task,
         gpu_id=0,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
@@ -117,6 +120,8 @@ def main(cfg: DictConfig):
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
     )
+
+    n_parts_to_asseble = len(env.pairs_to_assemble)
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
@@ -310,7 +315,7 @@ def main(cfg: DictConfig):
             naction = base_naction + residual_naction * residual_policy.action_scale
 
             action = agent.normalizer(naction, "action", forward=False)
-            next_obs, reward, next_done, truncated, _ = env.step(action)
+            next_obs, reward, next_done, truncated, info = env.step(action)
 
             if cfg.truncation_as_done:
                 next_done = next_done | truncated
@@ -327,12 +332,14 @@ def main(cfg: DictConfig):
                 )
 
         # Calculate the success rate
-        reward_mask = rewards.sum(dim=0) > 0
-        success_rate = reward_mask.float().mean().item()
+        # Find the rewards that are not zero
+        # Env is successful if it received a reward more than or equal to n_parts_to_asseble
+        env_success = (rewards > 0).sum(dim=0) >= n_parts_to_asseble
+        success_rate = env_success.float().mean().item()
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
-        timesteps_in_success = rewards[:, reward_mask]
+        timesteps_in_success = rewards[:, env_success]
 
         # Find index of last reward in each trajectory
         last_reward_idx = torch.argmax(timesteps_in_success, dim=0)
@@ -351,14 +358,6 @@ def main(cfg: DictConfig):
 
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
-            wandb.log(
-                {
-                    "eval/success_rate": success_rate,
-                    "eval/best_eval_success_rate": best_eval_success_rate,
-                    "iteration": iteration,
-                },
-                step=global_step,
-            )
 
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
@@ -383,6 +382,14 @@ def main(cfg: DictConfig):
                 wandb.save(model_path)
                 print(f"Evaluation success rate improved. Model saved to {model_path}")
 
+            wandb.log(
+                {
+                    "eval/success_rate": success_rate,
+                    "eval/best_eval_success_rate": best_eval_success_rate,
+                    "iteration": iteration,
+                },
+                step=global_step,
+            )
             # Start the data collection again
             # NOTE: We're not resetting here now, that happens before the next
             # iteration only if the reset_every_iteration flag is set

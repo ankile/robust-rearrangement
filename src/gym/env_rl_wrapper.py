@@ -200,6 +200,10 @@ class ResidualPolicyEnvWrapper:
             RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
         )
 
+        self.env_success = torch.zeros(
+            self.env.num_envs, device=self.device, dtype=torch.bool
+        )
+
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
 
@@ -215,6 +219,9 @@ class ResidualPolicyEnvWrapper:
 
     def reset(self, **kwargs):
         obs = self.env.reset()
+        self.env_success = torch.zeros(
+            self.num_envs, device=self.device, dtype=torch.bool
+        )
         return obs
 
     def step(self, action: torch.Tensor):
@@ -224,6 +231,10 @@ class ResidualPolicyEnvWrapper:
         obs, reward, done, info = self.env.step(action)
         reward = reward.squeeze()
         done = done.squeeze()
+
+        self.env_success |= done
+
+        info["success"] = self.env_success
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)

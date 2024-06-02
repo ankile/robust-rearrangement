@@ -26,6 +26,7 @@ data_collection_steps: ${num_env_steps}
 
 env:
   randomness: med
+  task: one_leg
 
 actor:
   residual_policy:

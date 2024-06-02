@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=00-02:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=make_traj_bc_med
+#SBATCH --job-name=make_traj_bc_rt_low
 
 # Make an infinite loop that runs the rollout script
 
@@ -38,18 +38,18 @@
 
 # === Round Table ===
 # Low BC run
-# run_id="rt-state-dr-low-1/z3efusm6"
-# randomness="low"
-# task="round_table"
+run_id="rt-state-dr-low-1/z3efusm6"
+randomness="low"
+task="round_table"
 
 
 # === Lamp ===
 # Low BC run
 # run_id="lp-state-dr-low-1/yba4cgsy"
-run_id="lp-state-dr-low-1/xumfizob"
-randomness="low"
+# run_id="lp-state-dr-low-1/xumfizob"
+# randomness="low"
 
-task="lamp"
+# task="lamp"
 
 wt_type="best_success_rate"
 rollout_steps=1000

@@ -1675,10 +1675,6 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
             dtype=torch.int32,
         )
 
-        # bp()
-
-        # self.bulb_idx_list = self.bulb_idx_list.reshape(self.num_envs, -1)
-
         part_actor_idx_by_env = torch.tensor(
             [self.part_actor_idx_by_env[i] for i in range(self.num_envs)],
             device=self.device,

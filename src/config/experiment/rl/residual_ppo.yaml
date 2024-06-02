@@ -12,7 +12,7 @@ env:
 
 wandb:
   entity: robust-assembly
-  project: residual-ppo-dr-${env.randomness}-1
+  project: ol-rppo-dr-${env.randomness}-1
   mode: online
 
 debug: false
