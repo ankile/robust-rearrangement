@@ -44,6 +44,6 @@ wandb:
   continue_run_id: null
   name: null
   # Call the osh service not every epoch
-  osh_sync_interval: 10
+  osh_sync_interval: 25
 
 dryrun: false
