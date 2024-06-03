@@ -302,7 +302,8 @@ def np2Vec3f(arr):
 
 def resize(img: Union[np.ndarray, torch.Tensor]):
     """Resizes `img` into ..."""
-    th, tw = 480, 640
+    th, tw = 240, 320
+    # th, tw = 480, 640
     was_numpy = False
 
     if isinstance(img, np.ndarray):
@@ -407,15 +408,18 @@ class RandomizationHelper:
             return self.random_table_colors_nominal()
 
     def toggle_lights(self):
+        if np.random.random() > 0.75:
+            return
         for lpp in light_prim_paths:
             light_prim = prim_utils.get_prim_at_path(lpp)
             # print(f"Light prim: {light_prim} at path: {lpp}")
             assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
             visible_attr = light_prim.GetAttribute("visibility")
+
             if np.random.random() > 0.5:
-                visible_attr.Set("inherited")
-            else:
                 visible_attr.Set("invisible")
+            else:
+                visible_attr.Set("inherited")
 
     def random_light_colors(self):
         high = np.array([1.0, 1.0, 1.0])
@@ -427,6 +431,16 @@ class RandomizationHelper:
             color_attr = light_prim.GetAttribute("color")
             color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
             color_attr.Set(color_to_set_gf)
+
+    def random_light_intensity(self):
+        high = np.array([8000])
+        low = np.array([3000])
+        for lpp in light_prim_paths:
+            # print(f"Light prim: {light_prim} at path: {lpp}")
+            light_prim = prim_utils.get_prim_at_path(lpp)
+            assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
+            intensity_attr = light_prim.GetAttribute("intensity")
+            intensity_attr.Set(rnd_high_low(high, low)[0])
 
     def random_part_colors(self):
         high = np.array([1.0, 1.0, 1.0])
@@ -880,6 +894,7 @@ def main():
             if obs_idx % dr_config.random_frame_freq == 0:
                 dr_helper.toggle_lights()
                 dr_helper.random_light_colors()
+                dr_helper.random_light_intensity()
                 dr_helper.random_part_colors()
                 dr_helper.random_table_colors()
                 dr_helper.random_camera_pose()
@@ -1008,11 +1023,11 @@ def main():
             # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3].copy())
             # front_image = resize(camera.data.output["rgb"][:, :, :3].copy())
 
-            # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
-            # front_image = resize(camera.data.output["rgb"][:, :, :3])
+            wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
+            front_image = resize(camera.data.output["rgb"][:, :, :3])
 
-            wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
-            front_image = camera.data.output["rgb"][:, :, :3]
+            # wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
+            # front_image = camera.data.output["rgb"][:, :, :3]
             new_obs = dict(
                 color_image1=wrist_image,
                 color_image2=front_image,
