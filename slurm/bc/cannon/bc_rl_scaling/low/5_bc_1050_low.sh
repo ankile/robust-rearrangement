@@ -2,7 +2,7 @@
 
 #SBATCH -p gpu
 #SBATCH -t 2-00:00
-#SBATCH --mem=256G
+#SBATCH --mem=384G
 #SBATCH --gres=gpu:1
 #SBATCH -c 16
 #SBATCH --account=parkes_low_priority
