@@ -11,12 +11,9 @@
 # Run vision-based training on one_leg furniture with low randomness
 # with only the original 50 teleop demos as a baseline
 
-python -m src.train.bc +experiment=image/diff_unet \
-    rollout=rollout \
-    rollout.num_envs=128 \
-    rollout.every=50 \
-    demo_source=teleop \
-    furniture=one_leg \
-    randomness='[low,low_perturb]' \
-    wandb.project=ol-vision-scaling-low-1 \
+python -m src.train.bc +experiment=image/scaling_low \
+    data.data_paths_override='[diffik/sim/one_leg/teleop/low/success.zarr,diffik/sim/one_leg/teleop/low_perturb/success.zarr]' \
+    training.num_epochs=5000 \
+    training.actor_lr=5e-5 \
+    wandb.continue_run_id=qkekpke9 \
     dryrun=false
