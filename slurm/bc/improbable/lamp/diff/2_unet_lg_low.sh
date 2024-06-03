@@ -11,11 +11,12 @@
 #SBATCH --requeue
 #SBATCH --job-name=2_lp_unet_lg_low
 
+# wandb.continue_run_id="954ztisj" \
+
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
     furniture=lamp \
     rollout.max_steps=1000 \
-    wandb.continue_run_id="954ztisj" \
     wandb.project=lp-state-dr-low-1 \
     dryrun=false

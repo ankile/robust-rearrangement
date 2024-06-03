@@ -41,6 +41,7 @@ data_collection_steps: ${eval:'${num_env_steps} // ${actor.action_horizon}'}
 
 env:
   randomness: low
+  task: one_leg
 
 # Algorithm specific arguments
 gamma: 0.999

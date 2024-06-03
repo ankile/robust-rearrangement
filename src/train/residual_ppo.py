@@ -122,7 +122,7 @@ def main(cfg: DictConfig):
         max_env_steps=100_000_000,
     )
 
-    n_parts_to_asseble = len(env.pairs_to_assemble)
+    n_parts_to_assemble = len(env.pairs_to_assemble)
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
@@ -313,7 +313,7 @@ def main(cfg: DictConfig):
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
-            naction = base_naction + residual_naction * residual_policy.action_scale
+            naction = base_naction  # + residual_naction * residual_policy.action_scale
 
             action = agent.normalizer(naction, "action", forward=False)
             next_obs, reward, next_done, truncated, info = env.step(action)
@@ -334,8 +334,8 @@ def main(cfg: DictConfig):
 
         # Calculate the success rate
         # Find the rewards that are not zero
-        # Env is successful if it received a reward more than or equal to n_parts_to_asseble
-        env_success = (rewards > 0).sum(dim=0) >= n_parts_to_asseble
+        # Env is successful if it received a reward more than or equal to n_parts_to_assemble
+        env_success = (rewards > 0).sum(dim=0) >= n_parts_to_assemble
         success_rate = env_success.float().mean().item()
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
@@ -382,7 +382,6 @@ def main(cfg: DictConfig):
 
                 wandb.save(model_path)
                 print(f"Evaluation success rate improved. Model saved to {model_path}")
-                os.remove(model_path)
 
             wandb.log(
                 {
@@ -593,7 +592,6 @@ def main(cfg: DictConfig):
 
             wandb.save(model_path)
             print(f"Model saved to {model_path}")
-            os.remove(model_path)
 
         # Print some stats at the end of the iteration
         print(

@@ -69,12 +69,13 @@ def get_demo_data_loader(
     action_horizon=1,
     add_relative_pose=False,
     normalizer=None,
+    task="one_leg",
 ) -> DataLoader:
 
     paths = get_processed_paths(
         controller="diffik",
         domain="sim",
-        task="one_leg",
+        task=task,
         demo_source="teleop",
         randomness=["low", "low_perturb"],
         demo_outcome="success",
@@ -182,7 +183,7 @@ def main(cfg: DictConfig):
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture="one_leg",
+        furniture=cfg.env.task,
         gpu_id=0,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
@@ -190,6 +191,8 @@ def main(cfg: DictConfig):
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
     )
+
+    n_parts_to_assemble = len(env.pairs_to_assemble)
 
     env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
         env,
@@ -254,6 +257,7 @@ def main(cfg: DictConfig):
         normalizer=normalizer,
         action_horizon=agent.action_horizon,
         num_workers=4 if not cfg.debug else 0,
+        task=cfg.env.task,
     )
 
     # Print the number of batches in the dataloader
@@ -320,14 +324,15 @@ def main(cfg: DictConfig):
                 print(
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
-
         # Calculate the success rate
-        reward_mask = rewards.sum(dim=0) > 0
-        success_rate = reward_mask.float().mean().item()
+        # Find the rewards that are not zero
+        # Env is successful if it received a reward more than or equal to n_parts_to_assemble
+        env_success = (rewards > 0).sum(dim=0) >= n_parts_to_assemble
+        success_rate = env_success.float().mean().item()
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
-        timesteps_in_success = rewards[:, reward_mask]
+        timesteps_in_success = rewards[:, env_success]
 
         # Find index of last reward in each trajectory
         last_reward_idx = torch.argmax(timesteps_in_success, dim=0)

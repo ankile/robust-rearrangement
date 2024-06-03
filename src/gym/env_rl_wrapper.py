@@ -39,9 +39,10 @@ class FurnitureEnvRLWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + (5 + 1) * 7,)
+            -float("inf"),
+            float("inf"),
+            shape=(16 + env.get_parts_poses().shape[-1] + 7,),
         )
-
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
@@ -210,7 +211,9 @@ class ResidualPolicyEnvWrapper:
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
-            -float("inf"), float("inf"), shape=(16 + 7 * (5 + 1),)
+            -float("inf"),
+            float("inf"),
+            shape=(16 + env.get_parts_poses().shape[-1] + 7,),
         )
 
         # Define the maximum number of steps in the environment
