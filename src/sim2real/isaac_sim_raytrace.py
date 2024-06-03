@@ -302,7 +302,8 @@ def np2Vec3f(arr):
 
 def resize(img: Union[np.ndarray, torch.Tensor]):
     """Resizes `img` into ..."""
-    th, tw = 480, 640
+    th, tw = 240, 320
+    # th, tw = 480, 640
     was_numpy = False
 
     if isinstance(img, np.ndarray):
@@ -1008,11 +1009,11 @@ def main():
             # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3].copy())
             # front_image = resize(camera.data.output["rgb"][:, :, :3].copy())
 
-            # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
-            # front_image = resize(camera.data.output["rgb"][:, :, :3])
+            wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
+            front_image = resize(camera.data.output["rgb"][:, :, :3])
 
-            wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
-            front_image = camera.data.output["rgb"][:, :, :3]
+            # wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
+            # front_image = camera.data.output["rgb"][:, :, :3]
             new_obs = dict(
                 color_image1=wrist_image,
                 color_image2=front_image,
