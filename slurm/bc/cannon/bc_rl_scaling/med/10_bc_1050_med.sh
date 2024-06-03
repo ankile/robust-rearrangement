@@ -11,6 +11,6 @@
 # Run vision-based training on one_leg furniture with med randomness
 # with the original 50 teleop demos plus 1000 rollout demos from BC training
 
-python -m src.train.bc +experiment=image/diff_unet \
+python -m src.train.bc +experiment=image/scaling_med \
     data.data_paths_override='[diffik/sim/one_leg/teleop/med/success.zarr,diffik/sim/one_leg/teleop/med_perturb/success.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_000.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_250.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_500.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_750.zarr]' \
     dryrun=false
