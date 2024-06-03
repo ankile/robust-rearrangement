@@ -15,6 +15,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     randomness='[low,med,med_perturb]' \
     actor.confusion_loss_beta=0.0 \
     environment='[real,sim]' \
-    +data.max_episode_count.one_leg_simple.teleop.low.success=20 \
+    +data.max_episode_count.one_leg_full.teleop.low.success=20 \
     wandb.mode=offline \
     dryrun=false

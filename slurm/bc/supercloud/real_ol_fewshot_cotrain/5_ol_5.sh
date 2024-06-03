@@ -14,7 +14,7 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     furniture='[one_leg_full]' \
     randomness=low \
     environment=real \
-    +data.max_episode_count.one_leg_simple.teleop.low.success=5 \
+    +data.max_episode_count.one_leg_full.teleop.low.success=5 \
     wandb.mode=offline \
     dryrun=false
 
