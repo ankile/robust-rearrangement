@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-a100,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-free-cycles
+#SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=lp_rppo_low
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -11,7 +11,7 @@
 #SBATCH --gres=gpu:1
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
-    base_policy.wandb_id=lp-state-dr-low-1/yba4cgsy \
+    base_policy.wandb_id=lp-state-dr-low-1/hwj7kk4i \
     base_policy.wt_type=best_success_rate \
     env.task=lamp \
     env.randomness=low \

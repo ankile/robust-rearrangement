@@ -12,10 +12,5 @@
 # with the original 50 teleop demos plus 1000 rollout demos from RL training
 
 python -m src.train.bc +experiment=image/diff_unet \
-    rollout=rollout \
-    rollout.num_envs=128 \
-    rollout.every=50 \
-    furniture=one_leg \
     data.data_paths_override='[diffik/sim/one_leg/teleop/med/success.zarr,diffik/sim/one_leg/teleop/med_perturb/success.zarr,diffik/sim/one_leg/rollout/med/success/rppo_med_000.zarr,diffik/sim/one_leg/rollout/med/success/rppo_med_250.zarr,diffik/sim/one_leg/rollout/med/success/rppo_med_500.zarr,diffik/sim/one_leg/rollout/med/success/rppo_med_750.zarr]' \
-    wandb.project=ol-vision-scaling-med-1 \
     dryrun=false

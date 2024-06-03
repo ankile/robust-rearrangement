@@ -13,6 +13,6 @@
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=ol-state-dr-high-1/jukzzw0p \
     base_policy.wt_type=best_success_rate \
-    actor.residual_policy.pretrained_wts=/data/scratch/ankile/robust-rearrangement/models/1717357137__residual_ppo__ResidualPolicy__2559046691/actor_chkpt_10.pt \
+    actor.residual_policy.pretrained_wts=/data/scratch/ankile/robust-rearrangement/models/1717361845__residual_ppo__ResidualPolicy__3555185695/actor_chkpt_90.pt \
     env.randomness=high \
     debug=false
