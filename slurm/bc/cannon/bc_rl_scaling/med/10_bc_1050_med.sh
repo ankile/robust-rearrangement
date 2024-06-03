@@ -14,5 +14,5 @@
 python -m src.train.bc +experiment=image/scaling_med \
     data.data_paths_override='[diffik/sim/one_leg/teleop/med/success.zarr,diffik/sim/one_leg/teleop/med_perturb/success.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_000.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_250.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_500.zarr,diffik/sim/one_leg/rollout/med/success/bc_med_750.zarr]' \
     training.actor_lr=5e-5 \
-    wandb.continue_run_id=u1co1hd1 \
+    wandb.continue_run_id=mtafs7rm \
     dryrun=false
