@@ -220,22 +220,22 @@ def main(cfg: DictConfig):
     if cfg.wandb.continue_run_id is not None:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        # run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
 
-        # # Load the weights from the run
-        # _, wts = get_model_from_api_or_cached(
-        #     run_id, "best_success_rate", wandb_mode=cfg.wandb.mode
-        # )
+        # Load the weights from the run
+        _, wts = get_model_from_api_or_cached(
+            run_id, "best_success_rate", wandb_mode=cfg.wandb.mode
+        )
 
-        # run_state_dict = torch.load(wts)
+        run_state_dict = torch.load(wts)
 
-        # agent.load_state_dict(run_state_dict["model_state_dict"])
-        # optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        # lr_scheduler_critic.load_state_dict(
-        #     run_state_dict["scheduler_critic_state_dict"]
-        # )
+        agent.load_state_dict(run_state_dict["model_state_dict"])
+        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        lr_scheduler_critic.load_state_dict(
+            run_state_dict["scheduler_critic_state_dict"]
+        )
 
         # Set the best test loss and success rate to the one from the run
         try:
@@ -313,7 +313,7 @@ def main(cfg: DictConfig):
                 )
 
             residual_naction = residual_naction_samp if not eval_mode else naction_mean
-            naction = base_naction  # + residual_naction * residual_policy.action_scale
+            naction = base_naction + residual_naction * residual_policy.action_scale
 
             action = agent.normalizer(naction, "action", forward=False)
             next_obs, reward, next_done, truncated, info = env.step(action)

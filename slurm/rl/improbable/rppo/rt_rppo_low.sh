@@ -19,5 +19,6 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     env.task=round_table \
     env.randomness=low \
     num_env_steps=1000 \
+    wandb.continue_run_id=qlvg907x \
     wandb.project=rt-rppo-dr-low-1 \
     debug=false
