@@ -10,8 +10,8 @@
 
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[low,low_perturb]' \
-    demo_source='[teleop,rollout]' \
     rollout.randomness=low \
+    demo_source='[teleop,rollout]' \
     furniture=round_table \
     rollout.max_steps=1000 \
     wandb.project=rt-state-dr-low-1 \

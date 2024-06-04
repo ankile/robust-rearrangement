@@ -11,6 +11,7 @@
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[med,med_perturb]' \
     rollout.randomness=med \
+    demo_source='[teleop,rollout]' \
     furniture=round_table \
     rollout.max_steps=1000 \
     wandb.project=rt-state-dr-med-1 \

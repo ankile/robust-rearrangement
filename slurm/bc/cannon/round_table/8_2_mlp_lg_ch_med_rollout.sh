@@ -13,5 +13,6 @@ python -m src.train.bc +experiment=state/mlp_lg_ch \
     demo_source='[teleop,rollout]' \
     rollout.randomness=med \
     furniture=round_table \
+    rollout.max_steps=1000 \
     wandb.project=rt-state-dr-med-1 \
     dryrun=false

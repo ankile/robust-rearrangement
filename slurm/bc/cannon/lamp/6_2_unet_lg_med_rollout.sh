@@ -8,8 +8,6 @@
 #SBATCH --account=parkes_low_priority
 #SBATCH --job-name=6_2_unet_lg_med_rollout
 
-# wandb.continue_run_id=cz21iq59 \
-
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[med,med_perturb]' \
     demo_source='[teleop,rollout]' \
