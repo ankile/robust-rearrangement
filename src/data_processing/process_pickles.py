@@ -400,6 +400,8 @@ if __name__ == "__main__":
         )
     )
 
+    total_files = len(pickle_paths)
+
     if args.randomize_order:
         print(f"Using random seed: {args.random_seed}")
         random.seed(args.random_seed)
@@ -437,7 +439,9 @@ if __name__ == "__main__":
     n_cpus = min(os.cpu_count(), args.n_cpus)
 
     print(
-        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
+        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}\n"
+        f"randomize_order={args.randomize_order}, random_seed={args.random_seed}\n"
+        f"from file nr. {start} to {end} out of {total_files}"
     )
 
     all_data = parallel_process_pickle_files(

@@ -12,6 +12,5 @@
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=ol-state-dr-med-1/9zjnzg4r \
-    reset_every_iteration=false \
-    reset_on_success=true \
+    actor.residual_policy.pretrained_wts=/data/scratch/ankile/robust-rearrangement/models/1716951701__residual_ppo__ResidualPolicy__3992312234/iter_800.pt \
     debug=false
