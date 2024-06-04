@@ -8,13 +8,13 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=lp_rppo_low
+#SBATCH --job-name=lp_rppo_med
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
-    base_policy.wandb_id=lp-state-dr-low-1/ehvlshub \
+    base_policy.wandb_id=lp-state-dr-med-1/en9wdmzr \
     base_policy.wt_type=best_success_rate \
     env.task=lamp \
-    env.randomness=low \
+    env.randomness=med \
     num_env_steps=1000 \
-    wandb.project=lp-rppo-dr-low-1 \
+    wandb.project=lp-rppo-dr-med-1 \
     debug=false
