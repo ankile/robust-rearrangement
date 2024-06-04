@@ -10,5 +10,4 @@
 
 python -m src.train.bc +experiment=state/scaling_10k \
     observation_type=state \
-    wandb.mode=disabled \
     dryrun=false
