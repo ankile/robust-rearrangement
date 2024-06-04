@@ -88,11 +88,13 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
+        minority_class_power: bool = False,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
         self.control_mode = control_mode
+        self.minority_class_power = minority_class_power
 
         self.normalizer = LinearNormalizer()
 
@@ -155,6 +157,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1 if pad_after else 0,
         )
 
+        self.n_samples = len(self.indices)
+
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
@@ -171,6 +175,64 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # First action refers to the first action we predict, not necessarily the first action executed
         self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
         self.final_action_idx = self.first_action_idx + self.pred_horizon
+
+        if self.minority_class_power:
+            # Upsample the minority class
+
+            sim_indices = []
+            real_indices = []
+
+            for i, (_, _, _, _, demo_idx) in enumerate(self.indices):
+                if self.domain[demo_idx] == 0:
+                    sim_indices.append(i)
+                else:
+                    real_indices.append(i)
+
+            sim_indices = np.array(sim_indices)
+            real_indices = np.array(real_indices)
+
+            # Calculate the number of samples for each class in self.indices
+            sim_samples = len(sim_indices)
+            real_samples = len(real_indices)
+            class_samples = np.array([sim_samples, real_samples])
+            total_samples = len(self.indices)
+
+            print(
+                f"Ratio of real to sim samples before upsampling: {real_samples/sim_samples:.2f}"
+            )
+
+            # Calculate the desired number of samples for each class based on cube root of class sizes
+            class_weights = np.power(class_samples, 1 / minority_class_power)
+            class_weights = class_weights / np.sum(class_weights)
+            desired_class_samples = total_samples * class_weights
+
+            print(
+                f"Ratio of real to sim samples after upsampling: {desired_class_samples[1]/desired_class_samples[0]:.2f}"
+            )
+
+            # Identify the minority class
+            minority_class = np.argmin(class_samples)
+
+            # Calculate the number of additional samples needed for the minority class
+            additional_samples_needed = int(
+                desired_class_samples[minority_class] - class_samples[minority_class]
+            )
+
+            if additional_samples_needed > 0:
+
+                # Randomly select minority samples to duplicate
+                additional_indices = np.random.choice(
+                    real_indices,
+                    size=additional_samples_needed,
+                    replace=True,
+                )
+
+                # Create additional samples in self.indices for minority class samples
+                additional_samples = self.indices[additional_indices]
+                self.indices = np.concatenate((self.indices, additional_samples))
+
+    def set_normalizer(self, normalizer: LinearNormalizer):
+        self.normalizer.load_state_dict(normalizer.state_dict())
 
     def __len__(self):
         return len(self.indices)
