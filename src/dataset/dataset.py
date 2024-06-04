@@ -429,6 +429,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             pad_after=action_horizon - 1 if pad_after else 0,
         )
 
+        self.n_samples = len(self.indices)
+
         self.task_idxs = np.array(
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
