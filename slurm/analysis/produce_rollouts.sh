@@ -57,7 +57,7 @@
 # task="lamp"
 
 # Med BC run
-run_id="lp-state-dr-med-1/ehvlshub"
+run_id="lp-state-dr-med-1/en9wdmzr"
 randomness="med"
 task="lamp"
 
