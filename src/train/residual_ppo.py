@@ -224,8 +224,10 @@ def main(cfg: DictConfig):
 
         # Load the weights from the run
         _, wts = get_model_from_api_or_cached(
-            run_id, "best_success_rate", wandb_mode=cfg.wandb.mode
+            run_id, "latest", wandb_mode=cfg.wandb.mode
         )
+
+        print(f"Loading weights from {wts}")
 
         run_state_dict = torch.load(wts)
 
