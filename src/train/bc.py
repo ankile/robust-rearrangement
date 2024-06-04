@@ -276,8 +276,8 @@ def main(cfg: DictConfig):
     test_size = dataset.n_samples - train_size
     wandb.log(
         {
-            "dataset/num_samples_train": train_dataset,
-            "dataset/num_samples_test": test_dataset,
+            "dataset/num_samples_train": train_size,
+            "dataset/num_samples_test": test_size,
             "dataset/num_episodes_train": int(
                 len(dataset.episode_ends) * (1 - cfg.data.test_split)
             ),
