@@ -57,8 +57,6 @@ simulation_app = SimulationApp(
         "headless": args_cli.headless,
         "width": 640,
         "height": 480,
-        # "width": 1440,
-        # "height": 1080,
     }
 )
 """Rest everything follows."""
@@ -89,6 +87,10 @@ from typing import Dict, Union, Tuple
 DEMO_DIR = args_cli.load_dir
 FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
 FILE = FILES[args_cli.demo_index]
+
+PART_COLOR_BASE = (
+    "white" if "PART_COLOR_BASE" not in os.environ else os.environ["PART_COLOR_BASE"]
+)
 
 # constants
 april_to_sim_mat = np.array(
@@ -383,6 +385,13 @@ class RandomizationHelper:
             self.part_low_middle if self.part_random == "full" else self.part_low_high
         )
 
+        self.part_high_middle = np.array([0.5, 0.5, 0.5])
+        self.part_high_low = np.array([0.02, 0.02, 0.02])
+
+        self.part_color_high = (
+            self.part_high_middle if self.part_random == "full" else self.part_high_low
+        )
+
         self.global_cams = []
         self.global_cam_poses = []
         self.local_cams = []
@@ -443,10 +452,15 @@ class RandomizationHelper:
             intensity_attr.Set(rnd_high_low(high, low)[0])
 
     def random_part_colors(self):
-        high = np.array([1.0, 1.0, 1.0])
-        # low = np.array([0.984, 0.889, 0.843])
-        # low = np.array([0.5, 0.5, 0.5])
-        low = self.part_color_low
+
+        if PART_COLOR_BASE == "white":
+            high = np.array([1.0, 1.0, 1.0])
+            # low = np.array([0.984, 0.889, 0.843])
+            # low = np.array([0.5, 0.5, 0.5])
+            low = self.part_color_low
+        elif PART_COLOR_BASE == "black":
+            high = self.part_color_high
+            low = np.array([0.0, 0.0, 0.0])
         color_to_set_gf = np2Vec3f(rnd_high_low(high, low))
         for pmpp in part_mat_paths:
             part_mat_prim = prim_utils.get_prim_at_path(pmpp)
@@ -738,7 +752,8 @@ def main():
         os.path.dirname(os.path.realpath(__file__)),
         "output",
         "camera",
-        f"{demo_date}_substeps_{args_cli.sub_steps}",
+        # f"{demo_date}_substeps_{args_cli.sub_steps}",
+        f"{demo_date}_substeps_{args_cli.sub_steps}_{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}",
     )
     if args_cli.domain_rand:
         output_dir += "_domain_rand"
@@ -749,7 +764,8 @@ def main():
         os.path.dirname(os.path.realpath(__file__)),
         "output",
         "wrist_camera",
-        f"{demo_date}_substeps_{args_cli.sub_steps}",
+        # f"{demo_date}_substeps_{args_cli.sub_steps}",
+        f"{demo_date}_substeps_{args_cli.sub_steps}_{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}",
     )
     if args_cli.domain_rand:
         wrist_output_dir += "_domain_rand"
