@@ -19,6 +19,8 @@ furniture: one_leg
 wandb:
   project: ol-vision-scaling-low-1
 
+training:
+  num_epochs: 10000
 
 data:
   data_paths_override:

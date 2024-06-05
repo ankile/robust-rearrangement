@@ -13,6 +13,9 @@ rollout:
 
 observation_type: state
 
+training:
+  num_epochs: 10000
+
 randomness: low
 furniture: one_leg
 
