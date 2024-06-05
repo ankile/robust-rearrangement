@@ -3,7 +3,7 @@
 #SBATCH -p xeon-g6-volta
 #SBATCH -t 2-00:00
 #SBATCH --gres=gpu:volta:1
-#SBATCH --job-name=19_ol_cotrain_10_black_upwt
+#SBATCH --job-name=23_ol_cotrain_10_black_upwt_cf3
 #SBATCH -c 20
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
@@ -13,9 +13,10 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     demo_source='[teleop,rollout]' \
     furniture='[one_leg_render_demos_brighter,one_leg_render_rppo_brighter,one_leg_render_demos_black,one_leg_render_rppo_black,one_leg_full]' \
     randomness='[low,med,med_perturb]' \
-    actor.confusion_loss_beta=1e-4 \
+    actor.confusion_loss_beta=1e-3 \
     environment='[real,sim]' \
     +data.max_episode_count.one_leg_full.teleop.low.success=10 \
     data.data_subset=200 \
     data.minority_class_power=3 \
+    wandb.mode=offline \
     dryrun=false

@@ -18,4 +18,5 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     +data.max_episode_count.one_leg_full.teleop.low.success=40 \
     data.data_subset=200 \
     data.minority_class_power=3 \
+    wandb.mode=offline \
     dryrun=false
