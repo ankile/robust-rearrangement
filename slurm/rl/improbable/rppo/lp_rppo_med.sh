@@ -11,12 +11,11 @@
 #SBATCH --job-name=lp_rppo_med
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
-    base_policy.wandb_id=lp-state-dr-med-1/en9wdmzr \
+    base_policy.wandb_id=lp-state-dr-med-1/fziwvs8k \
     base_policy.wt_type=best_success_rate \
     env.task=lamp \
     env.randomness=med \
-    num_env_steps=1200 \
-    num_envs=2048 \
-    wandb.continue_run_id=la6ze9m1 \
+    num_env_steps=1000 \
+    num_envs=1024 \
     wandb.project=lp-rppo-dr-med-1 \
     debug=false
