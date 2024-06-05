@@ -11,6 +11,9 @@ rollout:
   furniture: one_leg
   randomness: low
 
+training:
+  num_epochs: 10000
+
 randomness: low
 furniture: one_leg
 

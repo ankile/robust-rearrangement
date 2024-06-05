@@ -12,5 +12,6 @@
 
 python -m src.train.bc +experiment=image/scaling_low \
     data.data_paths_override='[diffik/sim/one_leg/teleop/low/success.zarr,diffik/sim/one_leg/teleop/low_perturb/success.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_000.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_250.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_500.zarr,diffik/sim/one_leg/rollout/low/success/rppo_low_750.zarr]' \
+    wandb.continue_run_id=45i0dikc \
     observation_type=state \
     dryrun=false

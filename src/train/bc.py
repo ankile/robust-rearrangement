@@ -458,6 +458,7 @@ def main(cfg: DictConfig):
                     ctrl_mode=cfg.control.controller,
                     action_type=cfg.control.control_mode,
                     headless=True,
+                    verbose=True,
                 )
 
             best_success_rate = do_rollout_evaluation(
