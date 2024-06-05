@@ -12,4 +12,4 @@
 
 python -m src.train.bc +experiment=state/scaling_50k \
     observation_type=state \
-    dryrun=true
+    dryrun=false
