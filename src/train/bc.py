@@ -274,19 +274,19 @@ def main(cfg: DictConfig):
     # save stats to wandb and update the cfg object
     train_size = int(dataset.n_samples * (1 - cfg.data.test_split))
     test_size = dataset.n_samples - train_size
-    wandb.log(
-        {
-            "dataset/num_samples_train": train_size,
-            "dataset/num_samples_test": test_size,
-            "dataset/num_episodes_train": int(
-                len(dataset.episode_ends) * (1 - cfg.data.test_split)
-            ),
-            "dataset/num_episodes_test": int(
-                len(dataset.episode_ends) * cfg.data.test_split
-            ),
-            "dataset/dataset_metadata": dataset.metadata,
-        }
-    )
+
+    dataset_stats = {
+        "num_samples_train": train_size,
+        "num_samples_test": test_size,
+        "num_episodes_train": int(
+            len(dataset.episode_ends) * (1 - cfg.data.test_split)
+        ),
+        "num_episodes_test": int(len(dataset.episode_ends) * cfg.data.test_split),
+        "dataset_metadata": dataset.metadata,
+    }
+
+    # Add the dataset stats to the wandb summary
+    wandb.summary.update(dataset_stats)
 
     starttime = now()
     wandb.summary["start_time"] = starttime

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-3090,vision-pulkitag-a6000,vision-pulkitag-a100,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-main
+#SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --job-name=rt_rppo_low
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -16,5 +16,6 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     env.task=round_table \
     env.randomness=low \
     num_env_steps=1000 \
+    wandb.continue_run_id=qlvg907x \
     wandb.project=rt-rppo-dr-low-1 \
     debug=false

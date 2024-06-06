@@ -235,7 +235,11 @@ def main(cfg: DictConfig):
 
         run_state_dict = torch.load(wts)
 
-        agent.load_state_dict(run_state_dict["model_state_dict"])
+        if "actor_logstd" in run_state_dict["model_state_dict"]:
+            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        else:
+            agent.load_state_dict(run_state_dict["model_state_dict"])
+
         optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
         optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
         lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
