@@ -38,9 +38,14 @@
 
 # === Round Table ===
 # Low BC run
-run_id="rt-state-dr-low-1/z3efusm6"
-randomness="low"
-task="round_table"
+# run_id="rt-state-dr-low-1/z3efusm6"
+# randomness="low"
+# task="round_table"
+
+# Med BC run
+# run_id="rt-state-dr-med-1/pb4urpt5"
+# randomness="med"
+# task="round_table"
 
 
 # === Lamp ===
@@ -51,13 +56,18 @@ task="round_table"
 
 # task="lamp"
 
+# Med BC run
+run_id="lp-state-dr-med-1/en9wdmzr"
+randomness="med"
+task="lamp"
+
 wt_type="best_success_rate"
 rollout_steps=1000
 
 while true; do
-    python -m src.eval.evaluate_model --run-id $run_id --n-envs 32 \
-        --n-rollouts 32 -f $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
-        --use-new-env --action-type pos --observation-space image --randomness $randomness --wt-type $wt_type \
+    python -m src.eval.evaluate_model --run-id $run_id --n-envs 256 \
+        --n-rollouts 256 -f $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
+        --use-new-env --action-type pos --observation-space state --randomness $randomness --wt-type $wt_type \
         --save-rollouts
         # --save-rollouts-suffix $rollout_suffix
 done

@@ -12,7 +12,7 @@ pred_horizon: 32
 obs_horizon: 1
 
 furniture: one_leg
-randomness: med
+randomness: ???
 demo_source: teleop
 
 early_stopper:
@@ -25,5 +25,5 @@ training:
   num_epochs: 5000
 
 wandb:
-  project: ol-image-med-1
+  project: ???
   entity: robust-assembly

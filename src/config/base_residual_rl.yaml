@@ -55,7 +55,7 @@ ent_coef: 0.0
 vf_coef: 1.0
 max_grad_norm: 1.0
 target_kl: 0.1
-n_iterations_train_only_value: 5
+n_iterations_train_only_value: 0
 
 # Calculate the batch size as the data collection steps times the number of environments
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
@@ -68,7 +68,7 @@ control:
   act_rot_repr: rot_6d
 
 wandb:
-  entity: robust-rearrangement
+  entity: robust-assembly
   project: ???
   mode: online
   notes: null

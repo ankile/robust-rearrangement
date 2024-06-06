@@ -6,23 +6,23 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=0-02:00
+#SBATCH --time=0-03:00
 #SBATCH --gres=gpu:1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=ankile@mit.edu
-#SBATCH --job-name=cps_ol-high/8o5iet5y
+#SBATCH --job-name=cps_ol-low/yqkeckuk
 
-# u0gf0sgx
-# run_id="ol-state-dr-low-1/u0gf0sgx"
-# randomness="low"
+# 6i7hupje, 27gnmxlk, 173hhnou, u0gf0sgx, 3ja2sx2j, yqkeckuk
+run_id="ol-state-dr-low-1/yqkeckuk"
+randomness="low"
 
 # ykosiypt, qzt2lh9x, frmymr5x, xaqzl3mx, 8k6oiit5, otft0k6k, 9zjnzg4r, l8avaysq
 # run_id="ol-state-dr-med-1/l8avaysq"
 # randomness="med"
 
 # c24b6odm, zf8p0san, 93sr48mc, rwnni8cs, w6e26aaf, 3e6q7tg4, jukzzw0p, j3b67sm5, 8o5iet5y
-run_id="ol-state-dr-high-1/8o5iet5y"
-randomness="high"
+# run_id="ol-state-dr-high-1/8o5iet5y"
+# randomness="high"
 
 # 9s7hrl4i, nv48q2hd, ub3omf25, 99ao7drw
 # run_id="rt-state-dr-low-1/99ao7drw"

@@ -19,10 +19,10 @@ class FrontCameraTransform(nn.Module):
                 transforms.ColorJitter(
                     brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3
                 ),
-                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
+                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 1.2)),
                 transforms.CenterCrop((input_size[0], input_size[1] - 2 * margin)),
                 transforms.RandomCrop(crop_size),
-                transforms.RandomErasing(value="random"),
+                transforms.RandomErasing(value="random", p=0.2),
             ]
         )
         self.transform_eval = transforms.CenterCrop(crop_size)

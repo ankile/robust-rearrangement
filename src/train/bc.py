@@ -112,6 +112,7 @@ def main(cfg: DictConfig):
             predict_past_actions=cfg.data.predict_past_actions,
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
+            minority_class_power=cfg.data.get("minority_class_power", False),
         )
     elif cfg.observation_type == "state":
         dataset = FurnitureStateDataset(
@@ -129,7 +130,7 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f"Unknown observation type: {cfg.observation_type}")
 
-    # Split the dataset into train and test
+    # Split the dataset into train and test (effective, meaning that this is after upsampling)
     train_size = int(len(dataset) * (1 - cfg.data.test_split))
     test_size = len(dataset) - train_size
     print(f"Splitting dataset into {train_size} train and {test_size} test samples.")
@@ -155,7 +156,7 @@ def main(cfg: DictConfig):
     # Update the cfg object with the action dimension
     cfg.action_dim = dataset.action_dim
     cfg.n_episodes = len(dataset.episode_ends)
-    cfg.n_samples = len(dataset)
+    cfg.n_samples = dataset.n_samples
 
     # Update the cfg object with the observation dimension
     cfg.timestep_obs_dim = actor.timestep_obs_dim
@@ -271,19 +272,21 @@ def main(cfg: DictConfig):
     wandb.config.update(config_dict)
 
     # save stats to wandb and update the cfg object
-    wandb.log(
-        {
-            "dataset/num_samples_train": len(train_dataset),
-            "dataset/num_samples_test": len(test_dataset),
-            "dataset/num_episodes_train": int(
-                len(dataset.episode_ends) * (1 - cfg.data.test_split)
-            ),
-            "dataset/num_episodes_test": int(
-                len(dataset.episode_ends) * cfg.data.test_split
-            ),
-            "dataset/dataset_metadata": dataset.metadata,
-        }
-    )
+    train_size = int(dataset.n_samples * (1 - cfg.data.test_split))
+    test_size = dataset.n_samples - train_size
+
+    dataset_stats = {
+        "num_samples_train": train_size,
+        "num_samples_test": test_size,
+        "num_episodes_train": int(
+            len(dataset.episode_ends) * (1 - cfg.data.test_split)
+        ),
+        "num_episodes_test": int(len(dataset.episode_ends) * cfg.data.test_split),
+        "dataset_metadata": dataset.metadata,
+    }
+
+    # Add the dataset stats to the wandb summary
+    wandb.summary.update(dataset_stats)
 
     starttime = now()
     wandb.summary["start_time"] = starttime
@@ -455,6 +458,7 @@ def main(cfg: DictConfig):
                     ctrl_mode=cfg.control.controller,
                     action_type=cfg.control.control_mode,
                     headless=True,
+                    verbose=True,
                 )
 
             best_success_rate = do_rollout_evaluation(

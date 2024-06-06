@@ -235,32 +235,20 @@ class ResidualPolicyEnvWrapper:
         reward = reward.squeeze()
         done = done.squeeze()
 
-        self.env_success |= done
-
-        info["success"] = self.env_success
-
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
+
+        # Reset the envs that have reached the max number of steps or got reward
+        # if self.reset_on_success and torch.any(done):
+        #     obs = self.env.reset(torch.nonzero(done).view(-1))
+
+        # TODO - come back to think about truncation vs. termination in long horizon tasks
+        # Check if any envs have reached the max number of steps
+        done = self.env.env_steps >= self.max_env_steps
 
         # Clip the obs
         obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
         obs["parts_poses"] = torch.clamp(obs["parts_poses"], -3, 3)
-
-        if self.reset_on_failure:
-            # Get the gripper width
-            gripper_width = obs["robot_state"][:, -1]
-
-            # If the gripper width is less than 0.002, give a negative reward
-            # (means we closed the gripper witdt nothing in it)
-            reward -= torch.where(gripper_width < 0.002, 0.1, 0.0)
-
-        # TODO - come back to think about truncation vs. termination in long horizon tasks
-        # Check if any envs have reached the max number of steps
-        done |= self.env.env_steps >= self.max_env_steps
-
-        # Reset the envs that have reached the max number of steps or got reward
-        if self.reset_on_success and torch.any(done):
-            obs = self.env.reset(torch.nonzero(done).view(-1))
 
         return obs, reward, done, False, info
 

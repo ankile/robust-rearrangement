@@ -47,15 +47,27 @@ def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online")
 
             cfg: DictConfig = OmegaConf.create(run.config)
 
-            model_path = (
-                [
-                    f
-                    for f in run.files()
-                    if f.name.endswith(".pt") and wt_type in f.name
-                ][0]
-                .download(exist_ok=True, replace=True, root=cache_dir)
-                .name
-            )
+            if wt_type == "latest":
+                model_path = (
+                    (
+                        sorted(
+                            [f for f in run.files() if f.name.endswith(".pt")],
+                            key=lambda x: x.updated_at,
+                        )[-1]
+                    )
+                    .download(exist_ok=True, replace=True, root=cache_dir)
+                    .name
+                )
+            else:
+                model_path = (
+                    [
+                        f
+                        for f in run.files()
+                        if f.name.endswith(".pt") and wt_type in f.name
+                    ][0]
+                    .download(exist_ok=True, replace=True, root=cache_dir)
+                    .name
+                )
 
             # Cache the data on the file system for future use
             os.makedirs(cache_dir, exist_ok=True)
