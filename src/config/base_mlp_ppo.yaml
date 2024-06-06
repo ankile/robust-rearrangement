@@ -29,11 +29,8 @@ critic:
 
 init_logstd: -5.0
 
-# agent: residual-separate
-# chunk_size: 8
-
 total_timesteps: 500_000_000
-num_envs: 128
+num_envs: 1024
 num_minibatches: 1
 update_epochs: 10
 num_env_steps: 700
