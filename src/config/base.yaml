@@ -35,7 +35,8 @@ control:
 
 lr_scheduler:
   name: cosine
-  warmup_steps: 500
+  warmup_steps: 1000
+  encoder_warmup_steps: 5000
 
 wandb:
   project: ???

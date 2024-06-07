@@ -12,4 +12,5 @@
 
 python -m src.train.bc +experiment=state/scaling_50k \
     observation_type=state \
+    wandb.continue_run_id=8joapjpv \
     dryrun=false

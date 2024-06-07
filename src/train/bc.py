@@ -189,7 +189,7 @@ def main(cfg: DictConfig):
         else DataLoader(**trainload_kwargs)
     )
 
-    testloader = DataLoader(
+    testload_kwargs = dict(
         dataset=test_dataset,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.data.dataloader_workers,
@@ -199,10 +199,27 @@ def main(cfg: DictConfig):
         persistent_workers=False,
     )
 
+    testloader = (
+        FixedStepsDataloader(
+            **testload_kwargs,
+            n_batches=max(
+                int(round(cfg.training.steps_per_epoch * cfg.data.test_split)), 1
+            ),
+        )
+        if cfg.training.steps_per_epoch != -1
+        else DataLoader(**testload_kwargs)
+    )
+
     # AdamW optimizer for noise_net
     opt_noise = torch.optim.AdamW(
-        params=actor.parameters(),
+        params=actor.actor_parameters(),
         lr=cfg.training.actor_lr,
+        weight_decay=cfg.regularization.weight_decay,
+    )
+
+    opt_encoder = torch.optim.AdamW(
+        params=actor.encoder_parameters(),
+        lr=cfg.training.encoder_lr,
         weight_decay=cfg.regularization.weight_decay,
     )
 
@@ -216,6 +233,13 @@ def main(cfg: DictConfig):
         name=cfg.lr_scheduler.name,
         optimizer=opt_noise,
         num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_training_steps=len(trainloader) * cfg.training.num_epochs,
+    )
+
+    lr_scheduler_encoder = get_scheduler(
+        name=cfg.lr_scheduler.name,
+        optimizer=opt_encoder,
+        num_warmup_steps=cfg.lr_scheduler.encoder_warmup_steps,
         num_training_steps=len(trainloader) * cfg.training.num_epochs,
     )
 
@@ -245,10 +269,20 @@ def main(cfg: DictConfig):
 
         # Load the weights from the run
         _, wts = get_model_from_api_or_cached(
-            run_id, "best_test_loss", wandb_mode=cfg.wandb.mode
+            run_id, "latest", wandb_mode=cfg.wandb.mode
         )
 
-        actor.load_state_dict(torch.load(wts))
+        state_dict = torch.load(wts)
+
+        if "model_state_dict" in wts:
+            actor.load_state_dict(wts["model_state_dict"])
+            opt_noise.load_state_dict(wts["optimizer_state_dict"])
+            opt_encoder.load_state_dict(wts["encoder_optimizer_state_dict"])
+            lr_scheduler.load_state_dict(wts["scheduler_state_dict"])
+            lr_scheduler_encoder.load_state_dict(wts["encoder_scheduler_state_dict"])
+        else:
+            actor.load_state_dict(state_dict)
+
         print(f"Loaded weights from run {run_id}")
 
         # Set the best test loss and success rate to the one from the run
@@ -331,7 +365,9 @@ def main(cfg: DictConfig):
 
             # optimizer step
             opt_noise.step()
+            opt_encoder.step()
             lr_scheduler.step()
+            lr_scheduler_encoder.step()
 
             if cfg.training.ema.use:
                 ema.update()
@@ -389,7 +425,15 @@ def main(cfg: DictConfig):
             best_test_loss = test_loss_mean
             save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
             torch.save(
-                actor.state_dict(),
+                {
+                    "model_state_dict": actor.state_dict(),
+                    "optimizer_state_dict": opt_noise.state_dict(),
+                    "encoder_optimizer_state_dict": opt_encoder.state_dict(),
+                    "scheduler_state_dict": lr_scheduler.state_dict(),
+                    "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
+                    "epoch": epoch_idx,
+                    "best_test_loss": best_test_loss,
+                },
                 save_path,
             )
             wandb.save(save_path)
@@ -400,7 +444,15 @@ def main(cfg: DictConfig):
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
             torch.save(
-                actor.state_dict(),
+                {
+                    "model_state_dict": actor.state_dict(),
+                    "optimizer_state_dict": opt_noise.state_dict(),
+                    "encoder_optimizer_state_dict": opt_encoder.state_dict(),
+                    "scheduler_state_dict": lr_scheduler.state_dict(),
+                    "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
+                    "epoch": epoch_idx,
+                    "best_test_loss": best_test_loss,
+                },
                 save_path,
             )
             wandb.save(save_path)
@@ -479,7 +531,15 @@ def main(cfg: DictConfig):
                 prev_best_success_rate = best_success_rate
                 save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
                 torch.save(
-                    actor.state_dict(),
+                    {
+                        "model_state_dict": actor.state_dict(),
+                        "optimizer_state_dict": opt_noise.state_dict(),
+                        "encoder_optimizer_state_dict": opt_encoder.state_dict(),
+                        "scheduler_state_dict": lr_scheduler.state_dict(),
+                        "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
+                        "epoch": epoch_idx,
+                        "best_test_loss": best_test_loss,
+                    },
                     save_path,
                 )
                 wandb.save(save_path)
