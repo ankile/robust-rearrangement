@@ -8,8 +8,6 @@
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     actor/diffusion_model=transformer \
-    training.actor_lr=1e-4 \
-    training.num_epochs=5000 \
     demo_source='[teleop,rollout]' \
     furniture='[one_leg_render_demos_brighter,one_leg_render_rppo_brighter,one_leg_full]' \
     randomness='[low,med,med_perturb]' \
