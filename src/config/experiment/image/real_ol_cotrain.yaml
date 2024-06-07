@@ -30,6 +30,7 @@ training:
 regularization:
   feature_layernorm: true
   front_camera_dropout: 0.1
+  weight_decay: 1e-3
 
 furniture: [one_leg,one_leg_simple]
 randomness: [med, med_perturb,low]

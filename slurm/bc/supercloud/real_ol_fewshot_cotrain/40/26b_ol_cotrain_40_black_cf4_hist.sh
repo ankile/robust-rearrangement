@@ -16,5 +16,5 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     data.data_subset=200 \
     actor.confusion_loss_beta=1e-4 \
     data.minority_class_power=false \
-    obs_horizon=3 \
+    obs_horizon=2 \
     dryrun=false

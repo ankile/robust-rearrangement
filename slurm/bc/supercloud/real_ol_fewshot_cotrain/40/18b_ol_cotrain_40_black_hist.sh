@@ -15,6 +15,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     +data.max_episode_count.one_leg_full.teleop.low.success=40 \
     data.data_subset=200 \
     actor.confusion_loss_beta=0.0 \
-    obs_horizon=3 \
+    obs_horizon=2 \
     wandb.mode=offline \
     dryrun=true
