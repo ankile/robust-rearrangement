@@ -697,15 +697,6 @@ def main():
     )
     views.append(view)
 
-    # pos = config["furniture"]["square_table"]["square_table_leg4"]["reset_pos"][0]
-    # ori = config["furniture"]["square_table"]["square_table_leg4"]["reset_ori"][0][
-    #     :3, :3
-    # ]
-    # view = gen_prim(
-    #     "square_table/square_table_leg4_no_tag.usda", "/World/SquareTableLeg4", pos, ori
-    # )
-    # views.append(view)
-
     # Robots
     # -- Resolve robot config from command-line arguments
     robot_cfg = FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
@@ -923,12 +914,12 @@ def main():
             else len(data["observations"]) - 1
         )
 
-        # if obs_idx == 50:
-        #     run_until_quit(simulation_app=simulation_app, world=sim)
-        #     from IPython import embed
+        if obs_idx == 50:
+            run_until_quit(simulation_app=simulation_app, world=sim)
+            from IPython import embed
 
-        #     embed()
-        #     assert False
+            embed()
+            assert False
 
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx

@@ -190,6 +190,8 @@ def gen_prim(usd_path: str, prim_name: str, init_pos, init_ori):
     )
     # furniture_assets_root_path = Path(f"assets/furniture/mesh/usd")
     usd_path = str(furniture_assets_root_path / usd_path)
+    assert os.path.exists(usd_path), f"Could not find USD file: {usd_path}"
+
     pose = april_to_sim_mat @ (T.to_homogeneous(init_pos, init_ori))
     pos, ori = T.mat2pose(pose)
     ori = T.convert_quat(ori, to="wxyz")
@@ -216,11 +218,11 @@ part_mat_paths = [
     "/World/ObstacleFront/Looks/OmniPBR_ClearCoat",
     "/World/ObstacleRight/Looks/OmniPBR_ClearCoat",
     "/World/ObstacleLeft/Looks/OmniPBR_ClearCoat",
-    "/World/SquareTableTop/Looks/Material_004",
-    "/World/SquareTableLeg1/Looks/Material_005",
-    "/World/SquareTableLeg2/Looks/Material_005",
-    "/World/SquareTableLeg3/Looks/Material_005",
-    "/World/SquareTableLeg4/Looks/Material_004",
+    # "/World/SquareTableTop/Looks/Material_004",
+    # "/World/SquareTableLeg1/Looks/Material_005",
+    # "/World/SquareTableLeg2/Looks/Material_005",
+    # "/World/SquareTableLeg3/Looks/Material_005",
+    # "/World/SquareTableLeg4/Looks/Material_004",
 ]
 
 
@@ -676,28 +678,35 @@ def main():
     # embed()
     # assert False
 
-    pos = config["furniture"]["lamp"]["lamp_base"]["reset_pos"][0]
-    ori = config["furniture"]["lamp"]["lamp_base"]["reset_ori"][0][:3, :3]
-    view = gen_prim("lamp/lamp_base.usda", "/World/LampBase", pos, ori)
-    views.append(view)
+    part_config = {
+        "furniture": "lamp",
+        "names": ["lamp_base", "lamp_bulb", "lamp_hood"],
+        "usd_names": ["lamp_base.usda", "lamp_bulb.usda", "lamp_hood.usda"],
+        "prim_paths": [f"/World/LampBase", "/World/LampBulb", "/World/LampHood"],
+    }
 
-    pos = config["furniture"]["lamp"]["lamp_bulb"]["reset_pos"][0]
-    ori = config["furniture"]["lamp"]["lamp_bulb"]["reset_ori"][0][:3, :3]
-    view = gen_prim("lamp/lamp_bulb.usda", "/World/LampBulb", pos, ori)
-    views.append(view)
+    furn_name = part_config["furniture"]
+    for i, part_name in enumerate(part_config["names"]):
+        prim_path = part_config["prim_paths"][i]
+        usd_path = furn_name + "/" + part_config["usd_names"][i]
+        pos = config["furniture"][furn_name][part_name]["reset_pos"][0]
+        ori = config["furniture"][furn_name][part_name]["reset_ori"][0][:3, :3]
+        view = gen_prim(usd_path, prim_path, pos, ori)
+        views.append(view)
 
-    pos = config["furniture"]["lamp"]["lamp_hood"]["reset_pos"][0]
-    ori = config["furniture"]["lamp"]["lamp_hood"]["reset_ori"][0][:3, :3]
-    view = gen_prim("lamp/lamp_hood.usda", "/World/LampHood", pos, ori)
-    views.append(view)
+    # pos = config["furniture"]["lamp"]["lamp_base"]["reset_pos"][0]
+    # ori = config["furniture"]["lamp"]["lamp_base"]["reset_ori"][0][:3, :3]
+    # view = gen_prim("lamp/lamp_base.usda", "/World/LampBase", pos, ori)
+    # views.append(view)
 
-    # pos = config["furniture"]["square_table"]["square_table_leg4"]["reset_pos"][0]
-    # ori = config["furniture"]["square_table"]["square_table_leg4"]["reset_ori"][0][
-    #     :3, :3
-    # ]
-    # view = gen_prim(
-    #     "square_table/square_table_leg4_no_tag.usda", "/World/SquareTableLeg4", pos, ori
-    # )
+    # pos = config["furniture"]["lamp"]["lamp_bulb"]["reset_pos"][0]
+    # ori = config["furniture"]["lamp"]["lamp_bulb"]["reset_ori"][0][:3, :3]
+    # view = gen_prim("lamp/lamp_bulb.usda", "/World/LampBulb", pos, ori)
+    # views.append(view)
+
+    # pos = config["furniture"]["lamp"]["lamp_hood"]["reset_pos"][0]
+    # ori = config["furniture"]["lamp"]["lamp_hood"]["reset_ori"][0][:3, :3]
+    # view = gen_prim("lamp/lamp_hood.usda", "/World/LampHood", pos, ori)
     # views.append(view)
 
     # Robots
@@ -896,6 +905,27 @@ def main():
     dr_helper = RandomizationHelper(rand_config=dr_config)
     dr_helper.set_global_cams([camera])
     dr_helper.set_local_cams([wrist_camera])
+
+    # Try to automatically retrieve all the material prims
+    for i, prim_path in enumerate(part_config["prim_paths"]):
+        part_prim = prim_utils.get_prim_at_path(prim_path)
+        looks_prim_path = prim_path + "/Looks"
+        assert prim_utils.is_prim_path_valid(
+            looks_prim_path
+        ), f"Could not find Looks prim: {looks_prim_path}"
+        looks_prim = prim_utils.get_prim_at_path(looks_prim_path)
+        for looks_child_prim in looks_prim.GetChildren():
+            looks_child_path = looks_child_prim.GetPath().pathString
+            if (
+                "Material" in looks_child_path
+                and looks_child_path not in part_mat_paths
+            ):
+                print(
+                    f"Adding Material path: {looks_child_path} to materials for randomization"
+                )
+                part_mat_paths.append(looks_child_path)
+
+    print(f"Found material prims for all parts: {part_mat_paths}")
 
     for obs_idx, obs in enumerate(data["observations"]):
 
