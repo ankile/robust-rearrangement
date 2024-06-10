@@ -151,6 +151,7 @@ def main(cfg: DictConfig):
         normalize_reward=cfg.normalize_reward,
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
+        reward_clip=cfg.clip_reward,
     )
 
     optimizer_actor = optim.AdamW(

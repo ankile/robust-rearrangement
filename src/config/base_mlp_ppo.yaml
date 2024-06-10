@@ -44,7 +44,7 @@ env:
 gamma: 0.999
 gae_lambda: 0.95
 norm_adv: true
-normalize_reward: true
+normalize_reward: false
 clip_reward: 5.0
 clip_coef: 0.2
 clip_vloss: false

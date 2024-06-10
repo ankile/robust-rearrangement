@@ -197,6 +197,8 @@ def main(cfg: DictConfig):
         env,
         max_env_steps=cfg.num_env_steps,
         chunk_size=agent.action_horizon,
+        normalize_reward=cfg.normalize_reward,
+        reward_clip=cfg.clip_reward,
     )
 
     normalizer = LinearNormalizer()

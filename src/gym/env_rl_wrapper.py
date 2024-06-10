@@ -24,6 +24,8 @@ class FurnitureEnvRLWrapper:
         ee_dof=10,
         chunk_size=1,
         reset_on_success=False,
+        normalize_reward=False,
+        reward_clip=5.0,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
@@ -46,6 +48,12 @@ class FurnitureEnvRLWrapper:
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
+
+        self.reward_normalizer = (
+            RunningMeanStdClip(shape=(1,), clip_value=reward_clip)
+            if normalize_reward
+            else None
+        )
 
         self.no_rotation_or_gripper = torch.tensor(
             [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
@@ -128,9 +136,13 @@ class FurnitureEnvRLWrapper:
 
         done = terminated | truncated
 
+        if self.reward_normalizer is not None:
+            reward = self.reward_normalizer(reward)
+
+        # NOTE: We take this out to be safe as it's not currently compatible with the lamp task
         # Reset the envs that have reached the max number of steps or got reward
-        if self.reset_on_success and torch.any(done):
-            obs = self.env.reset(torch.nonzero(done).view(-1))
+        # if self.reset_on_success and torch.any(done):
+        #     obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 
@@ -188,6 +200,7 @@ class ResidualPolicyEnvWrapper:
         add_relative_pose=False,
         reset_on_success=True,
         reset_on_failure=False,
+        reward_clip=5.0,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
@@ -198,7 +211,9 @@ class ResidualPolicyEnvWrapper:
         self.reset_on_failure = reset_on_failure
         self.device = device
         self.reward_normalizer = (
-            RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
+            RunningMeanStdClip(shape=(1,), clip_value=reward_clip)
+            if normalize_reward
+            else None
         )
 
         self.env_success = torch.zeros(
