@@ -11,11 +11,13 @@
 #SBATCH --job-name=1_lp_40
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
-    actor/diffusion_model=transformer \
-    demo_source=teleop \
     furniture=lamp \
     randomness=low \
     environment=real \
     data.data_paths_override='[diffik/real/lamp/teleop/low/success.zarr]' \
-    dryrun=true \
+    actor.confusion_loss_beta=0.0 \
+    data.minority_class_power=false \
+    obs_horizon=1 \
+    wandb.project=real-lamp-cotrain-2 \
+    dryrun=false \
 
