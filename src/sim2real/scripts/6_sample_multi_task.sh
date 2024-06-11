@@ -1,0 +1,3 @@
+python -m src.sim2real.isaac_sim_raytrace -i 0 --sub-steps 3 --load-dir /data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/one_leg/teleop/med/success --furniture one_leg --num-parts 5 -dr rand --part-random full
+python -m src.sim2real.isaac_sim_raytrace -i 0 --sub-steps 3 --load-dir /data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/lamp/teleop/med/success --furniture lamp --num-parts 3 -dr rand --part-random full
+python -m src.sim2real.isaac_sim_raytrace -i 0 --sub-steps 3 --load-dir /data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/round_table/teleop/med/success --furniture round_table --num-parts 3 -dr rand --part-random full

@@ -23,13 +23,14 @@ data:
 training:
   batch_size: 256
   checkpoint_interval: 100
-  num_epochs: 2000
+  num_epochs: 5000
   steps_per_epoch: 100
   encoder_lr: 1e-5
 
 regularization:
   feature_layernorm: true
   front_camera_dropout: 0.1
+  weight_decay: 1e-3
 
 furniture: [one_leg,one_leg_simple]
 randomness: [med, med_perturb,low]

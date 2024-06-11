@@ -29,6 +29,8 @@ parser.add_argument("-sub", "--sub-steps", type=int, default=0)
 parser.add_argument("--load-dir", type=str, required=True)
 parser.add_argument("--save", action="store_true")
 parser.add_argument("--save-dir", type=str, default=None)
+parser.add_argument("--num-parts", type=int, required=True)
+parser.add_argument("--furniture", type=str, required=True)
 parser.add_argument("-dr", "--domain-rand", action="store_true")
 
 # Create a subparser for randomization arguments
@@ -80,10 +82,11 @@ from omni.isaac.orbit.utils import convert_dict_to_backend
 import furniture_bench.utils.transform as T
 from furniture_bench.config import config
 
+from src.sim2real.part_config_render import part_config_dict
+
 from typing import Dict, Union, Tuple
 
 # folder to load from
-# DEMO_DIR = "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/diffik/sim/one_leg/teleop/med_perturb/success"
 DEMO_DIR = args_cli.load_dir
 FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
 FILE = FILES[args_cli.demo_index]
@@ -190,6 +193,8 @@ def gen_prim(usd_path: str, prim_name: str, init_pos, init_ori):
     )
     # furniture_assets_root_path = Path(f"assets/furniture/mesh/usd")
     usd_path = str(furniture_assets_root_path / usd_path)
+    assert os.path.exists(usd_path), f"Could not find USD file: {usd_path}"
+
     pose = april_to_sim_mat @ (T.to_homogeneous(init_pos, init_ori))
     pos, ori = T.mat2pose(pose)
     ori = T.convert_quat(ori, to="wxyz")
@@ -216,11 +221,6 @@ part_mat_paths = [
     "/World/ObstacleFront/Looks/OmniPBR_ClearCoat",
     "/World/ObstacleRight/Looks/OmniPBR_ClearCoat",
     "/World/ObstacleLeft/Looks/OmniPBR_ClearCoat",
-    "/World/SquareTableTop/Looks/Material_004",
-    "/World/SquareTableLeg1/Looks/Material_005",
-    "/World/SquareTableLeg2/Looks/Material_005",
-    "/World/SquareTableLeg3/Looks/Material_005",
-    "/World/SquareTableLeg4/Looks/Material_004",
 ]
 
 
@@ -650,55 +650,16 @@ def main():
     )
 
     # Parts
-    square_table_top_pos = config["furniture"]["square_table"]["square_table_top"][
-        "reset_pos"
-    ][0]
-    square_table_top_ori = config["furniture"]["square_table"]["square_table_top"][
-        "reset_ori"
-    ][0][:3, :3]
-    view = gen_prim(
-        "square_table/square_table_top_no_tag.usda",
-        "/World/SquareTableTop",
-        square_table_top_pos,
-        square_table_top_ori,
-    )
-    views.append(view)
+    part_config = part_config_dict[args_cli.furniture]
 
-    pos = config["furniture"]["square_table"]["square_table_leg1"]["reset_pos"][0]
-    ori = config["furniture"]["square_table"]["square_table_leg1"]["reset_ori"][0][
-        :3, :3
-    ]
-    view = gen_prim(
-        "square_table/square_table_leg1_no_tag.usda", "/World/SquareTableLeg1", pos, ori
-    )
-    views.append(view)
-
-    pos = config["furniture"]["square_table"]["square_table_leg2"]["reset_pos"][0]
-    ori = config["furniture"]["square_table"]["square_table_leg2"]["reset_ori"][0][
-        :3, :3
-    ]
-    view = gen_prim(
-        "square_table/square_table_leg2_no_tag.usda", "/World/SquareTableLeg2", pos, ori
-    )
-    views.append(view)
-
-    pos = config["furniture"]["square_table"]["square_table_leg3"]["reset_pos"][0]
-    ori = config["furniture"]["square_table"]["square_table_leg3"]["reset_ori"][0][
-        :3, :3
-    ]
-    view = gen_prim(
-        "square_table/square_table_leg3_no_tag.usda", "/World/SquareTableLeg3", pos, ori
-    )
-    views.append(view)
-
-    pos = config["furniture"]["square_table"]["square_table_leg4"]["reset_pos"][0]
-    ori = config["furniture"]["square_table"]["square_table_leg4"]["reset_ori"][0][
-        :3, :3
-    ]
-    view = gen_prim(
-        "square_table/square_table_leg4_no_tag.usda", "/World/SquareTableLeg4", pos, ori
-    )
-    views.append(view)
+    furn_name = part_config["furniture"]
+    for i, part_name in enumerate(part_config["names"]):
+        prim_path = part_config["prim_paths"][i]
+        usd_path = furn_name + "/" + part_config["usd_names"][i]
+        pos = config["furniture"][furn_name][part_name]["reset_pos"][0]
+        ori = config["furniture"][furn_name][part_name]["reset_ori"][0][:3, :3]
+        view = gen_prim(usd_path, prim_path, pos, ori)
+        views.append(view)
 
     # Robots
     # -- Resolve robot config from command-line arguments
@@ -742,7 +703,6 @@ def main():
         R.from_euler("XYZ", np.deg2rad([0.0, 68.5, 90])).as_quat(), to="wxyz"
     )
     camera._sensor_xform.set_world_pose(cam_pos, cam_quat)
-    from IPython import embed
 
     wrist_camera.initialize()
 
@@ -823,7 +783,7 @@ def main():
     )
 
     # initialize parts
-    for i in range(5):
+    for i in range(args_cli.num_parts):
         pos = data["observations"][part_idx_offset]["parts_poses"][7 * i : 7 * i + 3]
         ori = data["observations"][part_idx_offset]["parts_poses"][
             7 * i + 3 : 7 * i + 7
@@ -863,12 +823,6 @@ def main():
         sim.step()
         time.sleep(0.01)
 
-    # run_until_quit(simulation_app=simulation_app, world=sim)
-    # from IPython import embed
-
-    # embed()
-    # assert False
-
     # setup re-saving
     if args_cli.save:
         assert args_cli.save_dir is not None, f"Must set --save-dir if --save is True!"
@@ -903,6 +857,26 @@ def main():
     dr_helper = RandomizationHelper(rand_config=dr_config)
     dr_helper.set_global_cams([camera])
     dr_helper.set_local_cams([wrist_camera])
+
+    # Try to automatically retrieve all the material prims
+    for i, prim_path in enumerate(part_config["prim_paths"]):
+        looks_prim_path = prim_path + "/Looks"
+        assert prim_utils.is_prim_path_valid(
+            looks_prim_path
+        ), f"Could not find Looks prim: {looks_prim_path}"
+        looks_prim = prim_utils.get_prim_at_path(looks_prim_path)
+        for looks_child_prim in looks_prim.GetChildren():
+            looks_child_path = looks_child_prim.GetPath().pathString
+            if (
+                "Material" in looks_child_path
+                and looks_child_path not in part_mat_paths
+            ):
+                print(
+                    f"Adding Material path: {looks_child_path} to materials for randomization"
+                )
+                part_mat_paths.append(looks_child_path)
+
+    print(f"Found material prims for all parts: {part_mat_paths}")
 
     for obs_idx, obs in enumerate(data["observations"]):
 
@@ -986,7 +960,7 @@ def main():
                 ),
             )
 
-            for j in range(5):
+            for j in range(args_cli.num_parts):
                 # pos = obs['parts_poses'][7 * i:7 * i + 3]
                 goal_pos = data["observations"][part_idx]["parts_poses"][
                     7 * j : 7 * j + 3
@@ -1028,7 +1002,7 @@ def main():
         fj2 = obs["robot_state"]["gripper_finger_2_pos"]
         parts_prev_goal_pos = []
         parts_prev_goal_ori = []
-        for i in range(5):
+        for i in range(args_cli.num_parts):
             pos = data["observations"][part_idx]["parts_poses"][7 * i : 7 * i + 3]
             ori = data["observations"][part_idx]["parts_poses"][7 * i + 3 : 7 * i + 7]
             parts_prev_goal_pos.append(pos)

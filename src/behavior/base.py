@@ -53,6 +53,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     encoding_dim: int
     augment_image: bool
 
+    model: nn.Module
+
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
 
@@ -153,6 +155,18 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
                 self.camera_2_vib.to(self.device)
 
         self.print_model_params()
+
+    def actor_parameters(self):
+        """
+        Return the parameters of the actor by filtering out the encoder parameters
+        """
+        return [p for n, p in self.named_parameters() if "encoder" not in n]
+
+    def encoder_parameters(self):
+        """
+        Return the parameters of the encoder
+        """
+        return [p for n, p in self.named_parameters() if "encoder" in n]
 
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())

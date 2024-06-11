@@ -314,8 +314,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
                 "parts_poses",
                 "robot_state",
                 f"action/{control_mode}",
-                "skill",
-                "reward",
+                # "skill",
+                # "reward",
             ],
             max_episodes=data_subset,
             max_ep_cnt=max_episode_count,
@@ -435,7 +435,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             [furniture2idx[f] for f in combined_data["furniture"]]
         )
         self.successes = combined_data["success"].astype(np.uint8)
-        self.skills = combined_data["skill"].astype(np.uint8)
+        # self.skills = combined_data["skill"].astype(np.uint8)
         self.failure_idx = combined_data["failure_idx"]
 
         # Add action, robot_state, and parts_poses dimensions to the dataset
