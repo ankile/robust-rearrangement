@@ -15,5 +15,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     data.minority_class_power=false \
     obs_horizon=1 \
     wandb.project=real-lamp-cotrain-2 \
+    wandb.mode=offline \
     dryrun=false
 

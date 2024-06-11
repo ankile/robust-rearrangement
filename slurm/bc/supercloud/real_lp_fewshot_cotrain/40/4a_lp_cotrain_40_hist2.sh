@@ -16,5 +16,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     obs_horizon=3 \
     training.batch_size=128 \
     wandb.project=real-lamp-cotrain-2 \
+    wandb.mode=offline \
     dryrun=false
 

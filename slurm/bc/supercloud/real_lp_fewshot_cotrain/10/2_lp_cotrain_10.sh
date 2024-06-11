@@ -16,5 +16,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     obs_horizon=1 \
     +data.max_episode_count.lamp.teleop.low.success=10 \
     wandb.project=real-lamp-cotrain-2 \
+    wandb.mode=offline \
     dryrun=false
 
