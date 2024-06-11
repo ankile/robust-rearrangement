@@ -8,7 +8,10 @@ base_policy:
   wt_type: best_success_rate
 
 env:
-  randomness: med
+  randomness: low
+
+normalize_reward: false
+residual_l2: 0.0
 
 wandb:
   entity: robust-assembly

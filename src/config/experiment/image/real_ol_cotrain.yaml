@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
   - override /vision_encoder: r3m
+  - override /actor/diffusion_model: transformer
 
 observation_type: image
 

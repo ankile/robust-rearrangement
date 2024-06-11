@@ -6,7 +6,7 @@ defaults:
   - override /rollout: rollout
 
 rollout:
-  num_envs: 128
+  num_envs: 1024
   every: 50
   furniture: one_leg
   randomness: low
@@ -20,7 +20,8 @@ wandb:
   project: ol-vision-scaling-low-1
 
 training:
-  num_epochs: 10000
+  num_epochs: 20000
+  batch_size: 1024
 
 data:
   data_paths_override:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-v100,vision-pulkitag-a100,vision-pulkitag-3090
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-a100,vision-pulkitag-3090,vision-pulkitag-v100
 #SBATCH -q vision-pulkitag-main
 #SBATCH --job-name=ol_rppo_med
 #SBATCH --nodes=1
@@ -12,7 +12,9 @@
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=ol-state-dr-med-1/9zjnzg4r \
-    base_policy.wt_type=latest \
-    wandb.continue_run_id=u1icj0g9 \
+    env.task=one_leg \
+    env.randomness=med \
+    num_env_steps=700 \
+    normalize_reward=false \
     wandb.project=ol-rppo-dr-med-1 \
     debug=false
