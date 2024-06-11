@@ -18,7 +18,7 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     actor.confusion_loss_beta=0.0 \
     data.minority_class_power=false \
     obs_horizon=1 \
-    +data.max_episode_count.one_leg_full.teleop.low.success=10 \
+    +data.max_episode_count.lamp.teleop.low.success=10 \
     wandb.project=real-lamp-cotrain-2 \
     dryrun=false
 
