@@ -4,7 +4,7 @@
 #SBATCH -t 3-00:00
 #SBATCH --gres=gpu:volta:1
 #SBATCH -c 20
-#SBATCH --job-name=4_lp_cotrain_40_hist
+#SBATCH --job-name=4_lp_cotrain_40_hist2
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     furniture=lamp \

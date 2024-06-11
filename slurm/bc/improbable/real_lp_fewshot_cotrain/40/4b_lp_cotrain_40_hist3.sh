@@ -8,7 +8,7 @@
 #SBATCH --mem=128GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=4_lp_cotrain_40_hist
+#SBATCH --job-name=4_lp_cotrain_40_hist3
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     furniture=lamp \
