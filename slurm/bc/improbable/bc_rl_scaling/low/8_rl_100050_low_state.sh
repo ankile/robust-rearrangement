@@ -10,8 +10,6 @@
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=8_rl_100050_low_state
 
-# wandb.continue_run_id=wi6t4u51 \
 python -m src.train.bc +experiment=state/scaling_100k \
-    observation_type=state \
-    training.gpu_id=5 \
+    training.gpu_id=0 \
     dryrun=true

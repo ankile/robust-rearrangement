@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=4_rl_1050_low_state
+#SBATCH --job-name=7_rl_50050_low_state
 
-python -m src.train.bc +experiment=image/scaling_1k \
+python -m src.train.bc +experiment=state/scaling_10k \
     dryrun=false
