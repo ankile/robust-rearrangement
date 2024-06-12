@@ -28,6 +28,11 @@ training:
   steps_per_epoch: 100
   encoder_lr: 1e-5
 
+lr_scheduler:
+  name: cosine
+  warmup_steps: 1_000
+  encoder_warmup_steps: 25_000
+
 regularization:
   feature_layernorm: true
   front_camera_dropout: 0.1
