@@ -55,7 +55,7 @@ class WristCameraTransform(nn.Module):
                 transforms.ColorJitter(
                     brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3
                 ),
-                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 2.0)),
+                transforms.GaussianBlur(kernel_size=5, sigma=(0.01, 1.2)),
                 transforms.Resize((224, 224), antialias=True),
             ]
         )
