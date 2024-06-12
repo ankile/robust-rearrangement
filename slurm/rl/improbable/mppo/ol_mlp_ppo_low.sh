@@ -8,14 +8,14 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=lp_mppo_low
+#SBATCH --job-name=ol_mppo_low
 
 python -m src.train.ppo \
-    base_policy.wandb_id=lp-state-dr-low-1/xumfizob \
+    base_policy.wandb_id=ol-state-dr-low-1/173hhnou \
     base_policy.wt_type=best_success_rate \
-    env.task=lamp \
+    env.task=one_leg \
     env.randomness=low \
-    num_env_steps=1000 \
+    num_env_steps=700 \
     num_envs=1024 \
-    wandb.project=lp-mlp-ppo-dr-low-1 \
-    debug=false
+    wandb.project=ol-mlp-ppo-dr-low-1 \
+    debug=true
