@@ -71,6 +71,24 @@ def Xform "World" (
 
     def Scope "Looks"
     {
+
+        def Material "Plastic_Clear"
+        {
+            token outputs:mdl:displacement.connect = </World/Looks/Plastic_Clear/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </World/Looks/Plastic_Clear/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </World/Looks/Plastic_Clear/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @omniverse://localhost/NVIDIA/Materials/Base/Plastics/Plastic_Clear.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "Plastic_Clear"
+                token outputs:out (
+                    renderType = "material"
+                )
+            }
+        }
+
         def Material "Material_010"
         {
             token outputs:mdl:displacement.connect = </World/Looks/Material_010/Material_010.outputs:out>
@@ -793,3 +811,23 @@ def Xform "World" (
     }
 }
 
+
+def Scope "Looks"
+{
+    def Material "Plastic_Clear"
+    {
+        token outputs:mdl:displacement.connect = </Looks/Plastic_Clear/Shader.outputs:out>
+        token outputs:mdl:surface.connect = </Looks/Plastic_Clear/Shader.outputs:out>
+        token outputs:mdl:volume.connect = </Looks/Plastic_Clear/Shader.outputs:out>
+
+        def Shader "Shader"
+        {
+            uniform token info:implementationSource = "sourceAsset"
+            uniform asset info:mdl:sourceAsset = @omniverse://localhost/NVIDIA/Materials/Base/Plastics/Plastic_Clear.mdl@
+            uniform token info:mdl:sourceAsset:subIdentifier = "Plastic_Clear"
+            token outputs:out (
+                renderType = "material"
+            )
+        }
+    }
+}

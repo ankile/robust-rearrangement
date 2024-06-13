@@ -2,9 +2,12 @@
 <robot name="square_table_leg4">
     <link name="square_table_leg4">
         <visual>
-            <geometry>
+            <!-- <geometry>
                 <mesh filename="../mesh/square_table/square_table_leg4.obj" scale="1 1 1"/>
-            </geometry>
+            </geometry> -->
+            <material name="part_material">
+                <color rgba="1. 0. 0. 0.0"/>
+            </material>
         </visual>
         <collision>
             <geometry>

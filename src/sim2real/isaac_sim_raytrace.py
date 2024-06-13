@@ -31,6 +31,7 @@ parser.add_argument("--save", action="store_true")
 parser.add_argument("--save-dir", type=str, default=None)
 parser.add_argument("--num-parts", type=int, required=True)
 parser.add_argument("--furniture", type=str, required=True)
+parser.add_argument("--visualize-actions", action="store_true")
 parser.add_argument("-dr", "--domain-rand", action="store_true")
 
 # Create a subparser for randomization arguments
@@ -59,17 +60,23 @@ simulation_app = SimulationApp(
         "headless": args_cli.headless,
         "width": 640,
         "height": 480,
+        # "width": int(640 * 2),
+        # "height": int(480 * 2),
     }
 )
 """Rest everything follows."""
 
 import numpy as np
 import torch
+import carb
 from torchvision.transforms import functional as F, InterpolationMode
 from pxr import Gf
 import omni.isaac.core.utils.prims as prim_utils
 from omni.isaac.core.simulation_context import SimulationContext
 from omni.isaac.core.utils.viewports import set_camera_view
+
+from pxr import UsdShade
+from omni.isaac.debug_draw import _debug_draw
 
 import omni.isaac.orbit.utils.kit as kit_utils
 from omni.isaac.orbit.robots.config.franka import FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
@@ -88,7 +95,11 @@ from typing import Dict, Union, Tuple
 
 # folder to load from
 DEMO_DIR = args_cli.load_dir
-FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
+FILES = [
+    os.path.join(DEMO_DIR, f)
+    for f in os.listdir(DEMO_DIR)
+    if f.endswith(".pkl") and "base_action" not in f
+]
 FILE = FILES[args_cli.demo_index]
 
 PART_COLOR_BASE = (
@@ -118,6 +129,8 @@ wrist_435_camera_matrix = np.array(
         [0.0, 0.0, 1.0],
     ]
 )
+
+draw = _debug_draw.acquire_debug_draw_interface()
 
 
 def build_camera_params(
@@ -153,16 +166,31 @@ def run_until_quit(simulation_app, world):
     import omni.appwindow
     import carb.input
 
-    global RP_RUNNING, RP_PAUSE
+    global RP_RUNNING, RP_PAUSE, return_flag
     RP_RUNNING = True
     RP_PAUSE = False
+    return_flag = None
 
     def on_kb_input(e):
-        global RP_RUNNING, RP_PAUSE
-        if e.type == carb.input.KeyboardEventType.KEY_RELEASE:
+        global RP_RUNNING, RP_PAUSE, return_flag
+        # if e.type == carb.input.KeyboardEventType.KEY_RELEASE:
+        # if e.type == carb.input.KeyboardEventType.KEY_PRESS:
+        if (
+            e.type == carb.input.KeyboardEventType.KEY_REPEAT
+            or e.type == carb.input.KeyboardEventType.KEY_RELEASE
+        ):
             if e.input == carb.input.KeyboardInput.Q:
                 print(f'[Run until quit] Caught "Q" keypress, closing app')
                 RP_RUNNING = False
+                return_flag = 2
+            if e.input == carb.input.KeyboardInput.F:
+                print(f'[Run until quit] Caught "Q" keypress, closing app')
+                RP_RUNNING = False
+                return_flag = 1
+            elif e.input == carb.input.KeyboardInput.B:
+                print(f'[Run until quit] Caught "Q" keypress, closing app')
+                RP_RUNNING = False
+                return_flag = -1
             elif e.input == carb.input.KeyboardInput.P:
                 print(f'[Run until quit] Caught "P" keypress, pausing')
                 RP_PAUSE = True
@@ -184,7 +212,7 @@ def run_until_quit(simulation_app, world):
             embed()
             RP_PAUSE = False
 
-    return
+    return return_flag
 
 
 def gen_prim(usd_path: str, prim_name: str, init_pos, init_ori):
@@ -546,6 +574,13 @@ def main():
     s = time.time()
     with open(FILE, "rb") as f:
         data = pickle.load(f)
+
+    base_action_file = FILE.replace(".pkl", "_base_action_pos.pkl")
+    if os.path.exists(base_action_file):
+        with open(base_action_file, "rb") as f:
+            base_action_data = pickle.load(f)
+    else:
+        base_action_data = None
     """Spawns a single arm manipulator and applies random joint commands."""
 
     # Load kit helper
@@ -732,6 +767,13 @@ def main():
 
     wrist_rep_writer = rep.BasicWriter(output_dir=wrist_output_dir, frame_padding=3)
 
+    rp3 = rep.create.render_product("/OmniverseKit_Persp", (640, 480))
+    rp_rgb = rep.AnnotatorRegistry.get_annotator("rgb")
+    rp_rgb.attach(rp3)
+    viewer_rep_writer = rep.BasicWriter(
+        output_dir=output_dir + "_viewer", frame_padding=3
+    )
+
     # Now we are ready!
     print("[INFO]: Setup complete...")
 
@@ -740,7 +782,8 @@ def main():
     sim_time = 0.0
     ep_step_count = 0
 
-    sim_steps = 1
+    # sim_steps = 1
+    sim_steps = 10
     print(f"Sim steps: {sim_steps}")
 
     prev_goal_pos = torch.tensor(
@@ -753,6 +796,8 @@ def main():
 
     fj1 = data["observations"][0]["robot_state"]["gripper_finger_1_pos"]
     fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
+    prev_fj1 = data["observations"][0]["robot_state"]["gripper_finger_1_pos"]
+    prev_fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
 
     # Initialize robot state
     robot.set_dof_state(
@@ -878,7 +923,123 @@ def main():
 
     print(f"Found material prims for all parts: {part_mat_paths}")
 
-    for obs_idx, obs in enumerate(data["observations"]):
+    # Drawing helpers
+
+    def make_part_clear():
+        plastic_clear_mat = UsdShade.Material(
+            prim_utils.get_prim_at_path("/World/Table/Looks/Plastic_Clear")
+        )
+        leg_prim = prim_utils.get_prim_at_path("/World/SquareTableLeg4")
+        UsdShade.MaterialBindingAPI(leg_prim).Bind(
+            plastic_clear_mat, UsdShade.Tokens.strongerThanDescendants
+        )
+
+    # def make_lines_start_ee_pos(ee_pos, ee_quat, delta_vector, scale=1.0):
+    def make_lines_start_ee_pos(
+        start_pos, ee_quat, delta_vector, scale=1.0, with_offset=True
+    ):
+
+        # Random start near the EE pos
+        # noise = (np.random.random(3) - 0.5).astype(np.float32).reshape(1, 3) * 0.001
+        offset = (
+            franka_from_origin_mat[:-1, -1].reshape(1, 3)
+            if with_offset
+            else np.zeros((1, 3))
+        )
+        # line_start = ee_pos.reshape(1, 3) + offset + noise
+        line_start = start_pos.reshape(1, 3) + offset
+
+        # Move the start point higher
+        ee_z_axis = T.quat2mat(ee_quat)[:, 2].reshape(1, 3)
+        # line_start = line_start - ee_z_axis * 0.019
+
+        line_end = line_start + delta_vector * scale
+        lines = np.concatenate([line_start, line_end], axis=0)
+        return lines
+
+    def draw_res_action(ee_pos, ee_quat, base_action_pos, full_action_pos):
+        scale = 2.0
+        # scale = 1.0
+
+        # base action first
+        base_delta_pos = base_action_pos - ee_pos
+        lines = make_lines_start_ee_pos(
+            ee_pos, ee_quat, delta_vector=base_delta_pos, scale=scale
+        )
+        colors = np.array([1.0, 0.0, 0.0, 1.0], dtype=np.float32) * 255
+        sizes = [3.0]
+        draw.draw_lines(
+            [carb._carb.Float3(lines[0])],
+            [carb._carb.Float3(lines[1])],
+            [carb._carb.ColorRgba(colors)],
+            sizes,
+        )
+        # draw.draw_lines(carb._carb.Float3(lines[0]), carb._carb.Float3(lines[1]), carb._carb.ColorRgba(colors), sizes)
+        # draw.draw_lines(lines.tolist(), colors.tolist(), sizes)
+
+        # residual action
+        residual_delta_pos = full_action_pos - base_action_pos
+        # lines = make_lines_start_ee_pos(
+        #     ee_pos, ee_quat, delta_vector=residual_delta_pos, scale=scale
+        # )
+        lines = make_lines_start_ee_pos(
+            lines[1],
+            ee_quat,
+            delta_vector=residual_delta_pos,
+            scale=scale,
+            with_offset=False,
+        )
+        colors = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32) * 255
+        sizes = [3.0]
+        draw.draw_lines(
+            [carb._carb.Float3(lines[0])],
+            [carb._carb.Float3(lines[1])],
+            [carb._carb.ColorRgba(colors)],
+            sizes,
+        )
+
+        # full action
+        full_delta_pos = full_action_pos - ee_pos
+        lines = make_lines_start_ee_pos(
+            ee_pos, ee_quat, delta_vector=full_delta_pos, scale=scale
+        )
+        colors = np.array([0.0, 1.0, 0.0, 1.0], dtype=np.float32) * 255
+        # colors = np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32) * 255
+        sizes = [3.0]
+        draw.draw_lines(
+            [carb._carb.Float3(lines[0])],
+            [carb._carb.Float3(lines[1])],
+            [carb._carb.ColorRgba(colors)],
+            sizes,
+        )
+
+    # run_until_quit(simulation_app=simulation_app, world=sim)
+
+    if args_cli.visualize_actions:
+        make_part_clear()
+
+    # obs_idx = 0
+    obs_idx = 100
+    pause_idx = 110  # 130
+    run_return_flag = 1
+
+    if (
+        base_action_data is not None
+        and args_cli.visualize_actions
+        and obs_idx < len(base_action_data)
+    ):
+        # see if we should visualize
+        obs = data["observations"][obs_idx]
+        base_action_pos = base_action_data[obs_idx]
+        full_action_pos = obs["robot_state"]["ee_pos"] + data["actions"][obs_idx][:3]
+        prev_base_action_pos = base_action_pos
+        prev_full_action_pos = full_action_pos
+        prev_ee_pos = obs["robot_state"]["ee_pos"]
+        prev_ee_quat = obs["robot_state"]["ee_quat"]
+
+    while True:
+        # for obs_idx, obs in enumerate(data["observations"]):
+        obs = data["observations"][obs_idx]
 
         if args_cli.domain_rand:
             if obs_idx % dr_config.random_frame_freq == 0:
@@ -892,21 +1053,42 @@ def main():
         goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         dx = (goal_pos - prev_goal_pos) / sim_steps
 
+        fj1 = obs["robot_state"]["gripper_finger_1_pos"]
+        fj2 = obs["robot_state"]["gripper_finger_2_pos"]
+        fj1_dx = (fj1 - prev_fj1) / sim_steps
+        fj2_dx = (fj2 - prev_fj2) / sim_steps
+
         part_idx = (
             obs_idx + part_idx_offset
             if obs_idx + part_idx_offset < len(data["observations"])
             else len(data["observations"]) - 1
         )
 
-        # if obs_idx == 50:
+        # if obs_idx == 230:
+        #     # if obs_idx == 50:
         #     run_until_quit(simulation_app=simulation_app, world=sim)
         #     from IPython import embed
 
         #     embed()
         #     assert False
 
+        if (
+            base_action_data is not None
+            and args_cli.visualize_actions
+            and obs_idx < len(base_action_data)
+        ):
+            # see if we should visualize
+            base_action_pos = base_action_data[obs_idx]
+            full_action_pos = (
+                obs["robot_state"]["ee_pos"] + data["actions"][obs_idx][:3]
+            )
+            ee_pos = obs["robot_state"]["ee_pos"]
+            ee_quat = obs["robot_state"]["ee_quat"]
+
         for i in range(int(sim_steps)):
             interp_goal = prev_goal_pos + (i + 1) * dx
+            interp_fj1 = prev_fj1 + (i + 1) * fj1_dx
+            interp_fj2 = prev_fj2 + (i + 1) * fj2_dx
 
             # If simulation is paused, then skip.
             if not sim.is_playing():
@@ -924,15 +1106,18 @@ def main():
                 wrist_rep_writer.write(
                     convert_dict_to_backend(wrist_camera.data.output, backend="numpy")
                 )
+                viewer_rep_writer.write(
+                    {"rgb": rp_rgb.get_data(), "trigger_outputs": {"on_time": 0}}
+                )
                 # rep_writer.write(resize_dict(camera.data.output))
                 # wrist_rep_writer.write(resize_dict(wrist_camera.data.output))
 
             elapsed = time.time() - last_time
             fps = 1.0 / elapsed
             fps_list.append(fps)
-            if i % 10 == 0:
+            if obs_idx % 10 == 0 and i == 0:
                 fps_avg = np.mean(fps_list[-10:])
-                print(f"Frames per second: {fps_avg}")
+                print(f"Frames per second: {fps_avg}, (index {obs_idx})")
             last_time = time.time()
 
             robot.set_dof_state(
@@ -940,12 +1125,12 @@ def main():
                     [
                         interp_goal,
                         torch.from_numpy(
-                            fj1.reshape(
+                            interp_fj1.reshape(
                                 1,
                             )
                         ).float(),
                         torch.from_numpy(
-                            fj2.reshape(
+                            interp_fj2.reshape(
                                 1,
                             )
                         ).float(),
@@ -984,6 +1169,42 @@ def main():
                 ori = torch.from_numpy(ori).unsqueeze(0)
                 views[j].set_world_poses(positions=pos, orientations=ori)
 
+            if (
+                base_action_data is not None
+                and args_cli.visualize_actions
+                and obs_idx < len(base_action_data)
+            ):
+                # see if we should visualize
+
+                ee_pos_dx = (ee_pos - prev_ee_pos) / sim_steps
+                ee_pos_viz = prev_ee_pos + (i + 1) * ee_pos_dx
+                interp_fraction = i / sim_steps
+                ee_quat_viz = T.quat_slerp(
+                    prev_ee_quat, ee_quat, fraction=interp_fraction
+                )
+                base_action_dx = (base_action_pos - prev_base_action_pos) / sim_steps
+                base_action_pos_viz = prev_base_action_pos + (i + 1) * base_action_dx
+                full_action_dx = (full_action_pos - prev_full_action_pos) / sim_steps
+                full_action_pos_viz = prev_full_action_pos + (i + 1) * full_action_dx
+                # base_action_pos = base_action_data[obs_idx]
+                # full_action_pos = (
+                #     obs["robot_state"]["ee_pos"] + data["actions"][obs_idx][:3]
+                # )
+                # draw.clear_lines()
+                # draw_res_action(
+                #     ee_pos=obs["robot_state"]["ee_pos"],
+                #     ee_quat=obs["robot_state"]["ee_quat"],
+                #     base_action_pos=base_action_pos,
+                #     full_action_pos=full_action_pos,
+                # )
+                draw.clear_lines()
+                draw_res_action(
+                    ee_pos=ee_pos_viz,
+                    ee_quat=ee_quat_viz,
+                    base_action_pos=base_action_pos_viz,
+                    full_action_pos=full_action_pos_viz,
+                )
+
             # perform step
             sim.step()
             for _ in range(args_cli.sub_steps):
@@ -997,9 +1218,20 @@ def main():
                 # update buffers
                 robot.update_buffers(sim_dt)
 
+            if (
+                obs_idx > pause_idx
+                and args_cli.visualize_actions
+                and run_return_flag < 2
+            ):
+                run_return_flag = run_until_quit(
+                    simulation_app=simulation_app, world=sim
+                )
+
         prev_goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
-        fj1 = obs["robot_state"]["gripper_finger_1_pos"]
-        fj2 = obs["robot_state"]["gripper_finger_2_pos"]
+        # fj1 = obs["robot_state"]["gripper_finger_1_pos"]
+        # fj2 = obs["robot_state"]["gripper_finger_2_pos"]
+        prev_fj1 = obs["robot_state"]["gripper_finger_1_pos"]
+        prev_fj2 = obs["robot_state"]["gripper_finger_2_pos"]
         parts_prev_goal_pos = []
         parts_prev_goal_ori = []
         for i in range(args_cli.num_parts):
@@ -1007,6 +1239,17 @@ def main():
             ori = data["observations"][part_idx]["parts_poses"][7 * i + 3 : 7 * i + 7]
             parts_prev_goal_pos.append(pos)
             parts_prev_goal_ori.append(ori)
+
+        if (
+            base_action_data is not None
+            and args_cli.visualize_actions
+            and obs_idx < len(base_action_data)
+        ):
+            # see if we should visualize
+            prev_base_action_pos = base_action_pos
+            prev_full_action_pos = full_action_pos
+            prev_ee_pos = obs["robot_state"]["ee_pos"]
+            prev_ee_quat = obs["robot_state"]["ee_quat"]
 
         if args_cli.save:
             # log the new observation
@@ -1024,6 +1267,19 @@ def main():
                 robot_state=obs["robot_state"],
             )
             episode_data["observations"].append(new_obs)
+
+        if obs_idx > pause_idx and args_cli.visualize_actions and run_return_flag < 2:
+            # st = time.time()
+            # while time.time() - st < 0.5:
+            #     sim.render()
+            run_return_flag = run_until_quit(simulation_app=simulation_app, world=sim)
+        else:
+            run_return_flag = 1
+
+        if run_return_flag == -1:
+            obs_idx -= 1
+        else:
+            obs_idx += 1
 
     e = time.time()
     print(f"Time taken: {e-s}")

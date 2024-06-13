@@ -8,6 +8,7 @@ import collections
 import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
+import pickle
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from typing import Dict, Union
@@ -128,6 +129,74 @@ class SuccessTqdm(tqdm):
         self.pbar_desc(0)
 
 
+import furniture_bench.controllers.control_utils as C
+
+
+def make_lines_start_ee_pos(env, delta_vector, scale: float = 1.0):
+    ee_pos, ee_quat = env.get_ee_pose()
+
+    # Random start near the EE pos
+    noise = (np.random.random(3) - 0.5).astype(np.float32).reshape(1, 3) * 0.001
+    offset = env.franka_from_origin_mat[:-1, -1].reshape(1, 3)
+    line_start = ee_pos[0].cpu().numpy().reshape(1, 3) + offset + noise
+
+    # Move the start point higher
+    ee_z_axis = C.quat2mat(ee_quat[0]).cpu().numpy()[:, 2].reshape(1, 3)
+    # line_start = line_start - ee_z_axis * 0.019
+
+    line_end = line_start + delta_vector * scale
+    lines = np.concatenate([line_start, line_end], axis=0)
+    return lines
+
+
+def draw_ee_laser(env):
+    ee_pos, ee_quat = env.get_ee_pose()
+    for _ in range(3):
+        ee_z_axis = C.quat2mat(ee_quat[0]).cpu().numpy()[:, 2].reshape(1, 3)
+        lines = make_lines_start_ee_pos(delta_vector=ee_z_axis)
+        colors = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        env.isaac_gym.add_lines(env.viewer, env.envs[0], 1, lines, colors)
+
+
+def draw_res_action(env, action_cache):
+    ee_pos = env.get_ee_pose()[0].cpu().numpy()
+
+    # scale = 2.5
+    scale = 1.0
+
+    # base action first
+    base_action_pos = action_cache.base_action_pos_np
+    base_delta_pos = base_action_pos - ee_pos
+    for _ in range(50):
+        lines = make_lines_start_ee_pos(env, delta_vector=base_delta_pos, scale=scale)
+        colors = np.array([[1.0, 0.0, 0.0]], dtype=np.float32)
+        env.isaac_gym.add_lines(env.viewer, env.envs[0], 1, lines, colors)
+
+    # full action
+    full_action_pos = action_cache.full_action_pos_np
+    full_delta_pos = full_action_pos - ee_pos
+    for _ in range(50):
+        lines = make_lines_start_ee_pos(env, delta_vector=full_delta_pos, scale=scale)
+        colors = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+        # env.isaac_gym.add_lines(env.viewer, env.envs[0], 1, lines, colors)
+
+    # residual action
+    # residual_action_pos = action_cache.residual_action_pos_np
+    # residual_delta_pos = residual_action_pos - ee_pos
+    # residual_delta_pos = action_cache.residual_action_pos_np
+    residual_delta_pos = full_action_pos - base_action_pos
+    for _ in range(50):
+        lines = make_lines_start_ee_pos(
+            env, delta_vector=residual_delta_pos, scale=scale
+        )
+        colors = np.array([[0.0, 0.0, 1.0]], dtype=np.float32)
+        env.isaac_gym.add_lines(env.viewer, env.envs[0], 1, lines, colors)
+
+
+global base_actions_pos
+base_actions_pos = list()
+
+
 def rollout(
     env: FurnitureRLSimEnv,
     actor: Actor,
@@ -136,6 +205,7 @@ def rollout(
     resize_video: bool = True,
     n_parts_assemble: int = 1,
 ):
+    global base_actions_pos
     # get first observation
     with suppress_all_output(False):
         obs = env.reset()
@@ -162,16 +232,27 @@ def rollout(
     imgs2 = [] if "color_image2" not in video_obs else [video_obs["color_image2"].cpu()]
     parts_poses = [video_obs["parts_poses"].cpu()]
     actions = list()
+    base_actions_pos = list()
     rewards = torch.zeros((env.num_envs, rollout_max_steps), dtype=torch.float32)
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     step_idx = 0
+    actor.set_cache_action_for_vis(True)
     while not done.all():
+
         # Convert from robot state dict to robot state tensor
         obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
 
         # Get the next actions from the actor
         action_pred = actor.action(obs)
+
+        # Visualize the predicted actions
+        # draw_ee_laser(env)
+        # draw_res_action(env, actor.action_cache)
+        # if step_idx > 200:  # and step_idx % 5 == 0:
+        #     # val = input("Press enter")
+        #     obs = env.noop()
+        #     continue
 
         obs, reward, done, _ = env.step(action_pred)
 
@@ -195,6 +276,7 @@ def rollout(
         if "color_image2" in video_obs:
             imgs2.append(video_obs["color_image2"].cpu())
         actions.append(action_pred.cpu())
+        base_actions_pos.append(actor.action_cache.base_action_pos_np)
         rewards[:, step_idx] = reward.squeeze().cpu()
         parts_poses.append(video_obs["parts_poses"].cpu())
 
@@ -242,6 +324,8 @@ def calculate_success_rate(
     record_first_state_only: bool = False,
 ) -> RolloutStats:
 
+    global base_actions_pos
+
     pbar = SuccessTqdm(
         num_envs=env.num_envs,
         n_rollouts=n_rollouts,
@@ -265,6 +349,7 @@ def calculate_success_rate(
     all_imgs1 = list()
     all_imgs2 = list()
     all_actions = list()
+    all_base_actions_pos = list()
     all_rewards = list()
     all_parts_poses = list()
     all_success = list()
@@ -293,6 +378,7 @@ def calculate_success_rate(
         all_imgs1.extend(imgs1)
         all_imgs2.extend(imgs2)
         all_actions.extend(actions)
+        all_base_actions_pos.append(np.asarray(base_actions_pos))
         all_rewards.extend(rewards)
         all_parts_poses.extend(parts_poses)
         all_success.extend(success)
@@ -387,7 +473,7 @@ def calculate_success_rate(
 
             if rollout_save_dir is not None and (save_failures or success):
                 # Save the raw rollout data
-                save_raw_rollout(
+                raw_output_path = save_raw_rollout(
                     robot_states=robot_states[trim_start_steps : n_steps + 1],
                     imgs1=video1[trim_start_steps : n_steps + 1],
                     imgs2=video2[trim_start_steps : n_steps + 1],
@@ -400,6 +486,18 @@ def calculate_success_rate(
                     rollout_save_dir=rollout_save_dir,
                     compress_pickles=compress_pickles,
                 )
+
+                base_actions_pos_to_save = all_base_actions_pos[rollout_idx][
+                    trim_start_steps : n_steps + 1
+                ]
+                base_actions_output_path = str(raw_output_path).replace(
+                    ".pkl", "_base_action_pos.pkl"
+                )
+                print(
+                    f"\n\nSaving base actions to {base_actions_output_path}, number of actions: {base_actions_pos_to_save.shape[0]}"
+                )
+                with open(base_actions_output_path, "wb") as f:
+                    pickle.dump(base_actions_pos_to_save, f)
 
         if record_first_state_only:
             first_state_npz = str(rollout_save_dir / "first_states.npz")

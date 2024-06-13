@@ -83,3 +83,5 @@ def save_raw_rollout(
         output_path = output_path.with_suffix(".pkl.xz")
 
     pickle_data(data, output_path)
+
+    return output_path

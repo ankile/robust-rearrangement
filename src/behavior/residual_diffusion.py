@@ -2,7 +2,11 @@ from collections import deque
 import hydra
 from omegaconf import DictConfig
 from src.behavior.diffusion import DiffusionPolicy
-from src.common.geometry import proprioceptive_quat_to_6d_rotation
+import pytorch3d.transforms as pt
+from src.common.geometry import (
+    proprioceptive_quat_to_6d_rotation,
+    isaac_quat_to_pytorch3d_quat,
+)
 from src.models.residual import ResidualPolicy
 import torch
 import torch.nn as nn
@@ -25,6 +29,82 @@ ResidualTrainingValues = namedtuple(
         "next_residual_nobs",
     ],
 )
+
+
+class ResidualActionCache:
+    def __init__(self):
+        self.base_action = None
+        self.residual_action = None
+        self.full_action = None
+
+    def set_actions(
+        self,
+        base_action: torch.Tensor,
+        residual_action: torch.Tensor,
+        full_action: torch.Tensor,
+    ):
+        self.base_action = base_action
+        self.residual_action = residual_action
+        self.full_action = full_action
+
+        assert (
+            len(self.base_action.shape) == 2
+        ), f"Must have leading batch/env dimension! current shape: {self.base_action.shape}"
+        assert (
+            len(self.residual_action.shape) == 2
+        ), f"Must have leading batch/env dimension! current shape: {self.residual_action.shape}"
+        assert (
+            len(self.full_action.shape) == 2
+        ), f"Must have leading batch/env dimension! current shape: {self.full_action.shape}"
+
+    def action_to_mat(self, action):
+        action_pos = action[0, :3]
+        action_quat = action[0, 3:7]
+
+        # Move the real part from the back to the front
+        action_rot_mat = pt.quaternion_to_matrix(
+            isaac_quat_to_pytorch3d_quat(action_quat)
+        )
+        action_tf_mat = torch.eye(4)
+        action_tf_mat[:-1, -1] = action_pos
+        action_tf_mat[:-1, :-1] = action_rot_mat
+        return action_tf_mat
+
+    @property
+    def base_action_mat(self):
+        return self.action_to_mat(self.base_action)
+
+    @property
+    def base_action_mat_np(self):
+        return self.base_action_mat.cpu().numpy()
+
+    @property
+    def base_action_pos_np(self):
+        return self.base_action_mat_np[:-1, -1]
+
+    @property
+    def residual_action_mat(self):
+        return self.action_to_mat(self.residual_action)
+
+    @property
+    def residual_action_mat_np(self):
+        return self.residual_action_mat.cpu().numpy()
+
+    @property
+    def residual_action_pos_np(self):
+        return self.residual_action_mat_np[:-1, -1]
+
+    @property
+    def full_action_mat(self):
+        return self.action_to_mat(self.full_action)
+
+    @property
+    def full_action_mat_np(self):
+        return self.full_action_mat.cpu().numpy()
+
+    @property
+    def full_action_pos_np(self):
+        return self.full_action_mat_np[:-1, -1]
 
 
 class ResidualDiffusionPolicy(DiffusionPolicy):
@@ -57,6 +137,11 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
             obs_shape=(self.timestep_obs_dim,),
             action_shape=(self.action_dim,),
         )
+
+        self.action_cache = ResidualActionCache()
+
+    def set_cache_action_for_vis(self, cache: bool = True):
+        self.cache_action_for_vis = cache
 
     def load_base_state_dict(self, path: str):
         base_state_dict = torch.load(path)
@@ -132,6 +217,16 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
         # Add the residual to the base action
         naction = base_naction + residual
+
+        if self.cache_action_for_vis:
+            base_action = self.normalizer(base_naction, "action", forward=False)
+            residual_action = self.normalizer(residual, "action", forward=False)
+            full_action = self.normalizer(naction, "action", forward=False)
+            self.action_cache.set_actions(
+                base_action=base_action,
+                residual_action=residual_action,
+                full_action=full_action,
+            )
 
         # Denormalize and return the action
         return self.normalizer(naction, "action", forward=False)
