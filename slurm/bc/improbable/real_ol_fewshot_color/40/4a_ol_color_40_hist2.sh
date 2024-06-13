@@ -1,11 +1,11 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-h100,vision-pulkitag-a100,vision-pulkitag-a6000,vision-pulkitag-3090
+#SBATCH -p vision-pulkitag-h100,vision-pulkitag-a100,vision-pulkitag-a6000
 #SBATCH -q vision-pulkitag-main
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=256GB
+#SBATCH --mem=220GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=4a_ol_color_40_hist2
