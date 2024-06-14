@@ -274,12 +274,14 @@ def main(cfg: DictConfig):
 
         state_dict = torch.load(wts)
 
-        if "model_state_dict" in wts:
-            actor.load_state_dict(wts["model_state_dict"])
-            opt_noise.load_state_dict(wts["optimizer_state_dict"])
-            opt_encoder.load_state_dict(wts["encoder_optimizer_state_dict"])
-            lr_scheduler.load_state_dict(wts["scheduler_state_dict"])
-            lr_scheduler_encoder.load_state_dict(wts["encoder_scheduler_state_dict"])
+        if "model_state_dict" in state_dict:
+            actor.load_state_dict(state_dict["model_state_dict"])
+            opt_noise.load_state_dict(state_dict["optimizer_state_dict"])
+            opt_encoder.load_state_dict(state_dict["encoder_optimizer_state_dict"])
+            lr_scheduler.load_state_dict(state_dict["scheduler_state_dict"])
+            lr_scheduler_encoder.load_state_dict(
+                state_dict["encoder_scheduler_state_dict"]
+            )
         else:
             actor.load_state_dict(state_dict)
 

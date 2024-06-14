@@ -32,7 +32,7 @@ class FrontCameraTransform(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[-3:] == (3, 240, 320)
+        assert x.shape[-3:] == (3, 240, 320), x.shape
         return self.transform(x)
 
     def train(self, mode=True):
@@ -66,7 +66,7 @@ class WristCameraTransform(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        assert x.shape[-3:] == (3, 240, 320)
+        assert x.shape[-3:] == (3, 240, 320), x.shape
 
         return self.transform(x)
 
