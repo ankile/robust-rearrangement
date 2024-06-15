@@ -23,6 +23,7 @@ from pathlib import Path
 
 from furniture_bench.furniture.furniture import Furniture
 from src.dataset.normalizer import LinearNormalizer
+from src.gym.utils import VideoRecorder
 import torch
 import cv2
 import gym
@@ -141,7 +142,6 @@ class FurnitureSimEnv(gym.Env):
         self.num_envs = num_envs
         self.obs_keys = obs_keys or DEFAULT_VISUAL_OBS
 
-        print(f"Observation keys: {self.obs_keys}")
         self.robot_state_keys = [
             k.split("/")[1] for k in self.obs_keys if k.startswith("robot_state")
         ]
@@ -151,6 +151,30 @@ class FurnitureSimEnv(gym.Env):
         self.manual_label = manual_label
         self.manual_done = manual_done
         self.headless = headless
+        self.channel_first = channel_first
+        self.img_size = sim_config["camera"][
+            "resized_img_size" if resize_img else "color_img_size"
+        ]
+
+        self.record = record
+        if self.record:
+
+            if not all([k in self.obs_keys for k in ["color_image1", "color_image2"]]):
+                # Add the camera images to the observation keys.
+                print(
+                    "Adding camera images to the observation keys since recording is enabled."
+                )
+                self.obs_keys += ["color_image1", "color_image2"]
+
+            record_dir = Path("sim_record") / datetime.now().strftime("%Y%m%d-%H%M%S")
+            record_dir.mkdir(parents=True, exist_ok=True)
+            self.recorder = VideoRecorder(
+                record_dir / "video.mp4",
+                fps=30,
+                width=self.img_size[1] * 2,
+                height=self.img_size[0],
+                channel_first=self.channel_first,
+            )
         self.render_cameras: bool = any(["image" in k for k in self.obs_keys])
         self.include_parts_poses: bool = "parts_poses" in self.obs_keys
 
@@ -158,7 +182,6 @@ class FurnitureSimEnv(gym.Env):
         self.ctrl_started = False
         self.init_assembled = init_assembled
         self.np_step_out = np_step_out
-        self.channel_first = channel_first
         self.from_skill = (
             0  # TODO: Skill benchmark should be implemented in FurnitureSim.
         )
@@ -169,9 +192,8 @@ class FurnitureSimEnv(gym.Env):
         self.max_gripper_width = config["robot"]["max_gripper_width"][furniture]
 
         self.save_camera_input = save_camera_input
-        self.img_size = sim_config["camera"][
-            "resized_img_size" if resize_img else "color_img_size"
-        ]
+
+        print(f"Observation keys: {self.obs_keys}")
 
         # Simulator setup.
         self.isaac_gym = gymapi.acquire_gym()
@@ -203,17 +225,6 @@ class FurnitureSimEnv(gym.Env):
         self.init_ctrl()
 
         gym.logger.set_level(gym.logger.INFO)
-
-        self.record = record
-        if self.record:
-            record_dir = Path("sim_record") / datetime.now().strftime("%Y%m%d-%H%M%S")
-            record_dir.mkdir(parents=True, exist_ok=True)
-            self.video_writer = cv2.VideoWriter(
-                str(record_dir / "video.mp4"),
-                cv2.VideoWriter_fourcc(*"MP4V"),
-                30,
-                (self.img_size[1] * 2, self.img_size[0]),  # Wrist and front cameras.
-            )
 
         if (
             act_rot_repr != "quat"
@@ -1308,7 +1319,13 @@ class FurnitureSimEnv(gym.Env):
         if self.save_camera_input:
             self._save_camera_input()
 
-        return self.get_observation()
+        obs = self.get_observation()
+
+        if self.record:
+            self.recorder.restart_recording()
+            self.recorder.record_frame(obs)
+
+        return obs
 
     def reset_env(self, env_idx, reset_franka=True, reset_parts=True):
         """Resets the environment. **MUST refresh in between multiple calls
@@ -1613,7 +1630,7 @@ class FurnitureSimEnv(gym.Env):
         self.isaac_gym.destroy_sim(self.sim)
 
         if self.record:
-            self.video_writer.release()
+            self.recorder.stop_recording()
 
 
 class FurnitureRLSimEnv(FurnitureSimEnv):
@@ -1859,7 +1876,13 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
 
         self.refresh()
 
-        return self.get_observation()
+        obs = self.get_observation()
+
+        if self.record:
+            self.recorder.restart_recording()
+            self.recorder.record_frame(obs)
+
+        return obs
 
     def increment_randomness(self):
         force_magnitude_limit = 1
@@ -1960,6 +1983,10 @@ class FurnitureRLSimEnv(FurnitureSimEnv):
         self.simulate_step(action)
 
         obs = self.get_observation()
+
+        if self.record:
+            self.recorder.record_frame(obs)
+
         reward = self._reward()
         done = self._done()
 

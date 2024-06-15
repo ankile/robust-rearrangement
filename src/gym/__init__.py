@@ -95,6 +95,7 @@ def get_rl_env(
     april_tags=False,
     verbose=False,
     headless=True,
+    record=False,
     **kwargs,
 ) -> FurnitureRLSimEnv:
     if not april_tags:
@@ -127,7 +128,7 @@ def get_rl_env(
             randomness=randomness,  # Level of randomness in the environment [low | med | high].
             high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
             save_camera_input=False,  # If true, the initial camera inputs are saved.
-            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
+            record=record,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
             ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
