@@ -287,6 +287,108 @@ def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     return matrix[..., :2, :].clone().reshape(*matrix.size()[:-2], 6)
 
 
+def matrix_to_axis_angle(matrix):
+    """
+    Convert rotations given as rotation matrices to axis/angle.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        Rotations given as a vector in axis angle form, as a tensor
+            of shape (..., 3), where the magnitude is the angle
+            turned anticlockwise in radians around the vector's
+            direction.
+    """
+    return quaternion_to_axis_angle(matrix_to_quaternion(matrix))
+
+
+def matrix_to_quaternion(matrix):
+    """
+    Convert rotations given as rotation matrices to quaternions.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        quaternions with real part last, as tensor of shape (..., 4).
+    """
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix  shape f{matrix.shape}.")
+
+    m00 = matrix[..., 0, 0]
+    m11 = matrix[..., 1, 1]
+    m22 = matrix[..., 2, 2]
+    o0 = 0.5 * _sqrt_positive_part(1 + m00 + m11 + m22)
+    x = 0.5 * _sqrt_positive_part(1 + m00 - m11 - m22)
+    y = 0.5 * _sqrt_positive_part(1 - m00 + m11 - m22)
+    z = 0.5 * _sqrt_positive_part(1 - m00 - m11 + m22)
+    o1 = _copysign(x, matrix[..., 2, 1] - matrix[..., 1, 2])
+    o2 = _copysign(y, matrix[..., 0, 2] - matrix[..., 2, 0])
+    o3 = _copysign(z, matrix[..., 1, 0] - matrix[..., 0, 1])
+    return torch.stack((o1, o2, o3, o0), -1)
+
+
+def quaternion_to_axis_angle(quaternions):
+    """
+    Convert rotations given as quaternions to axis/angle.
+
+    Args:
+        quaternions: quaternions with real part last,
+            as tensor of shape (..., 4).
+
+    Returns:
+        Rotations given as a vector in axis angle form, as a tensor
+            of shape (..., 3), where the magnitude is the angle
+            turned anticlockwise in radians around the vector's
+            direction.
+    """
+    norms = torch.norm(quaternions[..., :-1], p=2, dim=-1, keepdim=True)
+    half_angles = torch.atan2(norms, quaternions[..., -1:])
+    angles = 2 * half_angles
+    eps = 1e-6
+    small_angles = angles.abs() < eps
+    sin_half_angles_over_angles = torch.empty_like(angles)
+    sin_half_angles_over_angles[~small_angles] = (
+        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
+    )
+    # for x small, sin(x/2) is about x/2 - (x/2)^3/6
+    # so sin(x/2)/x is about 1/2 - (x*x)/48
+    sin_half_angles_over_angles[small_angles] = (
+        0.5 - (angles[small_angles] * angles[small_angles]) / 48
+    )
+    return quaternions[..., :-1] / sin_half_angles_over_angles
+
+
+def _copysign(a, b):
+    """
+    Return a tensor where each element has the absolute value taken from the,
+    corresponding element of a, with sign taken from the corresponding
+    element of b. This is like the standard copysign floating-point operation,
+    but is not careful about negative 0 and NaN.
+
+    Args:
+        a: source tensor.
+        b: tensor whose signs will be used, of the same shape as a.
+
+    Returns:
+        Tensor of the same shape as a with the signs of b.
+    """
+    signs_differ = (a < 0) != (b < 0)
+    return torch.where(signs_differ, -a, a)
+
+
+def _sqrt_positive_part(x):
+    """
+    Returns torch.sqrt(torch.max(0, x))
+    but with a zero subgradient where x is 0.
+    """
+    ret = torch.zeros_like(x)
+    positive_mask = x > 0
+    ret[positive_mask] = torch.sqrt(x[positive_mask])
+    return ret
+
+
 def np_proprioceptive_quat_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
     """
     Convert the 14D proprioceptive state space to 16D state space.
