@@ -224,6 +224,69 @@ def proprioceptive_quat_to_6d_rotation(robot_state: torch.tensor) -> torch.tenso
     return robot_state_6d
 
 
+def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
+    """Converts IsaacGym quaternion to rotation 6D."""
+    # Move the real part from the back to the front
+    # quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
+
+    # Convert each quaternion to a rotation matrix
+    rot_mats = quaternion_to_matrix(quat_xyzw)
+
+    # Extract the first two columns of each rotation matrix
+    rot_6d = matrix_to_rotation_6d(rot_mats)
+
+    return rot_6d
+
+
+def quaternion_to_matrix(quaternions):
+    """
+    Convert rotations given as quaternions to rotation matrices.
+
+    Args:
+        quaternions: quaternions with real part last,
+            as tensor of shape (..., 4).
+
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+    i, j, k, r = torch.unbind(quaternions, -1)
+    two_s = 2.0 / (quaternions * quaternions).sum(-1)
+
+    o = torch.stack(
+        (
+            1 - two_s * (j * j + k * k),
+            two_s * (i * j - k * r),
+            two_s * (i * k + j * r),
+            two_s * (i * j + k * r),
+            1 - two_s * (i * i + k * k),
+            two_s * (j * k - i * r),
+            two_s * (i * k - j * r),
+            two_s * (j * k + i * r),
+            1 - two_s * (i * i + j * j),
+        ),
+        -1,
+    )
+    return o.reshape(quaternions.shape[:-1] + (3, 3))
+
+
+def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Converts rotation matrices to 6D rotation representation by Zhou et al. [1]
+    by dropping the last row. Note that 6D representation is not unique.
+    Args:
+        matrix: batch of rotation matrices of size (*, 3, 3)
+
+    Returns:
+        6D rotation representation, of size (*, 6)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+    """
+    return matrix[..., :2, :].clone().reshape(*matrix.size()[:-2], 6)
+
+
 def np_proprioceptive_quat_to_6d_rotation(robot_state: np.ndarray) -> np.ndarray:
     """
     Convert the 14D proprioceptive state space to 16D state space.
