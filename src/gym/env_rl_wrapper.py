@@ -117,7 +117,7 @@ class FurnitureEnvRLWrapper:
             total_reward += reward.squeeze()
             dones = dones | done.squeeze()
 
-        return obs, total_reward, done, info
+        return obs, total_reward, dones, info
 
     def step(self, naction_chunk: torch.Tensor):
         assert naction_chunk.shape[-2:] == self.action_space.shape

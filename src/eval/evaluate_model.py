@@ -7,7 +7,7 @@ import torch  # needs to be after isaac gym imports
 from omegaconf import OmegaConf
 from src.behavior.base import Actor  # noqa
 from src.behavior.diffusion import DiffusionPolicy  # noqa
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
+from from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout

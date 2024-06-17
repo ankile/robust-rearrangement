@@ -25,9 +25,7 @@ from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
 
 
-from src.gym.furniture_sim_env import (
-    FurnitureRLSimEnv,
-)
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
