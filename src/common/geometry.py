@@ -326,6 +326,7 @@ def matrix_to_quaternion(matrix):
     o1 = _copysign(x, matrix[..., 2, 1] - matrix[..., 1, 2])
     o2 = _copysign(y, matrix[..., 0, 2] - matrix[..., 2, 0])
     o3 = _copysign(z, matrix[..., 1, 0] - matrix[..., 0, 1])
+
     return torch.stack((o1, o2, o3, o0), -1)
 
 

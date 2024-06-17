@@ -78,7 +78,7 @@ def get_env(
     return env
 
 
-from from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 
 def get_rl_env(

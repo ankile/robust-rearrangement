@@ -12,7 +12,7 @@ from src.common.config_util import merge_base_bc_config_with_root_config
 from src.common.files import get_processed_paths
 from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
-from from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
@@ -97,10 +97,12 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
 
+
 def layer_init_zeros(layer, bias_const=0.0):
     torch.nn.init.zeros_(layer.weight)
     torch.nn.init.constant_(layer.bias, bias_const)
     return layer
+
 
 class Qfunction(nn.Module):
     def __init__(self, obs_shape, action_shape):
@@ -120,7 +122,7 @@ class Qfunction(nn.Module):
             layer_init(nn.Linear(512, 512)),
             nn.Tanh(),
             layer_init_zeros(nn.Linear(512, 1)),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
@@ -156,8 +158,8 @@ def main(cfg: DictConfig):
 
     merge_base_bc_config_with_root_config(cfg, base_cfg)
     cfg.actor_name = cfg.base_policy.actor.name
-    #base_cfg.actor.dropout = 0.0
-    #base_cfg.actor.critic.last_layer_bias_const = 0.5
+    # base_cfg.actor.dropout = 0.0
+    # base_cfg.actor.critic.last_layer_bias_const = 0.5
 
     agent = DiffusionPolicy(device, base_cfg)
     # Set the inference steps of the actor
@@ -167,11 +169,13 @@ def main(cfg: DictConfig):
     base_state_dict = torch.load(base_wts)
     # Load the model weights
     agent.load_state_dict(base_state_dict)
-    #agent.eta = 1.0
+    # agent.eta = 1.0
     agent.to(device)
     agent.eval()
 
-    Q_estimator = Qfunction(base_cfg.timestep_obs_dim, (base_cfg.action_horizon, base_cfg.action_dim))
+    Q_estimator = Qfunction(
+        base_cfg.timestep_obs_dim, (base_cfg.action_horizon, base_cfg.action_dim)
+    )
     Q_estimator.to(device)
     Q_estimator.train()
 
@@ -198,7 +202,7 @@ def main(cfg: DictConfig):
         env,
         max_env_steps=cfg.num_env_steps,
         chunk_size=agent.action_horizon,
-        reset_on_success=cfg.reset_on_success
+        reset_on_success=cfg.reset_on_success,
     )
 
     normalizer = LinearNormalizer()
@@ -290,9 +294,14 @@ def main(cfg: DictConfig):
             if not eval_mode:
                 with torch.no_grad():
                     out = agent._normalized_action(next_obs)
-                    naction = out[:, :agent.action_horizon, :]
-                    naction = naction + sigma * torch.randn(naction.shape, device=naction.device, )
-                    critic_obs = torch.cat([next_obs, naction.reshape(cfg.num_envs, -1)], dim=-1)
+                    naction = out[:, : agent.action_horizon, :]
+                    naction = naction + sigma * torch.randn(
+                        naction.shape,
+                        device=naction.device,
+                    )
+                    critic_obs = torch.cat(
+                        [next_obs, naction.reshape(cfg.num_envs, -1)], dim=-1
+                    )
                     values[step] = Q_estimator.get_value(critic_obs).squeeze()
             if eval_mode:
                 with torch.no_grad():
@@ -300,11 +309,17 @@ def main(cfg: DictConfig):
                     expanded_next_obs = next_obs.unsqueeze(1).repeat(1, k, 1)
                     expanded_next_obs = expanded_next_obs.reshape(cfg.num_envs * k, -1)
                     out = agent._normalized_action(expanded_next_obs)
-                    naction = out[:, :agent.action_horizon, :]
-                    naction = naction + sigma * torch.randn(naction.shape, device=naction.device, )
-                    #t = naction[:, 0, :3].view(cfg.num_envs, k, -1).cpu().numpy()
-                    #var = np.var(t, axis=1).mean(0)
-                    critic_obs = torch.cat([expanded_next_obs, naction.reshape(cfg.num_envs * k, -1)], dim=-1)
+                    naction = out[:, : agent.action_horizon, :]
+                    naction = naction + sigma * torch.randn(
+                        naction.shape,
+                        device=naction.device,
+                    )
+                    # t = naction[:, 0, :3].view(cfg.num_envs, k, -1).cpu().numpy()
+                    # var = np.var(t, axis=1).mean(0)
+                    critic_obs = torch.cat(
+                        [expanded_next_obs, naction.reshape(cfg.num_envs * k, -1)],
+                        dim=-1,
+                    )
                     Qvalues = Q_estimator.get_value(critic_obs).squeeze()
                     Qvalues = Qvalues.reshape(cfg.num_envs, k, -1)
                     indices = torch.argmax(Qvalues, dim=1).squeeze()
@@ -390,9 +405,14 @@ def main(cfg: DictConfig):
         # bootstrap value if not done
         with torch.no_grad():
             out = agent._normalized_action(next_obs)
-            next_naction = out[:, :agent.action_horizon, :]
-            next_naction = next_naction + sigma*torch.randn(next_naction.shape, device=next_naction.device,)
-            next_critic_obs = torch.cat([next_obs, next_naction.reshape(cfg.num_envs, -1)], dim=-1)
+            next_naction = out[:, : agent.action_horizon, :]
+            next_naction = next_naction + sigma * torch.randn(
+                next_naction.shape,
+                device=next_naction.device,
+            )
+            next_critic_obs = torch.cat(
+                [next_obs, next_naction.reshape(cfg.num_envs, -1)], dim=-1
+            )
             next_value = Q_estimator.get_value(next_critic_obs).reshape(1, -1)
             next_value = next_value.reshape(1, -1).cpu()
 
@@ -406,7 +426,10 @@ def main(cfg: DictConfig):
             cfg.gamma,
             cfg.gae_lambda,
         )
-        mask = torch.logical_or(torch.isclose(returns, torch.zeros_like(returns)), torch.isclose(returns, torch.ones_like(returns)))
+        mask = torch.logical_or(
+            torch.isclose(returns, torch.zeros_like(returns)),
+            torch.isclose(returns, torch.ones_like(returns)),
+        )
 
         b_advantages = advantages.reshape(-1).cpu()
         b_returns = returns.reshape(-1).cpu()
@@ -434,7 +457,9 @@ def main(cfg: DictConfig):
                 mb_mask = b_mask[mb_inds].to(device)
 
                 # Calculate the loss
-                mb_critic_obs = torch.cat([mb_obs, mb_actions.reshape(curr_mb_size, -1)], dim=-1)
+                mb_critic_obs = torch.cat(
+                    [mb_obs, mb_actions.reshape(curr_mb_size, -1)], dim=-1
+                )
                 newvalue = Q_estimator.get_value(mb_critic_obs)
 
                 # Value loss

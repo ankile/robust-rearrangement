@@ -1,6 +1,6 @@
 import furniture_bench
 from omegaconf import DictConfig  # noqa: F401
-from from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 import torch
 
 import collections
