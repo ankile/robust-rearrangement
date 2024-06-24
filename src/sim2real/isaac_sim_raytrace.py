@@ -58,10 +58,11 @@ args_cli = parser.parse_args()
 simulation_app = SimulationApp(
     {
         "headless": args_cli.headless,
-        "width": 640,
-        "height": 480,
-        # "width": int(640 * 2),
-        # "height": int(480 * 2),
+        # "width": 640,
+        # "height": 480,
+        "width": int(640 * 3),
+        "height": int(480 * 3),
+        "renderer": "PathTracing",
     }
 )
 """Rest everything follows."""
@@ -183,7 +184,7 @@ def run_until_quit(simulation_app, world):
                 print(f'[Run until quit] Caught "Q" keypress, closing app')
                 RP_RUNNING = False
                 return_flag = 2
-            if e.input == carb.input.KeyboardInput.F:
+            elif e.input == carb.input.KeyboardInput.F:
                 print(f'[Run until quit] Caught "Q" keypress, closing app')
                 RP_RUNNING = False
                 return_flag = 1
@@ -767,7 +768,8 @@ def main():
 
     wrist_rep_writer = rep.BasicWriter(output_dir=wrist_output_dir, frame_padding=3)
 
-    rp3 = rep.create.render_product("/OmniverseKit_Persp", (640, 480))
+    # rp3 = rep.create.render_product("/OmniverseKit_Persp", (640, 480))
+    rp3 = rep.create.render_product("/OmniverseKit_Persp", (int(640 * 3), int(480 * 3)))
     rp_rgb = rep.AnnotatorRegistry.get_annotator("rgb")
     rp_rgb.attach(rp3)
     viewer_rep_writer = rep.BasicWriter(
@@ -1013,15 +1015,15 @@ def main():
             sizes,
         )
 
-    # run_until_quit(simulation_app=simulation_app, world=sim)
-
     if args_cli.visualize_actions:
         make_part_clear()
 
     # obs_idx = 0
-    obs_idx = 100
-    pause_idx = 110  # 130
+    obs_idx = 207
+    pause_idx = 500  # 110  # 130
     run_return_flag = 1
+
+    run_until_quit(simulation_app=simulation_app, world=sim)
 
     if (
         base_action_data is not None
