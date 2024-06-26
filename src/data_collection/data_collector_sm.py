@@ -107,7 +107,7 @@ class DataCollectorSpaceMouse:
             num_envs=1,
             act_rot_repr="quat",
             action_type="delta",
-            manual_done=False,  # True,
+            manual_done=True,
             resize_img=resize_sim_img,
             np_step_out=False,
             channel_first=False,
