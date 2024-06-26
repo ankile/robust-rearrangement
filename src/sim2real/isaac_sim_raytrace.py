@@ -62,7 +62,7 @@ simulation_app = SimulationApp(
         # "height": 480,
         "width": int(640 * 3),
         "height": int(480 * 3),
-        "renderer": "PathTracing",
+        # "renderer": "PathTracing",
     }
 )
 """Rest everything follows."""
