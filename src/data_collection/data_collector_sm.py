@@ -1,13 +1,16 @@
 """Define data collection class that rollout the environment, get action from the interface (e.g., teleoperation, automatic scripts), and save data."""
 
+import json
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Union, List, Dict
 
-# from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import FULL_OBS
-from src.gym.furniture_sim_env import FurnitureSimEnv, FurnitureRLSimEnv
+
+# from src.gym.furniture_sim_env import FurnitureSimEnv, FurnitureRLSimEnv
 import gym
 from src.gym import turn_off_april_tags
 import torch
@@ -30,6 +33,8 @@ from multiprocessing.managers import SharedMemoryManager
 import numpy as np
 import scipy.spatial.transform as st
 from furniture_bench.device.spacemouse.spacemouse_shared_memory import Spacemouse
+
+from src.common.files import SCAN_ASSET_FB_ROOT
 
 
 def precise_wait(t_end: float, slack_time: float = 0.001, time_func=time.monotonic):
@@ -102,7 +107,7 @@ class DataCollectorSpaceMouse:
             num_envs=1,
             act_rot_repr="quat",
             action_type="delta",
-            manual_done=True,
+            manual_done=False,  # True,
             resize_img=resize_sim_img,
             np_step_out=False,
             channel_first=False,
@@ -423,7 +428,11 @@ class DataCollectorSpaceMouse:
                         break
 
                     # An episode is done.
-                    if done or collect_enum in [CollectEnum.SUCCESS, CollectEnum.FAIL]:
+                    if done or collect_enum in [
+                        CollectEnum.SUCCESS,
+                        CollectEnum.SUCCESS_RECORD,
+                        CollectEnum.FAIL,
+                    ]:
                         global_total_time = time.time() - global_start_time
                         print(f"Time elapsed: {global_total_time} seconds.")
                         self.store_transition(next_obs)
@@ -442,9 +451,9 @@ class DataCollectorSpaceMouse:
                                 obs = self.reset()
                             self.num_fail += 1
                         else:
-                            if done:
-                                collect_enum = CollectEnum.SUCCESS
-
+                            # if done:
+                            #     collect_enum = CollectEnum.SUCCESS
+                            print(f"CollectEnum: {collect_enum}")
                             obs = self.save_and_reset(collect_enum, {})
                             self.num_success += 1
                             self.update_pbar()
@@ -672,7 +681,7 @@ class DataCollectorSpaceMouse:
                     "parts_poses": np.array(state["observations"][i]["parts_poses"]),
                 },
                 action=state["actions"][i] if i < len(state["actions"]) else None,
-                rew=state["rewards"][i] if i < len(state["rewards"]) else None,
+                rew=state["r/manuewards"][i] if i < len(state["rewards"]) else None,
                 skill_complete=state["skills"][i] if i < len(state["skills"]) else None,
                 setup_phase=True,
             )
@@ -688,7 +697,11 @@ class DataCollectorSpaceMouse:
         data["actions"] = [t["actions"] for t in self.transitions][:-1]
         data["rewards"] = [t["rewards"] for t in self.transitions][:-1]
         data["skills"] = [t["skills"] for t in self.transitions][:-1]
-        data["success"] = True if collect_enum == CollectEnum.SUCCESS else False
+        data["success"] = (
+            True
+            if collect_enum in [CollectEnum.SUCCESS, CollectEnum.SUCCESS_RECORD]
+            else False
+        )
         data["furniture"] = self.furniture
         data["metadata"] = self.metadata
 
@@ -713,6 +726,40 @@ class DataCollectorSpaceMouse:
 
         print(f"Data saved at {path}")
 
+        if collect_enum == CollectEnum.SUCCESS_RECORD:
+            # Save the final poses as rewards to use
+            # print(f"Here to get part poses for reward computation")
+            # from IPython import embed
+
+            # embed()
+            # assert False
+
+            furn_name = self.env.furniture_name
+            base_assembly_file = str(
+                SCAN_ASSET_FB_ROOT
+                / sim_config["furniture"][furn_name]["assembly_json_fname"]
+            )
+            assembly_pair_idxs = self.env.pairs_to_assemble
+            for i, pair_tuple in enumerate(assembly_pair_idxs):
+                ref_idx = pair_tuple[0]
+                moved_idx = pair_tuple[1]
+                ref_pose_final = data["observations"][-1]["parts_poses"][
+                    int(7 * ref_idx) : int(7 * ref_idx) + 7
+                ]
+                moved_pose_final = data["observations"][-1]["parts_poses"][
+                    int(7 * moved_idx) : int(7 * moved_idx) + 7
+                ]
+
+                # write these poses to file
+                suffix = path.parts[-1].replace(".pkl", f"_{i}.json")
+                json_fname = base_assembly_file.replace(".json", f"_{suffix}")
+                json_dict = self._build_assembly_json_dict(
+                    ref_pose_final, moved_pose_final
+                )
+                print(f"Saving to json file: {json_fname}")
+                with open(json_fname, "w") as f:
+                    json.dump(json_dict, f)
+
     def verbose_print(self, *args, **kwargs):
         if self.verbose:
             print(*args, **kwargs)
@@ -726,3 +773,21 @@ class DataCollectorSpaceMouse:
 
         if self.device_interface is not None:
             self.device_interface.close()
+
+    def _build_assembly_json_dict(self, ref_pose, moved_pose):
+        def pose2mat(pose):
+            pose_mat = np.eye(4)
+            pose_mat[:-1, :-1] = st.Rotation.from_quat(pose[3:7]).as_matrix()
+            pose_mat[:-1, -1] = pose[:3]
+            return pose_mat
+
+        ref_pose_mat = pose2mat(ref_pose)
+        moved_pose_mat = pose2mat(moved_pose)
+
+        json_dict = dict(
+            data=dict(
+                reference=dict(pose=ref_pose_mat.reshape(-1).tolist()),
+                moved=dict(pose=moved_pose_mat.reshape(-1).tolist()),
+            ),
+        )
+        return json_dict

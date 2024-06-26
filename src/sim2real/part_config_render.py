@@ -67,9 +67,28 @@ round_table_config = {
 }
 
 
+mug_rack_config = {
+    "furniture": "mug_rack",
+    "names": ["rack", "mug"],
+    "usd_names": [
+        "rack.usda",
+        "mug.usda",
+    ],
+    "obj_names": [
+        "mugrack/mugrack2.obj",
+        "muggood/muggood.obj",
+    ],
+    "prim_paths": [
+        "/World/Rack",
+        "/World/Mug",
+    ],
+}
+
+
 part_config_dict = {
     "one_leg": one_leg_config,
     "lamp": lamp_config,
     "round_table": round_table_config,
     "square_table": square_table_config,
+    "mug_rack": mug_rack_config,
 }

@@ -13,6 +13,12 @@ from src.common.types import (
     DemoStatus,
 )
 
+SCAN_ASSET_ROOT = Path(__file__).parent.parent.absolute() / "real2sim/assets"
+SCAN_ASSET_FB_ROOT = (
+    Path(__file__).parent.parent.parent.absolute()
+    / "furniture-bench/furniture_bench/assets"
+)
+
 
 def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
     if parts is None:
