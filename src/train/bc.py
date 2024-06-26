@@ -5,7 +5,8 @@ from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
+# from src.gym.furniture_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
     import furniture_bench
