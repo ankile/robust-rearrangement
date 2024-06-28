@@ -18,6 +18,20 @@ from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_c
 from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
 from rdt.polymetis_robot_utils.interfaces.diffik import DiffIKWrapper
 from rdt.common import mc_util
+import threading
+import torch
+import numpy as np
+import scipy.spatial.transform as st
+import meshcat
+import argparse
+import pytorch3d.transforms as pt
+
+from polymetis import GripperInterface, RobotInterface
+
+from rdt.config.default_multi_realsense_cfg import get_default_multi_realsense_cfg
+from rdt.polymetis_robot_utils.polymetis_util import PolymetisHelper
+from rdt.polymetis_robot_utils.interfaces.diffik import DiffIKWrapper
+from rdt.common import mc_util
 from rdt.common.keyboard_interface import KeyboardInterface
 from rdt.common.demo_util import CollectEnum
 from datetime import datetime
@@ -36,10 +50,9 @@ from src.behavior.base import Actor  # noqa
 from src.behavior import get_actor
 from src.data_processing.utils import resize, resize_crop
 from ipdb import set_trace as bp
+from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
+from furniture_bench.furniture import furniture_factory
 
-# from src.common.geometry import quat_xyzw_to_rot_6d
-
-import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
@@ -66,7 +79,7 @@ def vision_encoder_field_hotfix(run, config):
         run.update()
 
 
-def isaac_quat_to_pytorch3d_quat(quat):
+def quat_xyzw_to_quat_wxyz(quat):
     """Converts IsaacGym quaternion to PyTorch3D quaternion.
 
     IsaacGym quaternion is (x, y, z, w) while PyTorch3D quaternion is (w, x, y, z).
@@ -74,10 +87,18 @@ def isaac_quat_to_pytorch3d_quat(quat):
     return torch.cat([quat[..., 3:], quat[..., :3]], dim=-1)
 
 
+def quat_wxyz_to_quat_xyzw(quat):
+    """Converts IsaacGym quaternion to PyTorch3D quaternion.
+
+    PyTorch3D quaternion is (w, x, y, z) while IsaacGym quaternion is (x, y, z, w).
+    """
+    return torch.cat([quat[..., 1:], quat[..., :1]], dim=-1)
+
+
 def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     """Converts IsaacGym quaternion to rotation 6D."""
     # Move the real part from the back to the front
-    quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
+    quat_wxyz = quat_xyzw_to_quat_wxyz(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
     rot_mats = pt.quaternion_to_matrix(quat_wxyz)
@@ -86,6 +107,14 @@ def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     rot_6d = pt.matrix_to_rotation_6d(rot_mats)
 
     return rot_6d
+
+
+def rot_6d_quat_xyzw(rot_6d: torch.Tensor) -> torch.Tensor:
+    """Converts 6D rotation to IsaacGym quat (xyzw)."""
+    rot_mat = pt.rotation_6d_to_matrix(rot_6d)
+    quat_wxyz = pt.matrix_to_quaternion(rot_mat)
+    quat_xyzw = quat_wxyz_to_quat_xyzw(quat_wxyz)
+    return quat_xyzw
 
 
 class CollectInferHelper:
@@ -210,7 +239,7 @@ parser.add_argument(
 parser.add_argument("--verbose", "-v", action="store_true")
 parser.add_argument("--multitask", action="store_true")
 parser.add_argument("-ex", "--execute", action="store_true")
-parser.add_argument("-s", "--state_only", action="store_true")
+parser.add_argument("-o", "--observation-type", type=str, default="image")
 parser.add_argument("-w", "--wts-name", default="best", type=str)
 parser.add_argument("--log-ci", action="store_true")
 parser.add_argument("--ci-save-dir", type=str, default=None)
@@ -305,21 +334,16 @@ class SimpleDiffIKFrankaEnv:
         use_lcm: bool = False,
         device: str = "cuda",
         execute: bool = False,
-        state_only: bool = False,
+        observation_type: str = "image",
         proprioceptive_state_dim: int = 10,
         control_mode: str = "pos",
         action_horizon: int = 10,
+        furniture_name: str = "one_leg",
+        part_poses_norm_mid: torch.Tensor = None,
     ):
 
         self.device = device
         self.execute = execute
-
-        if use_lcm:
-            self._setup_lcm()
-            self.get_rgbd = self.get_rgbd_lcm
-        else:
-            self._setup_rs2()
-            self.get_rgbd = self.get_rgbd_rs
 
         self.mc_vis = mc_vis
         self.robot = robot
@@ -331,9 +355,43 @@ class SimpleDiffIKFrankaEnv:
         self.grasp_margin = 0.02 - 0.001  # To prevent repeating open and close actions
 
         # flags
-        self.state_only = state_only
+        self.observation_type = observation_type
         self.proprioceptive_state_dim = proprioceptive_state_dim
         self.control_mode = control_mode
+
+        if self.observation_type == "image":
+            self.get_obs = self.get_img_obs
+            if use_lcm:
+                self._setup_lcm()
+                self.get_rgbd = self.get_rgbd_lcm
+            else:
+                self._setup_rs2()
+                self.get_rgbd = self.get_rgbd_rs
+        else:
+            self.get_obs = self.get_state_obs
+            self.furniture = furniture_factory(furniture_name)
+            print(f"Starting detection")
+            self.furniture.start_detection()
+            self.obstacle_pose = torch.tensor(
+                [[0.0069, 0.3629, -0.0150, -1.0000, 0.0000, 0.0000, 0.0000]],
+                device=self.device,
+            )
+
+            part_reset_poses = []
+            for i in range(len(self.furniture.parts)):
+                reset_pos = self.furniture.parts[i].reset_pos[0].tolist()
+                reset_quat = (
+                    st.Rotation.from_matrix(
+                        self.furniture.parts[i].reset_ori[0][:-1, :-1]
+                    )
+                    .as_quat()
+                    .tolist()
+                )
+                part_reset_poses.append(reset_pos + reset_quat)
+            # self.part_reset_poses = (
+            #     torch.tensor(part_reset_poses).to(self.device).reshape(-1)
+            # )
+            self.part_reset_poses = part_poses_norm_mid.to(self.device)[:35]
 
         self.action_horizon = action_horizon
         self.act_step = 0
@@ -437,17 +495,7 @@ class SimpleDiffIKFrankaEnv:
 
         return action_pose_mat
 
-    def get_obs(self):
-        # get observations
-        # NOTE: In the simulator we get a 14-dimensional vector with proprioception:
-        # [pos, quat, vel, ang vel, gripper], while here we only get 7(?)
-
-        rgbd_list = self.get_rgbd()
-        if rgbd_list is None:
-            raise ValueError("Could not get list of RGB-D images!")
-        # Quaternions follow the convention of <x, y, z, w>
-        # pos, quat_xyzw = self.robot.get_ee_pose()
-
+    def get_robot_state(self):
         # convert to tip
         current_ee_wrist_pose_mat = poly_util.polypose2mat(self.robot.get_ee_pose())
         current_ee_tip_pose_mat = convert_wrist2tip(current_ee_wrist_pose_mat)
@@ -470,23 +518,51 @@ class SimpleDiffIKFrankaEnv:
 
         # convert to tensors
         robot_state = robot_state.reshape(1, -1).to(self.device)
+        return robot_state
+
+    def get_state_obs(self):
+
+        robot_state = self.get_robot_state()
+
+        parts_poses = (
+            torch.tensor(self.furniture.get_parts_poses()[0])
+            .reshape(1, -1)
+            .to(self.device)
+        )
+        parts_poses[0, 7:28] = self.part_reset_poses[7:28]
+        # parts_poses[0, :] = self.part_reset_poses[:]
+        parts_poses = torch.cat((parts_poses, self.obstacle_pose), dim=-1)
+
+        obs = dict(
+            parts_poses=torch.clamp(parts_poses, -1.5, 1.5),
+            robot_state=torch.clamp(robot_state, -1.5, 1.5),
+        )
+
+        return obs
+
+    def get_img_obs(self):
+        # get observations
+        # NOTE: In the simulator we get a 14-dimensional vector with proprioception:
+        # [pos, quat, vel, ang vel, gripper], while here we only get 7(?)
+        robot_state = self.get_robot_state()
+
+        rgbd_list = self.get_rgbd()
+        if rgbd_list is None:
+            raise ValueError("Could not get list of RGB-D images!")
+        # Quaternions follow the convention of <x, y, z, w>
+        # pos, quat_xyzw = self.robot.get_ee_pose()
+
         img1_tensor = torch.from_numpy(rgbd_list[0]["rgb"]).unsqueeze(0).to(self.device)
         img2_tensor = torch.from_numpy(rgbd_list[1]["rgb"]).unsqueeze(0).to(self.device)
 
-        if self.state_only:
-            obs = dict(
-                parts_poses=torch.Tensor([[]]).to(self.device),
-                robot_state=robot_state,
-            )
-        else:
-            obs = dict(
-                color_image1=img1_tensor,
-                color_image2=img2_tensor,
-                robot_state=robot_state,
-            )
+        obs = dict(
+            color_image1=img1_tensor,
+            color_image2=img2_tensor,
+            robot_state=robot_state,
+        )
         return obs
 
-    def step(self, action):
+    def step(self, action: torch.Tensor):
 
         # # calculate timing
         # t_cycle_end = self.t_start + (self.iter_idx + 1) * self.dt
@@ -546,6 +622,11 @@ class SimpleDiffIKFrankaEnv:
             f"scene/current_pose_tip",
             convert_wrist2tip(poly_util.polypose2mat(self.robot.get_ee_pose())),
         )
+        mc_util.meshcat_frame_show(
+            self.mc_vis,
+            f"scene/current_pose_wrist",
+            poly_util.polypose2mat(self.robot.get_ee_pose()),
+        )
 
         # calculate timing
         # precise_wait(t_cycle_end)
@@ -578,16 +659,10 @@ def main():
     gripper.goto(0.08, 0.05, 0.1, blocking=False)
     # robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
     robot_home = torch.Tensor(
-        [
-            -0.02630888,
-            0.3758795,
-            0.12485036,
-            -2.1383357,
-            -0.09431414,
-            2.49649072,
-            0.01921718,
-        ]
+        [-0.0931, 0.0382, 0.1488, -2.3811, -0.0090, 2.4947, 0.1204]
     )
+    home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+    robot_home = robot_home + home_noise
     robot.move_to_joint_positions(robot_home)
 
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
@@ -647,12 +722,23 @@ def main():
     actor: Actor = get_actor(cfg=config, device=device)
 
     # Load the model weights
-    actor.load_state_dict(torch.load(model_path))
+    state_dict = torch.load(model_path)
+
+    if "model_state_dict" in state_dict:
+        state_dict = state_dict["model_state_dict"]
+
+    actor.load_state_dict(state_dict)
     actor.eval()
     actor.cuda()
 
     # mc
     actor.set_mc(mc_vis)
+
+    part_poses_norm_mid = None
+    if args.observation_type == "state":
+        part_poses_norm_max = actor.normalizer.stats.parts_poses.max
+        part_poses_norm_min = actor.normalizer.stats.parts_poses.min
+        part_poses_norm_mid = (part_poses_norm_max + part_poses_norm_min) / 2.0
 
     # simple env wrapper
     env = SimpleDiffIKFrankaEnv(
@@ -661,9 +747,11 @@ def main():
         gripper=gripper,
         use_lcm=args.use_lcm,
         execute=args.execute,
-        state_only=args.state_only,
+        observation_type=args.observation_type,
         proprioceptive_state_dim=config.robot_state_dim,
         control_mode=config.control.control_mode,
+        furniture_name=args.furniture,
+        part_poses_norm_mid=part_poses_norm_mid,
     )
 
     obs = env.get_obs()
@@ -702,12 +790,10 @@ def main():
 
     print(f"Starting evaluation...\n\n\n")
     time.sleep(1.0)
+    running = True
 
+    start_time = time.time()
     while True:
-
-        # Get the next actions from the actor
-        action_pred = actor.action(obs_deque)
-
         # Catch keyboard press, and potentially start recording new episode
         _, collect_enum = keyboard.get_action()
         ci_helper.set_recording(collect_enum == CollectEnum.RECORD)
@@ -726,6 +812,74 @@ def main():
                 time.sleep(2.0)
             else:
                 pass
+
+        if collect_enum == CollectEnum.PAUSE_HOLD:
+            running = not running
+
+        if not running:
+            print(f"Pause button pressed")
+            time.sleep(1.0)
+            continue
+
+        # Get the next actions from the actor
+        action_pred = actor.action(obs_deque)
+
+        pos_bounds_m = 0.025
+        ori_bounds_deg = 20
+
+        # This function expects the rotation to be a quat_xyzw
+        pos, rot_6d, gripper = (
+            action_pred[:, 0:3],
+            action_pred[:, 3:9],
+            action_pred[:, 9:10],
+        )
+        quat_wxyz = pt.matrix_to_quaternion(pt.rotation_6d_to_matrix(rot_6d))
+
+        # Make it into a delta action
+        curr_pos, curr_quat_xyzw = (
+            obs["robot_state"][:, 0:3],
+            obs["robot_state"][:, 3:7],
+        )
+
+        delta_pos = pos - curr_pos
+
+        # Convert current quat to real first to be able to calculate on it
+        curr_quat_wxyz = quat_xyzw_to_quat_wxyz(curr_quat_xyzw)
+
+        delta_quat_wxyz = pt.quaternion_multiply(
+            pt.quaternion_invert(curr_quat_wxyz), quat_wxyz
+        )
+        delta_quat_xyzw = quat_wxyz_to_quat_xyzw(delta_quat_wxyz)
+
+        action_pred = torch.cat([delta_pos, delta_quat_xyzw, gripper], dim=-1)
+
+        action_pred = scale_scripted_action(
+            action_pred,
+            pos_bounds_m=pos_bounds_m,
+            ori_bounds_deg=ori_bounds_deg,
+        )
+
+        # Turn it back into using pos action
+        delta_pos, delta_quat_xyzw, gripper = (
+            action_pred[:, 0:3],
+            action_pred[:, 3:7],
+            action_pred[:, 7:8],
+        )
+
+        if (time.time() - start_time) > 5:
+            start_time = time.time()
+            print(f"Gripper: {gripper.cpu().squeeze().item()}")
+
+        pos = curr_pos + delta_pos
+
+        delta_quat_wxyz = quat_xyzw_to_quat_wxyz(delta_quat_xyzw)
+
+        quat_wxyz = pt.quaternion_multiply(curr_quat_wxyz, delta_quat_wxyz)
+
+        # Turn it back into using rot_6d
+        rot_6d = pt.matrix_to_rotation_6d(pt.quaternion_to_matrix(quat_wxyz))
+
+        action_pred = torch.cat([pos, rot_6d, gripper], dim=-1)
 
         obs, reward, done, _ = env.step(action_pred[0])
 
