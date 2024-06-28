@@ -21,6 +21,8 @@ from rdt.common.keyboard_interface import KeyboardInterface
 from rdt.common.demo_util import CollectEnum
 from rdt.image.factory import enable_single_realsense
 
+from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
+
 from src.real.serials import FRONT_CAMERA_SERIAL, WRIST_CAMERA_SERIAL
 
 from ipdb import set_trace as bp
@@ -243,17 +245,48 @@ class ObsActHelper:
         else:
             toggle_gripper = False
 
+        # Make a delta action of xyz + quat_xyzw that we can scale before sending to robot
+        delta_action = np.concatenate(
+            [dpos, drot.as_quat(), np.array([self.grasp_flag])]
+        )
+
         # overwrite action from keyboard action (for screwing)
+        kb_taken = False
         if not (np.allclose(keyboard_action[3:6], 0.0)):
-            drot = st.Rotation.from_quat(keyboard_action[3:7])
+            delta_action[3:7] = keyboard_action[3:7]
+            kb_taken = True
             action_taken = True
+
+        pos_bounds_m = 0.025
+        ori_bounds_deg = 20
+
+        delta_action = (
+            scale_scripted_action(
+                torch.from_numpy(delta_action).unsqueeze(0),
+                pos_bounds_m=pos_bounds_m,
+                ori_bounds_deg=ori_bounds_deg,
+            )
+            .squeeze()
+            .numpy()
+        )
 
         # write out action
         new_target_pose = self.target_pose.copy()
+        dpos, drot = delta_action[:3], st.Rotation.from_quat(delta_action[3:7])
         new_target_pose[:3] += dpos
-        new_target_pose[3:] = (
-            drot * st.Rotation.from_rotvec(self.target_pose[3:])
-        ).as_rotvec()
+        # new_target_pose[3:] = (
+        #     drot * st.Rotation.from_rotvec(self.target_pose[3:])
+        # ).as_rotvec()
+        if kb_taken:
+            # right multiply (more intuitive for screwing)
+            new_target_pose[3:] = (
+                st.Rotation.from_rotvec(self.target_pose[3:]) * drot
+            ).as_rotvec()
+        else:
+            # left multiply (more intuitive for spacemouse)
+            new_target_pose[3:] = (
+                drot * st.Rotation.from_rotvec(self.target_pose[3:])
+            ).as_rotvec()
         new_target_pose_mat = self.to_pose_mat(new_target_pose)
         current_pose_mat = self.to_pose_mat(self.target_pose)
 
@@ -357,19 +390,14 @@ def main():
     gripper = GripperInterface(ip_address=franka_ip)
 
     # manual home
-    gripper.goto(0.08, 0.05, 0.1, blocking=False)
+    gripper.goto(0.065, 0.05, 0.1, blocking=False)
     # robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
     robot_home = torch.Tensor(
-        [
-            -0.02630888,
-            0.3758795,
-            0.12485036,
-            -2.1383357,
-            -0.09431414,
-            2.49649072,
-            0.01921718,
-        ]
+        [-0.0931, 0.0382, 0.1488, -2.3811, -0.0090, 2.4947, 0.1204]
     )
+    home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+    robot_home = robot_home + home_noise
+
     robot.move_to_joint_positions(robot_home)
 
     # sm_dpos_scalar = np.array([1.5] * 3)
@@ -465,7 +493,8 @@ def main():
         if gripper_open:
             gripper.grasp(0.07, 70, blocking=False)
         else:
-            gripper.goto(0.08, 0.05, 0.1, blocking=False)
+            # gripper.goto(0.08, 0.05, 0.1, blocking=False)
+            gripper.goto(0.065, 0.05, 0.1, blocking=False)
 
     with SharedMemoryManager() as shm_manager:
         with Spacemouse(shm_manager=shm_manager, deadzone=args.deadzone) as sm:
