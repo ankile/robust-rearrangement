@@ -5,7 +5,6 @@ from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
-# from src.gym.furniture_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
@@ -144,7 +143,7 @@ def main(cfg: DictConfig):
         cfg.parts_poses_dim = dataset.parts_poses_dim
 
     # Create the policy network
-    actor = get_actor(
+    actor: Actor = get_actor(
         cfg,
         device,
     )
@@ -211,25 +210,13 @@ def main(cfg: DictConfig):
         else DataLoader(**testload_kwargs)
     )
 
-    # AdamW optimizer for noise_net
+    # Create lists for optimizers and lr schedulers
+
     opt_noise = torch.optim.AdamW(
         params=actor.actor_parameters(),
         lr=cfg.training.actor_lr,
         weight_decay=cfg.regularization.weight_decay,
     )
-
-    opt_encoder = torch.optim.AdamW(
-        params=actor.encoder_parameters(),
-        lr=cfg.training.encoder_lr,
-        weight_decay=cfg.regularization.weight_decay,
-    )
-
-    if cfg.training.ema.use:
-        ema = SwitchEMA(actor, cfg.training.ema.decay)
-        ema.register()
-
-    n_batches = len(trainloader)
-
     lr_scheduler = get_scheduler(
         name=cfg.lr_scheduler.name,
         optimizer=opt_noise,
@@ -237,12 +224,31 @@ def main(cfg: DictConfig):
         num_training_steps=len(trainloader) * cfg.training.num_epochs,
     )
 
-    lr_scheduler_encoder = get_scheduler(
-        name=cfg.lr_scheduler.name,
-        optimizer=opt_encoder,
-        num_warmup_steps=cfg.lr_scheduler.encoder_warmup_steps,
-        num_training_steps=len(trainloader) * cfg.training.num_epochs,
-    )
+    optimizers = [("actor", opt_noise)]
+    lr_schedulers = [lr_scheduler]
+
+    if cfg.observation_type == "image":
+
+        opt_encoder = torch.optim.AdamW(
+            params=actor.encoder_parameters(),
+            lr=cfg.training.encoder_lr,
+            weight_decay=cfg.regularization.weight_decay,
+        )
+        lr_scheduler_encoder = get_scheduler(
+            name=cfg.lr_scheduler.name,
+            optimizer=opt_encoder,
+            num_warmup_steps=cfg.lr_scheduler.encoder_warmup_steps,
+            num_training_steps=len(trainloader) * cfg.training.num_epochs,
+        )
+
+        optimizers.append(("encoder", opt_encoder))
+        lr_schedulers.append(lr_scheduler_encoder)
+
+    bp()
+
+    if cfg.training.ema.use:
+        ema = SwitchEMA(actor, cfg.training.ema.decay)
+        ema.register()
 
     early_stopper = EarlyStopper(
         patience=cfg.early_stopper.patience,
@@ -353,109 +359,123 @@ def main(cfg: DictConfig):
 
         # batch loop
         actor.train()
-        tepoch = tqdm(trainloader, desc="Training", leave=False, total=n_batches)
+        tepoch = tqdm(trainloader, desc="Training", leave=False, total=len(trainloader))
         for batch in tepoch:
-            opt_noise.zero_grad()
+            # Zero the gradients in all optimizers
+            for _, opt in optimizers:
+                opt.zero_grad()
 
-            # device transfer
+            # Get a batch on device and compute loss and gradients
             batch = dict_to_device(batch, device)
-
-            # Get loss
             loss, losses_log = actor.compute_loss(batch)
-
-            # backward pass
             loss.backward()
 
-            # optimizer step
-            opt_noise.step()
-            opt_encoder.step()
-            lr_scheduler.step()
-            lr_scheduler_encoder.step()
+            # Step the optimizers and schedulers
+            for (_, opt), scheduler in zip(optimizers, lr_schedulers):
+                opt.step()
+                scheduler.step()
 
             if cfg.training.ema.use:
                 ema.update()
 
-            # logging
+            # Log losses
             loss_cpu = loss.item()
             epoch_loss.append(loss_cpu)
-            lr = lr_scheduler.get_last_lr()[0]
-            wandb.log(
-                {
-                    "training/lr": lr,
-                    "batch_loss": loss_cpu,
-                    **losses_log,
-                }
-            )
+            step_log = {
+                "batch_loss": loss_cpu,
+                **losses_log,
+            }
 
-            tepoch.set_postfix(loss=loss_cpu, lr=lr)
+            # Add the learning rates to the log
+            for name, opt in optimizers:
+                step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
+
+            wandb.log(step_log)
+
+            tepoch.set_postfix(loss=loss_cpu)
 
         tepoch.close()
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
-        # Evaluation loop
-        actor.eval()
+        if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
+            # Evaluation loop
+            actor.eval()
 
-        if cfg.training.ema.use:
-            ema.apply_shadow()
+            if cfg.training.ema.use:
+                ema.apply_shadow()
 
-        eval_losses_log = defaultdict(list)
+            eval_losses_log = defaultdict(list)
 
-        test_tepoch = tqdm(testloader, desc="Validation", leave=False)
-        for test_batch in test_tepoch:
-            with torch.no_grad():
-                # device transfer for test_batch
-                test_batch = dict_to_device(test_batch, device)
+            test_tepoch = tqdm(testloader, desc="Validation", leave=False)
+            for test_batch in test_tepoch:
+                with torch.no_grad():
+                    # device transfer for test_batch
+                    test_batch = dict_to_device(test_batch, device)
 
-                # Get test loss
-                test_loss_val, losses_log = actor.compute_loss(test_batch)
+                    # Get test loss
+                    test_loss_val, losses_log = actor.compute_loss(test_batch)
 
-                # logging
-                test_loss_cpu = test_loss_val.item()
-                test_loss.append(test_loss_cpu)
-                test_tepoch.set_postfix(loss=test_loss_cpu)
+                    # logging
+                    test_loss_cpu = test_loss_val.item()
+                    test_loss.append(test_loss_cpu)
+                    test_tepoch.set_postfix(loss=test_loss_cpu)
 
-                # Append the losses to the log
-                for k, v in losses_log.items():
-                    eval_losses_log[k].append(v)
+                    # Append the losses to the log
+                    for k, v in losses_log.items():
+                        eval_losses_log[k].append(v)
 
-        test_tepoch.close()
+            test_tepoch.close()
 
-        epoch_log["test_epoch_loss"] = test_loss_mean = np.mean(test_loss)
+            epoch_log["test_epoch_loss"] = test_loss_mean = np.mean(test_loss)
+            # Update the epoch log with the mean of the evaluation losses
 
-        # Save the model if the test loss is the best so far
-        if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
-            best_test_loss = test_loss_mean
-            save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
-            torch.save(
-                {
+            for k, v in eval_losses_log.items():
+                epoch_log[f"test_{k}"] = np.mean(v)
+
+            # Save the model if the test loss is the best so far
+            if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
+                best_test_loss = test_loss_mean
+                save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
+
+                # Add model params and meta data to the save dict
+                save_dict = {
                     "model_state_dict": actor.state_dict(),
-                    "optimizer_state_dict": opt_noise.state_dict(),
-                    "encoder_optimizer_state_dict": opt_encoder.state_dict(),
-                    "scheduler_state_dict": lr_scheduler.state_dict(),
-                    "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
                     "epoch": epoch_idx,
                     "best_test_loss": best_test_loss,
-                },
-                save_path,
-            )
-            wandb.save(save_path)
+                }
+
+                # Add the optimizer and scheduler states to the save dict
+                for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                    save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+                    save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
+
+                torch.save(
+                    save_dict,
+                    save_path,
+                )
+                wandb.save(save_path)
 
         if (
             cfg.training.checkpoint_model
             and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
+
+            # Add model params and meta data to the save dict
+            save_dict = {
+                "model_state_dict": actor.state_dict(),
+                "epoch": epoch_idx,
+                "best_test_loss": best_test_loss,
+            }
+
+            # Add the optimizer and scheduler states to the save dict
+            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
+
             torch.save(
-                {
-                    "model_state_dict": actor.state_dict(),
-                    "optimizer_state_dict": opt_noise.state_dict(),
-                    "encoder_optimizer_state_dict": opt_encoder.state_dict(),
-                    "scheduler_state_dict": lr_scheduler.state_dict(),
-                    "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
-                    "epoch": epoch_idx,
-                    "best_test_loss": best_test_loss,
-                },
+                save_dict,
                 save_path,
             )
             wandb.save(save_path)
@@ -533,16 +553,21 @@ def main(cfg: DictConfig):
             ):
                 prev_best_success_rate = best_success_rate
                 save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
+
+                # Add model params and meta data to the save dict
+                save_dict = {
+                    "model_state_dict": actor.state_dict(),
+                    "epoch": epoch_idx,
+                    "best_test_loss": best_test_loss,
+                }
+
+                # Add the optimizer and scheduler states to the save dict
+                for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                    save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+                    save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
+
                 torch.save(
-                    {
-                        "model_state_dict": actor.state_dict(),
-                        "optimizer_state_dict": opt_noise.state_dict(),
-                        "encoder_optimizer_state_dict": opt_encoder.state_dict(),
-                        "scheduler_state_dict": lr_scheduler.state_dict(),
-                        "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
-                        "epoch": epoch_idx,
-                        "best_test_loss": best_test_loss,
-                    },
+                    save_dict,
                     save_path,
                 )
                 wandb.save(save_path)
@@ -561,10 +586,6 @@ def main(cfg: DictConfig):
         epoch_log["early_stopper/counter"] = early_stopper.counter
         epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
         epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
-
-        # Update the epoch log with the mean of the evaluation losses
-        for k, v in eval_losses_log.items():
-            epoch_log[f"test_{k}"] = np.mean(v)
 
         # Log epoch stats
         wandb.log(epoch_log)

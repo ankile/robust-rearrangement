@@ -160,13 +160,21 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         """
         Return the parameters of the actor by filtering out the encoder parameters
         """
-        return [p for n, p in self.named_parameters() if "encoder" not in n]
+        return [
+            p
+            for n, p in self.named_parameters()
+            if not (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
 
     def encoder_parameters(self):
         """
         Return the parameters of the encoder
         """
-        return [p for n, p in self.named_parameters() if "encoder" in n]
+        return [
+            p
+            for n, p in self.named_parameters()
+            if (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
 
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
