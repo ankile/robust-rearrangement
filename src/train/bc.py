@@ -5,7 +5,7 @@ from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 with suppress_stdout():
     import furniture_bench
@@ -143,7 +143,7 @@ def main(cfg: DictConfig):
         cfg.parts_poses_dim = dataset.parts_poses_dim
 
     # Create the policy network
-    actor = get_actor(
+    actor: Actor = get_actor(
         cfg,
         device,
     )
@@ -392,53 +392,58 @@ def main(cfg: DictConfig):
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
-        # Evaluation loop
-        actor.eval()
+        if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
+            # Evaluation loop
+            actor.eval()
 
-        if cfg.training.ema.use:
-            ema.apply_shadow()
+            if cfg.training.ema.use:
+                ema.apply_shadow()
 
-        eval_losses_log = defaultdict(list)
+            eval_losses_log = defaultdict(list)
 
-        test_tepoch = tqdm(testloader, desc="Validation", leave=False)
-        for test_batch in test_tepoch:
-            with torch.no_grad():
-                # device transfer for test_batch
-                test_batch = dict_to_device(test_batch, device)
+            test_tepoch = tqdm(testloader, desc="Validation", leave=False)
+            for test_batch in test_tepoch:
+                with torch.no_grad():
+                    # device transfer for test_batch
+                    test_batch = dict_to_device(test_batch, device)
 
-                # Get test loss
-                test_loss_val, losses_log = actor.compute_loss(test_batch)
+                    # Get test loss
+                    test_loss_val, losses_log = actor.compute_loss(test_batch)
 
-                # logging
-                test_loss_cpu = test_loss_val.item()
-                test_loss.append(test_loss_cpu)
-                test_tepoch.set_postfix(loss=test_loss_cpu)
+                    # logging
+                    test_loss_cpu = test_loss_val.item()
+                    test_loss.append(test_loss_cpu)
+                    test_tepoch.set_postfix(loss=test_loss_cpu)
 
-                # Append the losses to the log
-                for k, v in losses_log.items():
-                    eval_losses_log[k].append(v)
+                    # Append the losses to the log
+                    for k, v in losses_log.items():
+                        eval_losses_log[k].append(v)
 
-        test_tepoch.close()
+            test_tepoch.close()
 
-        epoch_log["test_epoch_loss"] = test_loss_mean = np.mean(test_loss)
+            epoch_log["test_epoch_loss"] = test_loss_mean = np.mean(test_loss)
+            # Update the epoch log with the mean of the evaluation losses
 
-        # Save the model if the test loss is the best so far
-        if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
-            best_test_loss = test_loss_mean
-            save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
-            torch.save(
-                {
-                    "model_state_dict": actor.state_dict(),
-                    "optimizer_state_dict": opt_noise.state_dict(),
-                    "encoder_optimizer_state_dict": opt_encoder.state_dict(),
-                    "scheduler_state_dict": lr_scheduler.state_dict(),
-                    "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
-                    "epoch": epoch_idx,
-                    "best_test_loss": best_test_loss,
-                },
-                save_path,
-            )
-            wandb.save(save_path)
+            for k, v in eval_losses_log.items():
+                epoch_log[f"test_{k}"] = np.mean(v)
+
+            # Save the model if the test loss is the best so far
+            if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
+                best_test_loss = test_loss_mean
+                save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
+                torch.save(
+                    {
+                        "model_state_dict": actor.state_dict(),
+                        "optimizer_state_dict": opt_noise.state_dict(),
+                        "encoder_optimizer_state_dict": opt_encoder.state_dict(),
+                        "scheduler_state_dict": lr_scheduler.state_dict(),
+                        "encoder_scheduler_state_dict": lr_scheduler_encoder.state_dict(),
+                        "epoch": epoch_idx,
+                        "best_test_loss": best_test_loss,
+                    },
+                    save_path,
+                )
+                wandb.save(save_path)
 
         if (
             cfg.training.checkpoint_model
@@ -560,10 +565,6 @@ def main(cfg: DictConfig):
         epoch_log["early_stopper/counter"] = early_stopper.counter
         epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
         epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
-
-        # Update the epoch log with the mean of the evaluation losses
-        for k, v in eval_losses_log.items():
-            epoch_log[f"test_{k}"] = np.mean(v)
 
         # Log epoch stats
         wandb.log(epoch_log)
