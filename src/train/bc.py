@@ -244,8 +244,6 @@ def main(cfg: DictConfig):
         optimizers.append(("encoder", opt_encoder))
         lr_schedulers.append(lr_scheduler_encoder)
 
-    bp()
-
     if cfg.training.ema.use:
         ema = SwitchEMA(actor, cfg.training.ema.decay)
         ema.register()
