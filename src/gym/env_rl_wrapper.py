@@ -1,7 +1,10 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from typing import Dict
 from src.dataset.normalizer import LinearNormalizer
-from src.gym.furniture_sim_env import (
+# from src.gym.furniture_sim_env import (
+#     FurnitureRLSimEnv,
+# )
+from furniture_bench.envs.furniture_rl_sim_env import (
     FurnitureRLSimEnv,
 )
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
