@@ -191,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--stop-after-n-success", type=int, default=0)
     parser.add_argument("--break-on-n-success", action="store_true")
     parser.add_argument("--record-for-coverage", action="store_true")
+    parser.add_argument("--parts-poses-in-robot-frame", action="store_true")
 
     parser.add_argument("--save-rollouts-suffix", type=str, default="")
     # Parse the arguments
@@ -301,6 +302,7 @@ if __name__ == "__main__":
                         ctrl_mode=args.controller,
                         action_type=args.action_type,
                         april_tags=not args.no_april_tags,
+                        parts_poses_in_robot_frame=args.parts_poses_in_robot_frame,
                         verbose=args.verbose,
                         headless=not args.visualize,
                     )
@@ -321,10 +323,11 @@ if __name__ == "__main__":
 
                 cfg = OmegaConf.create(run.config)
 
-                # Check that we didn't set the wrong action type above
-                assert cfg.control.control_mode == args.action_type, (
-                    f"Control mode in the config: {cfg.control.control_mode} "
-                    f"does not match the action type: {args.action_type}"
+                # Check that we didn't set the wrong action type and pose representation
+                assert cfg.control.control_mode == args.action_type
+                assert (
+                    cfg.rollout.parts_poses_in_robot_frame
+                    == args.parts_poses_in_robot_frame
                 )
 
                 print(OmegaConf.to_yaml(cfg))
