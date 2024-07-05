@@ -1,4 +1,5 @@
 from pathlib import Path
+from furniture_bench import config
 import numpy as np
 import torch
 from typing import Dict, Union, List
@@ -8,11 +9,8 @@ from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
 from src.common.tasks import furniture2idx
-from src.common.vision import (
-    FrontCameraTransform,
-    WristCameraTransform,
-)
 import src.common.geometry as G
+import furniture_bench.controllers.control_utils as C
 
 from ipdb import set_trace as bp
 
@@ -299,6 +297,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         add_relative_pose: bool = False,
         normalizer: LinearNormalizer = None,
         include_future_obs: bool = False,
+        parts_poses_in_robot_frame: bool = False,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -306,6 +305,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         self.predict_past_actions = predict_past_actions
         self.control_mode = control_mode
         self.include_future_obs = include_future_obs
+        self.parts_poses_in_robot_frame = parts_poses_in_robot_frame
 
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
@@ -335,6 +335,19 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         robot_state = torch.from_numpy(combined_data["robot_state"])
         action = torch.from_numpy(combined_data[f"action/{control_mode}"])
         parts_poses = torch.from_numpy(combined_data["parts_poses"])
+
+        if self.parts_poses_in_robot_frame:
+            # Parts are by default in april frame, convert to robot frame
+            base_tag_from_robot_mat = torch.tensor(
+                config["robot"]["tag_base_from_robot_base"], device=self.device
+            )
+
+            part_poses_mat = C.pose2mat_batched(
+                parts_poses[:, :, :3], parts_poses[:, :, 3:7], device=self.device
+            )
+
+            robot_coord_poses_mat = base_tag_from_robot_mat @ part_poses_mat
+            parts_poses = torch.cat(C.mat2pose_batched(robot_coord_poses_mat), dim=-1)
 
         self.train_data = {
             "parts_poses": parts_poses,
@@ -505,6 +518,27 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # Discard unused observations
         nsample["obs"] = nsample["obs"][: self.last_obs, :]
+
+        if True or self.control_mode == ControlMode.relative:
+            # Each action in the chunk will be relative to the current EE pose
+            curr_ee_pos = nsample["obs"][-1, :3]
+            curr_ee_6d = nsample["obs"][-1, 3:9]
+            curr_ee_quat = C.rotation_6d_to_quaternion(curr_ee_6d)
+
+            # Calculate the relative pos action (the actions are absolute poses to begin with)
+            nsample["action"][:, :3] = nsample["action"][:, :3] - curr_ee_pos
+
+            # Calculate the relative rot action
+            action_quat = C.rotation_6d_to_quaternion(nsample["action"][:, 3:9])
+
+            # Want a quaternion such that if it's applied to the current EE pose, it will result in the action (absolute pose)
+            # This is the same as the relative rotation between the current EE pose and the action
+            # curr_quat * rel_quat = action_quat -> rel_quat = curr_quat^-1 * action_quat
+            action_quat = C.quaternion_multiply(
+                C.quaternion_invert(curr_ee_quat), action_quat
+            )
+
+            nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat)
 
         # Sum up the returns accrued during the action chunk
         # Double check if this should be calculated only for executed actions
