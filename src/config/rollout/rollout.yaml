@@ -9,3 +9,4 @@ save_failures: false
 randomness: low
 furniture: ${furniture}
 n_parts_assemble: null
+parts_poses_in_robot_frame: ${parts_poses_in_robot_frame}
