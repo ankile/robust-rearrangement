@@ -396,7 +396,7 @@ def main(cfg: DictConfig):
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
-        if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
+        if ((epoch_idx + 1) % cfg.training.eval_every) == 0:
             # Evaluation loop
             actor.eval()
 
@@ -454,15 +454,21 @@ def main(cfg: DictConfig):
                 )
                 wandb.save(save_path)
 
+            # If using EMA, restore the model
+            if cfg.training.ema.use:
+                ema.restore()
+
         if (
             cfg.training.checkpoint_model
             and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
 
+            actor_state = ema.shadow if cfg.training.ema.use else actor.state_dict()
+
             # Add model params and meta data to the save dict
             save_dict = {
-                "model_state_dict": actor.state_dict(),
+                "model_state_dict": actor_state,
                 "epoch": epoch_idx,
                 "best_test_loss": best_test_loss,
             }
@@ -497,6 +503,12 @@ def main(cfg: DictConfig):
 
         # run diffusion sampling on a training batch
         if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
+            # Set the model to eval mode and load the EMA shadow if needed
+            actor.eval()
+
+            if cfg.training.ema.use:
+                ema.apply_shadow()
+
             with torch.no_grad():
                 # sample trajectory from training set, and evaluate difference
                 train_sampling_batch = dict_to_device(next(iter(trainloader)), device)
@@ -513,11 +525,21 @@ def main(cfg: DictConfig):
                 pred_action = actor.action_pred(val_sampling_batch)
                 log_action_mse(epoch_log, "val", pred_action, gt_action)
 
+            # Restore the model to the original state
+            if cfg.training.ema.use:
+                ema.restore()
+
         if (
             cfg.rollout.rollouts
             and (epoch_idx + 1) % cfg.rollout.every == 0
             and np.mean(test_loss_mean) < cfg.rollout.loss_threshold
         ):
+            # Set the model to eval mode and load the EMA shadow if needed
+            actor.eval()
+
+            if cfg.training.ema.use:
+                ema.apply_shadow()
+
             # Do not load the environment until we successfuly made it this far
             if env is None:
                 env: FurnitureRLSimEnv = get_rl_env(
@@ -570,14 +592,13 @@ def main(cfg: DictConfig):
                 )
                 wandb.save(save_path)
 
-        # After eval is done, we restore the model to the original state
-        if cfg.training.ema.use:
-            # If using normal EMA, restore the model
-            ema.restore()
+            # Restore the model to the original state
+            if cfg.training.ema.use:
+                ema.restore()
 
-            # If using switch EMA, set the model to the shadow
-            if cfg.training.ema.switch:
-                ema.copy_to_model()
+        # If switch is enabled, copy the the shadow to the model at the end of each epoch
+        if cfg.training.ema.use and cfg.training.ema.switch:
+            ema.copy_to_model()
 
         # Update the early stopper
         early_stop = early_stopper.update(test_loss_mean)
