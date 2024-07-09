@@ -227,6 +227,8 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         """
         self.base_nactions.clear()
         self.observations.clear()
+        if self.actions is not None:
+            self.actions.clear()
 
     @property
     def actor_parameters(self):
