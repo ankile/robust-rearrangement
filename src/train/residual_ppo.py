@@ -100,7 +100,8 @@ def main(cfg: DictConfig):
     torch.manual_seed(cfg.seed)
     torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
-    device = torch.device("cuda")
+    gpu_id = 0
+    device = torch.device(f"cuda:{gpu_id}")
 
     turn_off_april_tags()
 
@@ -112,7 +113,9 @@ def main(cfg: DictConfig):
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
         furniture=cfg.env.task,
-        gpu_id=0,
+        # gpu_id=1,
+        compute_device_id=gpu_id,
+        graphics_device_id=gpu_id,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
         observation_space="state",
@@ -150,6 +153,7 @@ def main(cfg: DictConfig):
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
         reward_clip=cfg.clip_reward,
+        device=device,
     )
 
     optimizer_actor = optim.AdamW(
