@@ -52,11 +52,18 @@ from src.data_processing.utils import resize, resize_crop
 from ipdb import set_trace as bp
 from furniture_bench.utils.scripted_demo_mod import scale_scripted_action
 from furniture_bench.furniture import furniture_factory
+from furniture_bench.config import config
+import furniture_bench.utils.transform as T
+import furniture_bench.controllers.control_utils as C
 
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
 api = Api()
+
+
+## Related to playing back demos
+from src.visualization.render_mp4 import unpickle_data
 
 
 def get_runs(args: argparse.Namespace) -> List[Run]:
@@ -277,6 +284,18 @@ def resize_crop_image(obs, key):
         pass
 
 
+def convert_reference_frame_mat_tedrake(
+    pose_source_mat, pose_frame_target_mat, pose_frame_source_mat
+):
+
+    # transform that maps from target to source (S = XT)
+    target2source_mat = np.linalg.inv(pose_frame_target_mat) @ pose_frame_source_mat
+
+    # obtain source pose in target frame
+    pose_source_in_target_mat = target2source_mat @ pose_source_mat
+    return pose_source_in_target_mat
+
+
 def convert_reference_frame_mat(
     pose_source_mat, pose_frame_target_mat, pose_frame_source_mat
 ):
@@ -339,7 +358,7 @@ class SimpleDiffIKFrankaEnv:
         control_mode: str = "pos",
         action_horizon: int = 10,
         furniture_name: str = "one_leg",
-        part_poses_norm_mid: torch.Tensor = None,
+        part_reset_poses: torch.Tensor = None,
     ):
 
         self.device = device
@@ -372,29 +391,13 @@ class SimpleDiffIKFrankaEnv:
             self.furniture = furniture_factory(furniture_name)
             print(f"Starting detection")
             self.furniture.start_detection()
-            self.obstacle_pose = torch.tensor(
-                [[0.0069, 0.3629, -0.0150, -1.0000, 0.0000, 0.0000, 0.0000]],
-                device=self.device,
-            )
 
-            part_reset_poses = []
-            for i in range(len(self.furniture.parts)):
-                reset_pos = self.furniture.parts[i].reset_pos[0].tolist()
-                reset_quat = (
-                    st.Rotation.from_matrix(
-                        self.furniture.parts[i].reset_ori[0][:-1, :-1]
-                    )
-                    .as_quat()
-                    .tolist()
-                )
-                part_reset_poses.append(reset_pos + reset_quat)
-            # self.part_reset_poses = (
-            #     torch.tensor(part_reset_poses).to(self.device).reshape(-1)
-            # )
-            self.part_reset_poses = part_poses_norm_mid.to(self.device)[:35]
+            self.part_reset_poses = part_reset_poses
 
         self.action_horizon = action_horizon
         self.act_step = 0
+
+        self.cached_leg_pose_mat_ee = None
 
     def set_timing(
         self, iter_idx: int = 0, dt: float = 0.1, command_latency: float = 0.01
@@ -524,14 +527,99 @@ class SimpleDiffIKFrankaEnv:
 
         robot_state = self.get_robot_state()
 
-        parts_poses = (
-            torch.tensor(self.furniture.get_parts_poses()[0])
-            .reshape(1, -1)
-            .to(self.device)
+        parts_poses = self.part_reset_poses.clone()
+
+        while True:
+            parts_poses_april = (
+                torch.tensor(self.furniture.get_parts_poses()[0])
+                .reshape(1, -1)
+                .to(self.device)
+            )
+
+            if torch.allclose(
+                parts_poses_april[0, :7], torch.tensor([0.0], device=self.device)
+            ):
+                print("sleeping (top)")
+                time.sleep(1)
+                continue
+
+            if torch.allclose(
+                parts_poses_april[0, 28:35], torch.tensor([0.0], device=self.device)
+            ):
+
+                if self.cached_leg_pose_mat_ee is not None:
+                    # compute april frame leg pose based on cached in hand pose
+                    leg_pose_ee = self.cached_leg_pose_mat_ee
+                    ee_pose_mat_world = convert_wrist2tip(
+                        poly_util.polypose2mat(self.robot.get_ee_pose())
+                    )
+
+                    leg_pose_april_mat = convert_reference_frame_mat_tedrake(
+                        pose_source_mat=leg_pose_ee,
+                        pose_frame_target_mat=config["robot"][
+                            "tag_base_from_robot_base"
+                        ],
+                        pose_frame_source_mat=ee_pose_mat_world,
+                    )
+                    parts_poses_april[0, 28:35] = (
+                        torch.from_numpy(np.concatenate(T.mat2pose(leg_pose_april_mat)))
+                        .float()
+                        .to(self.device)
+                    )
+                else:
+                    print("sleeping (leg)")
+                    time.sleep(1)
+                    continue
+
+            break
+
+        parts_poses[0, :7] = parts_poses_april[0, :7]
+        parts_poses[0, 28:35] = parts_poses_april[0, 28:35]
+
+        # parts_poses = torch.cat((parts_poses, self.obstacle_pose), dim=-1)
+
+        # visualize poses
+        # leg_reset_pose_mat_tag = T.pose2mat(
+        #     self.part_reset_poses_true.squeeze()[28:35].cpu().numpy()
+        # )
+        # leg_reset_pose_mat = convert_reference_frame_mat(
+        #     pose_source_mat=leg_reset_pose_mat_tag,
+        #     pose_frame_target_mat=np.eye(4),
+        #     pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
+        # )
+
+        # mc_util.meshcat_frame_show(
+        #     self.mc_vis, f"scene/leg_reset_pose", leg_reset_pose_mat
+        # )
+
+        leg_pose_mat_tag = T.pose2mat(parts_poses.squeeze()[28:35].cpu().numpy())
+        leg_pose_mat = convert_reference_frame_mat(
+            pose_source_mat=leg_pose_mat_tag,
+            pose_frame_target_mat=np.eye(4),
+            pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
         )
-        parts_poses[0, 7:28] = self.part_reset_poses[7:28]
-        # parts_poses[0, :] = self.part_reset_poses[:]
-        parts_poses = torch.cat((parts_poses, self.obstacle_pose), dim=-1)
+        self.last_leg_pose_mat_world = leg_pose_mat
+        mc_util.meshcat_frame_show(self.mc_vis, f"scene/leg_pose", leg_pose_mat)
+
+        top_reset_pose_mat_tag = T.pose2mat(
+            self.part_reset_poses.squeeze()[0:7].cpu().numpy()
+        )
+        top_reset_pose_mat = convert_reference_frame_mat(
+            pose_source_mat=top_reset_pose_mat_tag,
+            pose_frame_target_mat=np.eye(4),
+            pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
+        )
+        mc_util.meshcat_frame_show(
+            self.mc_vis, f"scene/top_reset_pose", top_reset_pose_mat
+        )
+
+        top_pose_mat_tag = T.pose2mat(parts_poses.squeeze()[0:7].cpu().numpy())
+        top_pose_mat = convert_reference_frame_mat(
+            pose_source_mat=top_pose_mat_tag,
+            pose_frame_target_mat=np.eye(4),
+            pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
+        )
+        mc_util.meshcat_frame_show(self.mc_vis, f"scene/top_pose", top_pose_mat)
 
         obs = dict(
             parts_poses=torch.clamp(parts_poses, -1.5, 1.5),
@@ -592,13 +680,37 @@ class SimpleDiffIKFrankaEnv:
             # gripper.gripper_close() if gripper_open else gripper.gripper_open()
             if self.gripper_open:
                 self.gripper.grasp(0.07, 70, blocking=False)
+
+                if self.observation_type == "state":
+                    # get the current EE pose and leg pose
+                    ee_pose_mat_world = convert_wrist2tip(
+                        poly_util.polypose2mat(self.robot.get_ee_pose())
+                    )
+                    leg_pose_mat_world = self.last_leg_pose_mat_world
+                    # cache the in-hand pose for use when april tag detection is bad
+                    self.cached_leg_pose_mat_ee = convert_reference_frame_mat(
+                        pose_source_mat=leg_pose_mat_world,
+                        pose_frame_target_mat=ee_pose_mat_world,
+                        pose_frame_source_mat=np.eye(4),
+                    )
             else:
                 # goto for opening
                 self.gripper.goto(0.08, 0.05, 0.1, blocking=False)
 
+                # Blank the cached pose of the leg in the hand
+                self.cached_leg_pose_mat_ee = None
+
             self.gripper_open = not self.gripper_open
             self.last_grip_step = 0
             self.last_grasp = grasp
+
+            # Add a some sleep to ensure the gripper closes
+            time.sleep(1)
+
+        # clip robot z coordinate
+        new_target_pose_mat[2, -1] = np.clip(
+            new_target_pose_mat[2, -1], a_min=0.01, a_max=None
+        )
 
         if self.execute:
             # self.robot.update_desired_ee_pose(
@@ -657,12 +769,27 @@ def main():
 
     # manual home, open gripper first
     gripper.goto(0.08, 0.05, 0.1, blocking=False)
+    # gripper.grasp(0.07, 70, blocking=False)
     # robot_home = torch.Tensor([-0.1363, -0.0406, -0.0460, -2.1322, 0.0191, 2.0759, 0.5])
-    robot_home = torch.Tensor(
-        [-0.0931, 0.0382, 0.1488, -2.3811, -0.0090, 2.4947, 0.1204]
+    # robot_home = torch.Tensor(
+    #     [-0.0931, 0.0382, 0.1488, -2.3811, -0.0090, 2.4947, 0.1204]
+    # )
+    # robot_home = torch.tensor(
+    #     [
+    #         -0.02630888,
+    #         0.3758795,
+    #         0.12485036,
+    #         -2.1383357,
+    #         -0.09431414,
+    #         2.49649072,
+    #         0.01921718,
+    #     ]
+    # )
+    robot_home = torch.tensor(
+        [-0.0046, 0.2833, 0.0664, -2.2494, -0.1338, 2.5323, 0.0317]
     )
-    home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
-    robot_home = robot_home + home_noise
+    # home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+    # robot_home = robot_home + home_noise
     robot.move_to_joint_positions(robot_home)
 
     Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
@@ -740,6 +867,40 @@ def main():
         part_poses_norm_min = actor.normalizer.stats.parts_poses.min
         part_poses_norm_mid = (part_poses_norm_max + part_poses_norm_min) / 2.0
 
+    # Load the trajectory from a pickle
+    import zarr
+
+    zarr_path = "/home/anthony/repos/research/robust-rearrangement/src/real/sample_sim_trajectories/success.zarr"
+    z = zarr.open(zarr_path, mode="r")
+
+    ep_end = z["episode_ends"][0]
+    robot_state = torch.from_numpy(z["robot_state"][:ep_end, :])
+    parts_poses = torch.from_numpy(z["parts_poses"][:ep_end, :])
+    traj_obs = torch.cat([robot_state, parts_poses], dim=-1)
+    actions = torch.from_numpy(z["action/pos"][:ep_end, :])
+
+    # Initial parts poses from the demo dataset
+    demo_init_parts_poses = parts_poses[:1].to(device)
+
+    leg4_pos = slice(28, 31)
+    top_pos = slice(0, 3)
+
+    print(demo_init_parts_poses[0, top_pos])
+
+    # bp()
+
+    # new_home_ee_pos = robot_state[0, :3]
+    # new_home_ee_ori = C.matrix_to_quaternion(
+    #     C.rotation_6d_to_matrix(robot_state[0, 3:9])
+    # )
+
+    # home_noise = (2 * torch.rand(7) - 1) * np.deg2rad(5)
+    # robot_home = robot_home + home_noise
+    # robot.move_to_ee_pose(
+    #     position=new_home_ee_pos,
+    #     orientation=new_home_ee_ori,
+    # )
+
     # simple env wrapper
     env = SimpleDiffIKFrankaEnv(
         mc_vis=mc_vis,
@@ -751,22 +912,21 @@ def main():
         proprioceptive_state_dim=config.robot_state_dim,
         control_mode=config.control.control_mode,
         furniture_name=args.furniture,
-        part_poses_norm_mid=part_poses_norm_mid,
+        part_reset_poses=demo_init_parts_poses,
     )
 
-    obs = env.get_obs()
+    # new_target_pose_mat = T.pose2mat(
+    #     torch.cat([new_home_ee_pos, new_home_ee_ori], dim=-1).numpy()
+    # )
 
-    obs_horizon = actor.obs_horizon
+    # env.robot.update_desired_ee_pose(convert_tip2wrist(new_target_pose_mat))
+    # bp()
+
+    obs = env.get_obs()
 
     # Resize the images in the observation if they exist
     resize_image(obs, "color_image1")
     resize_crop_image(obs, "color_image2")
-
-    # keep a queue of observations
-    obs_deque = collections.deque(
-        [obs] * obs_horizon,
-        maxlen=obs_horizon,
-    )
 
     t_start = time.monotonic()
 
@@ -792,8 +952,17 @@ def main():
     time.sleep(1.0)
     running = True
 
+    i = 0
+
+    alpha = 0.95
+
     start_time = time.time()
-    while True:
+    # f = open(f"parts_poses_log_{start_time}.csv", mode="w")
+    # f.write(
+    #     "timestep,top_pose_x,top_pose_y,top_pose_z,leg_pose_x,leg_pose_y,leg_pose_z\n"
+    # )
+
+    while True:  # and i < len(actions):
         # Catch keyboard press, and potentially start recording new episode
         _, collect_enum = keyboard.get_action()
         ci_helper.set_recording(collect_enum == CollectEnum.RECORD)
@@ -821,67 +990,39 @@ def main():
             time.sleep(1.0)
             continue
 
-        # Get the next actions from the actor
-        action_pred = actor.action(obs_deque)
+        # old_parts_poses = obs["parts_poses"].clone()
 
-        pos_bounds_m = 0.025
-        ori_bounds_deg = 20
+        # obs["parts_poses"][:, leg4_pos] += torch.tensor(
+        #     [0.0, 0.0, 0.0028], device=device
+        # )
+        # obs["parts_poses"][:, top_pos] += torch.tensor(
+        #     [0.0, 0.0, 0.0028], device=device
+        # )
 
-        # This function expects the rotation to be a quat_xyzw
-        pos, rot_6d, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:9],
-            action_pred[:, 9:10],
-        )
-        quat_wxyz = pt.matrix_to_quaternion(pt.rotation_6d_to_matrix(rot_6d))
-
-        # Make it into a delta action
-        curr_pos, curr_quat_xyzw = (
-            obs["robot_state"][:, 0:3],
-            obs["robot_state"][:, 3:7],
-        )
-
-        delta_pos = pos - curr_pos
-
-        # Convert current quat to real first to be able to calculate on it
-        curr_quat_wxyz = quat_xyzw_to_quat_wxyz(curr_quat_xyzw)
-
-        delta_quat_wxyz = pt.quaternion_multiply(
-            pt.quaternion_invert(curr_quat_wxyz), quat_wxyz
-        )
-        delta_quat_xyzw = quat_wxyz_to_quat_xyzw(delta_quat_wxyz)
-
-        action_pred = torch.cat([delta_pos, delta_quat_xyzw, gripper], dim=-1)
-
-        action_pred = scale_scripted_action(
-            action_pred,
-            pos_bounds_m=pos_bounds_m,
-            ori_bounds_deg=ori_bounds_deg,
-        )
-
-        # Turn it back into using pos action
-        delta_pos, delta_quat_xyzw, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:7],
-            action_pred[:, 7:8],
-        )
-
-        if (time.time() - start_time) > 5:
-            start_time = time.time()
-            print(f"Gripper: {gripper.cpu().squeeze().item()}")
-
-        pos = curr_pos + delta_pos
-
-        delta_quat_wxyz = quat_xyzw_to_quat_wxyz(delta_quat_xyzw)
-
-        quat_wxyz = pt.quaternion_multiply(curr_quat_wxyz, delta_quat_wxyz)
-
-        # Turn it back into using rot_6d
-        rot_6d = pt.matrix_to_rotation_6d(pt.quaternion_to_matrix(quat_wxyz))
-
-        action_pred = torch.cat([pos, rot_6d, gripper], dim=-1)
+        action_pred = actor.action(obs)
 
         obs, reward, done, _ = env.step(action_pred[0])
+        # f.write(
+        #     f"{i},"
+        #     f"{','.join(map(str, obs['parts_poses'][0, top_pos].cpu().tolist()))},"
+        #     f"{','.join(map(str, obs['parts_poses'][0, leg4_pos].cpu().tolist()))}\n"
+        # )
+
+        # obs["parts_poses"][:, leg4_pos] = (
+        #     alpha * old_parts_poses[:, leg4_pos]
+        #     + (1 - alpha) * obs["parts_poses"][:, leg4_pos]
+        # )
+
+        # obs["parts_poses"][:, top_pos] = (
+        #     alpha * old_parts_poses[:, top_pos]
+        #     + (1 - alpha) * obs["parts_poses"][:, top_pos]
+        # )
+
+        # tensor([ 0.0005,  0.2394, -0.0157], device='cuda:0')
+
+        # bp()
+
+        i += 1
 
         # NOTE: Should implement storage of rollouts for further training?
         # video_obs = obs.copy()
@@ -889,9 +1030,6 @@ def main():
         # Resize the images in the observation if they exist
         resize_image(obs, "color_image1")
         resize_crop_image(obs, "color_image2")
-
-        # Save observations for the policy
-        obs_deque.append(obs)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import numpy as np
 import random
 from typing import Dict, Tuple, Union
 from collections import deque
@@ -11,6 +12,9 @@ import torch
 import torch.nn as nn
 from src.dataset.normalizer import LinearNormalizer
 from src.models import get_encoder
+import furniture_bench.controllers.control_utils as C
+
+from rdt.common import mc_util
 
 from ipdb import set_trace as bp  # noqa
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
@@ -137,6 +141,11 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
         self.loss_fn = getattr(nn, loss_fn_name)(reduction="none")
 
+        self.mc_vis = None
+
+    def set_mc(self, mc_vis):
+        self.mc_vis = mc_vis
+
     def __post_init__(self, *args, **kwargs):
 
         if self.observation_type == "image":
@@ -235,7 +244,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
         # Convert the robot_state to use rot_6d instead of quaternion
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        if robot_state.shape[-1] == 14:
+            robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -330,6 +340,17 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         for i in range(start, end):
             actions.append(action_pred[:, i, :])
 
+            if self.mc_vis is not None:
+                rot_6d = action_pred[0, i, 3:9]
+                rot_mat = C.rotation_6d_to_matrix(rot_6d)
+                action_pose_mat = torch.eye(4)
+                action_pose_mat[:-1, :-1] = rot_mat
+                action_pose_mat[:-1, -1] = action_pred[0, i, :3]
+                # Draw the current target pose (in meshcat)
+                mc_util.meshcat_frame_show(
+                    self.mc_vis, f"scene/actions/{i}", action_pose_mat.cpu().numpy()
+                )
+
         return actions
 
     @torch.no_grad()
@@ -365,6 +386,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Normalize observations
         nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
+        # with np.printoptions(precision=4, suppress=True):
+        #     # print(f"nobs: {nobs.detach().cpu().numpy().squeeze()[16 + 0 : 16 + 0 + 7]}")
+        #     print(f"nobs: {nobs.detach().cpu().numpy().squeeze()[44 : 44 + 7]}")
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:

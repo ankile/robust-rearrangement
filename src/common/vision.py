@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from torchvision.transforms import v2 as transforms
+from torchvision.transforms import transforms
 
 from ipdb import set_trace as bp  # noqa
 
@@ -37,7 +37,7 @@ class FrontCameraTransform(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        self.transform = self.transform_train if mode else self.transform_eval
+        # self.transform = self.transform_train if mode else self.transform_eval
 
     def eval(self):
         super().eval()
@@ -72,7 +72,7 @@ class WristCameraTransform(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        self.transform = self.transform_train if mode else self.transform_eval
+        # self.transform = self.transform_train if mode else self.transform_eval
 
     def eval(self):
         super().eval()
