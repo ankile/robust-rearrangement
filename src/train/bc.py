@@ -45,6 +45,11 @@ logger.set_level(logger.DISABLED)
 OmegaConf.register_new_resolver("eval", eval)
 
 
+print("=== Activate TF32 training? Deactivated for now...")
+# torch.backends.cuda.matmul.allow_tf32 = True
+# torch.backends.cudnn.allow_tf32 = True
+
+
 def to_native(obj):
     try:
         return OmegaConf.to_object(obj)

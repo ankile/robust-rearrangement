@@ -376,45 +376,52 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         if self.control_mode == ControlMode.relative:
             from torch import nn
 
-            # We need the ee position and parts position limits to be the
-            # same for the relative pose calculation
-            # Startby finding the limits for the robot state
-            ee_pos_min = self.train_data["robot_state"][:, :3].min(dim=0).values
-            ee_pos_max = self.train_data["robot_state"][:, :3].max(dim=0).values
+            # NOTE: For now, only implement relative poses for the action
+            # === Normalize the parts poses and robot state ===
+            # # We need the ee position and parts position limits to be the
+            # # same for the relative pose calculation
+            # # Startby finding the limits for the robot state
+            # ee_pos_min = self.train_data["robot_state"][:, :3].min(dim=0).values
+            # ee_pos_max = self.train_data["robot_state"][:, :3].max(dim=0).values
 
-            # Find the limits for the parts poses, but first reshape so that
-            # the parts poses are (N, P, 7)
-            parts_pos = (
-                self.train_data["parts_poses"]
-                .view(self.train_data["parts_poses"].shape[0], -1, 7)[:, :, :3]
-                .view(-1, 3)
-            )
-            parts_pos_min = parts_pos.min(dim=0).values
-            parts_pos_max = parts_pos.max(dim=0).values
+            # # Find the limits for the parts poses, but first reshape so that
+            # # the parts poses are (N, P, 7)
+            # parts_pos = (
+            #     self.train_data["parts_poses"]
+            #     .view(self.train_data["parts_poses"].shape[0], -1, 7)[:, :, :3]
+            #     .view(-1, 3)
+            # )
+            # parts_pos_min = parts_pos.min(dim=0).values
+            # parts_pos_max = parts_pos.max(dim=0).values
 
-            # Find the overall min and max for the positions
-            pos_min = torch.min(ee_pos_min, parts_pos_min)
-            pos_max = torch.max(ee_pos_max, parts_pos_max)
+            # # Find the overall min and max for the positions
+            # pos_min = torch.min(ee_pos_min, parts_pos_min)
+            # pos_max = torch.max(ee_pos_max, parts_pos_max)
 
-            # Update the robot_state in the normalizer with the new limits
-            self.normalizer.stats.robot_state.min[:3] = pos_min
-            self.normalizer.stats.robot_state.max[:3] = pos_max
+            # # Update the robot_state in the normalizer with the new limits
+            # self.normalizer.stats.robot_state.min[:3] = pos_min
+            # self.normalizer.stats.robot_state.max[:3] = pos_max
 
-            # Set the orientation part of the robot state to [-1, 1] (rot_6d, no normalization)
-            self.normalizer.stats.robot_state.min[3:9] = -1.0
-            self.normalizer.stats.robot_state.max[3:9] = 1.0
+            # # Set the orientation part of the robot state to [-1, 1] (rot_6d, no normalization)
+            # self.normalizer.stats.robot_state.min[3:9] = -1.0
+            # self.normalizer.stats.robot_state.max[3:9] = 1.0
 
-            # Make a view into the normalizer stats for the parts poses
-            parts_pose_min = self.normalizer.stats.parts_poses.min.view(-1, 7)
-            parts_pose_max = self.normalizer.stats.parts_poses.max.view(-1, 7)
+            # # Make a view into the normalizer stats for the parts poses
+            # parts_pose_min = self.normalizer.stats.parts_poses.min.view(-1, 7)
+            # parts_pose_max = self.normalizer.stats.parts_poses.max.view(-1, 7)
 
-            # Set the position part of the parts poses to the overall min and max
-            parts_pose_min[:, :3] = pos_min
-            parts_pose_max[:, :3] = pos_max
+            # # Set the position part of the parts poses to the overall min and max
+            # parts_pose_min[:, :3] = pos_min
+            # parts_pose_max[:, :3] = pos_max
 
-            # Set the orientation part of the parts poses to [-1, 1] (quat, no normalization)
-            parts_pose_min[:, 3:7] = -1.0
-            parts_pose_max[:, 3:7] = 1.0
+            # # Set the orientation part of the parts poses to [-1, 1] (quat, no normalization)
+            # parts_pose_min[:, 3:7] = -1.0
+            # parts_pose_max[:, 3:7] = 1.0
+
+            # === Normalize the actions ===
+            # Normalize the position part of the actions (for now, no normalization at all)
+            self.normalizer.stats.action.min[:] = -1.0
+            self.normalizer.stats.action.max[:] = 1.0
 
         # Normalize data to [-1,1]
         for key in self.normalizer.keys():
@@ -569,7 +576,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         # Discard unused observations
         nsample["obs"] = nsample["obs"][: self.last_obs, :]
 
-        if True or self.control_mode == ControlMode.relative:
+        if self.control_mode == ControlMode.relative:
             # Each action in the chunk will be relative to the current EE pose
             curr_ee_pos = nsample["obs"][-1, :3]
             curr_ee_6d = nsample["obs"][-1, 3:9]
