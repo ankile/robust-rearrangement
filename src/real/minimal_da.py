@@ -1,6 +1,8 @@
 import json
+import logging
 from pathlib import Path
 import pickle
+import sys
 import time
 import threading
 import torch
@@ -23,6 +25,14 @@ import scipy.spatial.transform as st
 import meshcat
 import argparse
 import pytorch3d.transforms as pt
+import zarr
+
+import argparse
+import logging
+
+logger = logging.getLogger()
+logger.disabled = True
+
 
 from polymetis import GripperInterface, RobotInterface
 
@@ -223,8 +233,6 @@ class CollectInferHelper:
         if init_new:
             self.init_episode()
 
-
-import argparse
 
 # parser = argparse.ArgumentParser()
 # parser.add_argument("-p", "--port_vis", type=int, default=6000)
@@ -1063,44 +1071,52 @@ class FurnitureRLSimEnvMultiStepWrapper:
         return nobs
 
 
-run_idx = 0  # np.random.randint(0, 3)
+store_run_list = False
 
-run_list = [
-    # DPPO after 200 iterations
-    {
-        "wt_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_200.pt"
-        ),
-        "cfg_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra"
-        ),
-    },
-    # DP after BC pretraining
-    {
-        "wt_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_0.pt"
-        ),
-        "cfg_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra"
-        ),
-    },
-    # Gaussian MLP after 200 iterations
-    {
-        "wt_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/checkpoint/state_200.pt"
-        ),
-        "cfg_path": Path(
-            "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/.hydra"
-        ),
-    },
-]
+if store_run_list:
+
+    run_list = [
+        # DPPO after 200 iterations
+        {
+            "name": "DPPO-200",
+            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_200.pt",
+            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
+        },
+        # DP after BC pretraining
+        {
+            "name": "DP-BC",
+            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_0.pt",
+            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
+        },
+        # Gaussian MLP after 200 iterations
+        {
+            "name": "Gaussian-200",
+            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/checkpoint/state_200.pt",
+            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/.hydra",
+        },
+    ]
+
+    # Randomly shuffle the list of runs
+    np.random.shuffle(run_list)
+
+    # Save the list is a json file
+    with open("outputs/run_list.json", "w") as f:
+        json.dump(run_list, f, indent=4)
+
+    sys.exit(0)
+
+# Load the run list in a random order we don't know
+with open("outputs/run_list.json", "r") as f:
+    run_list = json.load(f)
 
 
 normalization_path = "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/normalization.pth"
 
+run_idx = 0  # np.random.randint(0, 3)
+
 
 @hydra.main(
-    config_path=str(run_list[run_idx]["cfg_path"]),
+    config_path=run_list[run_idx]["cfg_path"],
     config_name="config",
     version_base=None,
 )
@@ -1109,8 +1125,9 @@ def main(cfg: DictConfig):
     device = torch.device(f"cuda:0" if torch.cuda.is_available() else "cpu")
 
     OmegaConf.resolve(cfg)
-    cfg.model.network_path = str(run_list[run_idx]["wt_path"])
+    cfg.model.network_path = run_list[run_idx]["wt_path"]
 
+    # Suppress output from the logger
     actor: PPODiffusion | PPO_Gaussian = hydra.utils.instantiate(
         cfg.model,
     )
@@ -1129,13 +1146,10 @@ def main(cfg: DictConfig):
     mc_vis["scene"].delete()
 
     # Load the trajectory from a pickle
-    import zarr
-
     zarr_path = "/home/anthony/repos/research/robust-rearrangement/src/real/sample_sim_trajectories/success.zarr"
     z = zarr.open(zarr_path, mode="r")
 
     ep_end = z["episode_ends"][0]
-    robot_state = torch.from_numpy(z["robot_state"][:ep_end, :])
     parts_poses = torch.from_numpy(z["parts_poses"][:ep_end, :])
 
     # Initial parts poses from the demo dataset
@@ -1155,21 +1169,8 @@ def main(cfg: DictConfig):
         part_reset_poses=demo_init_parts_poses,
     )
 
-    # Setup data saving
-    # eval_save_dir = Path("test_eval_dppo") / str(datetime.now())
-    # eval_save_dir.mkdir(exist_ok=True, parents=True)
-
-    episode_dict = {}
-    episode_dict["robot_state"] = []
-    episode_dict["image_front"] = []
-    episode_dict["image_wrist"] = []
-    episode_dict["actions"] = []
-
     actor.eval()
     actor.cuda()
-
-    # mc
-    # actor.set_mc(mc_vis)
 
     env = FurnitureRLSimEnvMultiStepWrapper(
         env=env,
@@ -1186,8 +1187,11 @@ def main(cfg: DictConfig):
         f"Using model: {run_list[run_idx]['wt_path']}\n"
         f"Using config: {run_list[run_idx]['cfg_path']}\n"
     )
+    f.flush()
 
     i = 0
+    running = True
+
     while True:
 
         obs = env.reset()
@@ -1200,12 +1204,12 @@ def main(cfg: DictConfig):
 
         print(f"Starting evaluation...\n\n\n")
         time.sleep(1.0)
-        running = True
 
         alpha = 0.0
         start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         f.write(f"Starting episode {i} at {start_time}\n")
+        f.flush()
 
         leg4_pos = slice(16 + 28, 16 + 31)
         top_pos = slice(16 + 0, 16 + 3)
@@ -1226,10 +1230,6 @@ def main(cfg: DictConfig):
                 print(f"Pause button pressed")
                 time.sleep(1.0)
                 continue
-
-            # Concatenate the obs to the running obs
-
-            # Print the current std for each dim of the running obs
 
             samples = actor(
                 # cond=torch.from_numpy(obs).float().to(device),
