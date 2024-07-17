@@ -1,9 +1,7 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from typing import Dict
 from src.dataset.normalizer import LinearNormalizer
-from src.gym.furniture_sim_env import (
-    FurnitureRLSimEnv,
-)
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 import torch
 import src.common.geometry as G
@@ -38,8 +36,7 @@ class FurnitureEnvRLWrapper:
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
 
-        # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
-        # and 16 + 35 for 6D proprioception
+        # Define a new observation space of dim 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
             -float("inf"),
             float("inf"),

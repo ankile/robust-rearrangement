@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import furniture_bench  # noqa
 
@@ -7,16 +6,12 @@ from ipdb import set_trace as bp
 
 import random
 import time
-from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.behavior.residual_diffusion import (
-    ResidualDiffusionPolicy,
-    ResidualTrainingValues,
-)
+from src.behavior.residual_diffusion import ResidualDiffusionPolicy
 from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
@@ -558,6 +553,7 @@ def main(cfg: DictConfig):
                 "values/advantages": b_advantages.mean().item(),
                 "values/returns": b_returns.mean().item(),
                 "values/values": b_values.mean().item(),
+                "values/mean_logstd": residual_policy.actor_logstd.mean().item(),
                 "losses/value_loss": v_loss.item(),
                 "losses/policy_loss": pg_loss.item(),
                 "losses/total_loss": loss.item(),
