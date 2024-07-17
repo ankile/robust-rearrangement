@@ -15,5 +15,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wt_type=best_success_rate \
     env.randomness=low \
     actor.residual_policy.init_logstd=-1.0 \
-    +actor.residual_policy.learn_std=false \
+    actor.residual_policy.learn_std=false \
     debug=false
