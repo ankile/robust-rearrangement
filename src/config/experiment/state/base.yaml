@@ -21,15 +21,15 @@ early_stopper:
 training:
   batch_size: 256
   steps_per_epoch: -1
-  checkpoint_interval: 100
+  checkpoint_interval: 500
   num_epochs: 5000
 
 rollout:
-  every: 50
+  every: 100
   max_steps: 750
   num_envs: 128
   loss_threshold: 0.1
-  randomness: med
+  randomness: low
 
 wandb:
   project: ???

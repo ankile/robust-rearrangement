@@ -145,6 +145,7 @@ def main(cfg: DictConfig):
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
         reward_clip=cfg.clip_reward,
+        sample_perturbations=cfg.sample_perturbations,
     )
 
     optimizer_actor = optim.AdamW(

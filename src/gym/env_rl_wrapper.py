@@ -198,6 +198,7 @@ class ResidualPolicyEnvWrapper:
         reset_on_success=True,
         reset_on_failure=False,
         reward_clip=5.0,
+        sample_perturbations=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
@@ -212,6 +213,7 @@ class ResidualPolicyEnvWrapper:
             if normalize_reward
             else None
         )
+        self.sample_perturbations = sample_perturbations
 
         self.env_success = torch.zeros(
             self.env.num_envs, device=self.device, dtype=torch.bool
@@ -243,7 +245,9 @@ class ResidualPolicyEnvWrapper:
         assert action.shape[1:] == self.action_space.shape
 
         # Move the robot
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, done, info = self.env.step(
+            action, sample_perturbations=self.sample_perturbations
+        )
         reward = reward.squeeze()
         done = done.squeeze()
 
