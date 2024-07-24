@@ -1,4 +1,8 @@
-# Robust Rearrangement
+# From Imitation to Refinement -- Residual RL for Precise Visual Assembly
+
+> **Note:** This branch contains the code at the state where the current arXiv version was put out. The main branch and feature branches are still under active development.
+
+
 
 ## Installation Instructions
 
@@ -40,14 +44,6 @@ Activate the environment by running:
 
 ```bash
 conda activate rr
-```
-
-Once installed and activated, make some compatibility changes to the environment by running:
-
-```bash
-pip install setuptools==65.5.0
-pip install --upgrade pip wheel==0.38.4
-pip install termcolor
 ```
 
 
@@ -119,11 +115,8 @@ If you encounter `[Error] [carb.gym.plugin] cudaImportExternalMemory failed on r
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
 ```
 
-
-
-
-10:45
-https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4
+Source:
+[forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4](https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4)
 
 ### Install the robust-rearrangement Package
 
@@ -141,52 +134,17 @@ TODO: Write this up.
 
 ### Install Additional Dependencies
 
-Depending on what parts of the codebase you want to run, you may need to install additional dependencies. Especially different vision encoders might require additional dependencies. To install the R3M or VIP encoder, respectively, run:
+Depending on what parts of the codebase you want to run, you may need to install additional dependencies. Especially different vision encoders might require additional dependencies. To install the R3M encoder, run:
 
 ```bash
 pip install -e robust-rearrangement/furniture-bench/r3m
-pip install -e robust-rearrangement/furniture-bench/vip
 ```
 
-The Spatial Softmax encoder and BC_RNN policy require the `robomimic` package to be installed:
-
-```bash
-git clone https://github.com/ARISE-Initiative/robomimic.git
-cd robomimic
-pip install -e .
-```
 
 
 ## Download the Data
 
-We provide a Google Drive folder that contains a zip file with the raw data and a zip file with the processed data. [Download the data](https://drive.google.com/drive/folders/13UqtMLXY1_8JCQOZf3j-YbZyMRTsgZ2K?usp=sharing).
-
-The data files can be unzipped by running:
-
-```bash
-tar -xzvf imitation-juicer-data-raw.tar.gz
-tar -xzvf imitation-juicer-data-processed.tar.gz
-```
-
-Then, for the code to know where to look for the data, please set the environment variables `DATA_DIR_RAW` and `DATA_DIR_PROCESSED` to the paths of the raw and processed data directories, respectively. This can be done by running or adding the following lines to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
-
-```bash
-export DATA_DIR_RAW=/path/to/raw-data
-export DATA_DIR_PROCESSED=/path/to/processed-data
-```
-
-In the above example, the folders `raw` and `processed` in the two zipped files should be placed immediately inside the above folder, e.g., `/path/to/raw-data/raw` and `/path/to/processed-data/processed.`
-
-All parts of the code (data collection, training, evaluation rollout storage, data processing, etc.) use these environment variables to locate the data.
-
-_Note: The code uses the directory structure in the folders to locate the data. If you change the directory structure, you may need to update the code accordingly._
-
-
-
-## Guide to Project Workflow
-
-
-To be researched...
+Coming soon.
 
 
 
@@ -195,7 +153,15 @@ To be researched...
 If you find the paper or the code useful, please consider citing the paper:
 
 ```tex      
-TBA
+@misc{ankile2024imitationrefinementresidual,
+      title={From Imitation to Refinement -- Residual RL for Precise Visual Assembly}, 
+      author={Lars Ankile and Anthony Simeonov and Idan Shenfeld and Marcel Torne and Pulkit Agrawal},
+      year={2024},
+      eprint={2407.16677},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2407.16677}, 
+}
 ```
 
 
