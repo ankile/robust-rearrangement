@@ -16,5 +16,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     env.randomness=low \
     actor.residual_policy.init_logstd=-1.0 \
     actor.residual_policy.learn_std=false \
-    sample_perturbations=true \
+    sample_perturbations=false \
     debug=false

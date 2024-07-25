@@ -20,4 +20,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     actor.residual_policy.learn_std=false \
     total_timesteps=1000000000 \
     wandb.project=rt-rppo-dr-med-1 \
+    wandb.continue_run_id=k737s8lj \
     debug=false
