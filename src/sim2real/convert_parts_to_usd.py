@@ -91,8 +91,8 @@ def main():
 
     part_config = part_config_dict[args_cli.furniture]
 
-    furniture_assets_usd_root_path = Path(
-        f"{os.getenv('RARL_SOURCE_DIR')}/sim2real/assets/furniture/mesh/usd"
+    furniture_assets_usd_root_path = (
+        Path(f"{os.getenv('RARL_SOURCE_DIR')}/sim2real/assets/furniture/mesh/usd")
         / args_cli.furniture
     )
     furniture_assets_usd_root_path.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,10 @@ def main():
         str(obj_root_path)
     ), f"Path to original .obj files {str(obj_root_path)} not found"
 
-    for i, fn in enumerate(os.listdir(str(obj_root_path))):
+    obj_fname_list = [
+        fn for fn in os.listdir(str(obj_root_path)) if fn.endswith(".obj")
+    ]
+    for i, fn in enumerate(obj_fname_list):
         obj_fn_full = str(obj_root_path / fn)
         usd_fn_full = str(furniture_assets_usd_root_path / part_config["usd_names"][i])
 
