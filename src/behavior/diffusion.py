@@ -135,7 +135,8 @@ class DiffusionPolicy(Actor):
         # Without reuction so is of shape (B, H, A)
         loss: torch.Tensor = self.loss_fn(noise_pred, noise)
 
-        # Take the mean over the last to dimensions to get the loss for each example in the batch
+        # Take the mean over the last two dimensions to get the loss for each example in the batch
+        # (B, H, A) -> (B, 1)
         loss = loss.mean(dim=[1, 2]).unsqueeze(1)
 
         if self.rescale_loss_for_domain:

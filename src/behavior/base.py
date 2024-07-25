@@ -40,7 +40,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     feature_noise: bool = False
     feature_dropout: bool = False
     feature_layernorm: bool = False
-    state_noise: bool = False
+    state_noise: float = 0.0
     proprioception_dropout: float = 0.0
     front_camera_dropout: float = 0.0
     wrist_camera_dropout: float = 0.0
@@ -101,7 +101,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self.feature_noise = cfg.regularization.get("feature_noise", None)
             self.feature_dropout = cfg.regularization.get("feature_dropout", None)
             self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
-            self.state_noise = cfg.regularization.get("state_noise", False)
+            self.state_noise = cfg.regularization.get("state_noise", 0.0)
             self.proprioception_dropout = cfg.regularization.get(
                 "proprioception_dropout", 0.0
             )
@@ -491,6 +491,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         if flatten:
             # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
             nobs = nobs.flatten(start_dim=1)
+
+        # Add a little bit of noise to the observations
+        nobs = nobs + torch.randn_like(nobs) * self.state_noise
 
         return nobs
 

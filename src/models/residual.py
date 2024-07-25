@@ -123,7 +123,10 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
 
             print(self.critic)
 
-        self.actor_logstd = nn.Parameter(torch.ones(1, self.action_dim) * init_logstd)
+        self.actor_logstd = nn.Parameter(
+            torch.ones(1, self.action_dim) * init_logstd,
+            requires_grad=kwargs.get("learn_std", True),
+        )
 
         self.print_model_params()
 

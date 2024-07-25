@@ -13,4 +13,4 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     actor.confusion_loss_beta=0.0 \
     environment='[real,sim]' \
     wandb.mode=offline \
-    dryrun=true
+    dryrun=false
