@@ -16,7 +16,7 @@ from src.common.types import (
 SCAN_ASSET_ROOT = Path(__file__).parent.parent.absolute() / "real2sim/assets"
 SCAN_ASSET_FB_ROOT = (
     Path(__file__).parent.parent.parent.absolute()
-    / "furniture-bench/furniture_bench/assets"
+    / "furniture-bench/furniture_bench/assets_no_tags"
 )
 
 
