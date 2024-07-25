@@ -254,11 +254,13 @@ def main(cfg: DictConfig):
 
         iteration = run.summary["iteration"]
         global_step = run.step
+        training_cum_time = run.summary["charts/SPS"] * global_step
 
     else:
         global_step = 0
         iteration = 0
         best_eval_success_rate = 0.0
+        training_cum_time = 0
 
     obs: torch.Tensor = torch.zeros(
         (
@@ -274,7 +276,6 @@ def main(cfg: DictConfig):
     values = torch.zeros((steps_per_iteration, cfg.num_envs))
 
     start_time = time.time()
-    training_cum_time = 0
     running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
@@ -385,6 +386,7 @@ def main(cfg: DictConfig):
                         "success_rate": success_rate,
                         "success_timesteps_share": success_timesteps_share,
                         "iteration": iteration,
+                        "training_cum_time": training_cum_time,
                     },
                     model_path,
                 )
@@ -596,6 +598,7 @@ def main(cfg: DictConfig):
                     "config": OmegaConf.to_container(cfg, resolve=True),
                     "success_rate": success_rate,
                     "iteration": iteration,
+                    "training_cum_time": training_cum_time,
                 },
                 model_path,
             )
