@@ -12,7 +12,7 @@ from src.common.config_util import merge_base_bc_config_with_root_config
 from src.common.files import get_processed_paths
 from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
-from from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.pytorch_util import dict_to_device
