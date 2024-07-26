@@ -7,6 +7,7 @@ headless: true
 reset_on_failure: false
 reset_every_iteration: true
 reset_on_success: true
+sample_perturbations: false
 eval_interval: 5
 eval_first: true
 checkpoint_interval: 10

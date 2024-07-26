@@ -166,6 +166,9 @@ def rollout(
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     step_idx = 0
+    # TODO - figure out how to fix this
+    actor.normalizer = actor.normalizer.to(actor.device)
+    actor.model = actor.model.to(actor.device)
     while not done.all():
         # Convert from robot state dict to robot state tensor
         obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])

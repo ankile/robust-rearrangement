@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=lp_rppo_med_roll
+#SBATCH --job-name=lp_rppo_med
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=lp-state-dr-med-1/fziwvs8k \
@@ -16,7 +16,11 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     env.task=lamp \
     env.randomness=med \
     num_env_steps=1000 \
-    num_envs=2048 \
-    n_iterations_train_only_value=3 \
+    num_envs=1024 \
+    n_iterations_train_only_value=0 \
+    actor.residual_policy.init_logstd=-1.0 \
+    actor.residual_policy.learn_std=false \
+    total_timesteps=1000000000 \
     wandb.project=lp-rppo-dr-med-1 \
+    wandb.continue_run_id=ev23t35c \
     debug=false

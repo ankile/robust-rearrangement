@@ -7,8 +7,6 @@ from furniture_bench.envs.observation import (
 )
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-import gym
-
 from src.common.context import suppress_all_output
 
 

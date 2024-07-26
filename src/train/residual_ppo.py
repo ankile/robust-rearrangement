@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 import furniture_bench  # noqa
 
@@ -7,16 +6,12 @@ from ipdb import set_trace as bp
 
 import random
 import time
-from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.behavior.residual_diffusion import (
-    ResidualDiffusionPolicy,
-    ResidualTrainingValues,
-)
+from src.behavior.residual_diffusion import ResidualDiffusionPolicy
 from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
@@ -87,20 +82,15 @@ def main(cfg: DictConfig):
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
 
-    # assert not (cfg.anneal_lr and cfg.adaptive_lr)
-
     run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
-
-    run_directory = f"runs/debug-residual_ppo-residual-8"
-    run_directory += "-delete" if cfg.debug else ""
-    print(f"Run directory: {run_directory}")
 
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
     torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
-    device = torch.device("cuda")
+    gpu_id = 0
+    device = torch.device(f"cuda:{gpu_id}")
 
     turn_off_april_tags()
 
@@ -112,7 +102,9 @@ def main(cfg: DictConfig):
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
         furniture=cfg.env.task,
-        gpu_id=0,
+        # gpu_id=1,
+        compute_device_id=gpu_id,
+        graphics_device_id=gpu_id,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
         observation_space="state",
@@ -150,6 +142,8 @@ def main(cfg: DictConfig):
         reset_on_success=cfg.reset_on_success,
         reset_on_failure=cfg.reset_on_failure,
         reward_clip=cfg.clip_reward,
+        sample_perturbations=cfg.sample_perturbations,
+        device=device,
     )
 
     optimizer_actor = optim.AdamW(
@@ -254,11 +248,13 @@ def main(cfg: DictConfig):
 
         iteration = run.summary["iteration"]
         global_step = run.step
+        training_cum_time = run.summary["charts/SPS"] * global_step
 
     else:
         global_step = 0
         iteration = 0
         best_eval_success_rate = 0.0
+        training_cum_time = 0
 
     obs: torch.Tensor = torch.zeros(
         (
@@ -274,7 +270,6 @@ def main(cfg: DictConfig):
     values = torch.zeros((steps_per_iteration, cfg.num_envs))
 
     start_time = time.time()
-    training_cum_time = 0
     running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
@@ -385,6 +380,7 @@ def main(cfg: DictConfig):
                         "success_rate": success_rate,
                         "success_timesteps_share": success_timesteps_share,
                         "iteration": iteration,
+                        "training_cum_time": training_cum_time,
                     },
                     model_path,
                 )
@@ -558,6 +554,7 @@ def main(cfg: DictConfig):
                 "values/advantages": b_advantages.mean().item(),
                 "values/returns": b_returns.mean().item(),
                 "values/values": b_values.mean().item(),
+                "values/mean_logstd": residual_policy.actor_logstd.mean().item(),
                 "losses/value_loss": v_loss.item(),
                 "losses/policy_loss": pg_loss.item(),
                 "losses/total_loss": loss.item(),
@@ -595,6 +592,7 @@ def main(cfg: DictConfig):
                     "config": OmegaConf.to_container(cfg, resolve=True),
                     "success_rate": success_rate,
                     "iteration": iteration,
+                    "training_cum_time": training_cum_time,
                 },
                 model_path,
             )

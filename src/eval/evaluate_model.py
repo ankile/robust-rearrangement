@@ -126,7 +126,15 @@ if __name__ == "__main__":
         "--furniture",
         "-f",
         type=str,
-        choices=["one_leg", "lamp", "round_table", "desk", "square_table", "cabinet"],
+        choices=[
+            "one_leg",
+            "lamp",
+            "round_table",
+            "desk",
+            "square_table",
+            "cabinet",
+            "mug_rack",
+        ],
         required=True,
     )
     parser.add_argument("--n-parts-assemble", type=int, default=None)

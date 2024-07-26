@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-a100,vision-pulkitag-3090,vision-pulkitag-v100
+#SBATCH -p vision-pulkitag-a100,vision-pulkitag-a6000,vision-pulkitag-3090,vision-pulkitag-v100
 #SBATCH -q vision-pulkitag-main
-#SBATCH --job-name=ol_rppo_med
+#SBATCH --job-name=ol_rppo_med_1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
@@ -17,4 +17,8 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     num_env_steps=700 \
     normalize_reward=false \
     wandb.project=ol-rppo-dr-med-1 \
+    actor.residual_policy.init_logstd=-1.0 \
+    actor.residual_policy.learn_std=false \
+    total_timesteps=1000000000 \
+    sample_perturbations=true \
     debug=false

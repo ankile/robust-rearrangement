@@ -60,6 +60,9 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
     def load_base_state_dict(self, path: str):
         base_state_dict = torch.load(path)
+        if "model_state_dict" in base_state_dict:
+            base_state_dict = base_state_dict["model_state_dict"]
+
         # Load the model weights
         base_model_state_dict = {
             key[len("model.") :]: value
@@ -227,6 +230,8 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         """
         self.base_nactions.clear()
         self.observations.clear()
+        if self.actions is not None:
+            self.actions.clear()
 
     @property
     def actor_parameters(self):

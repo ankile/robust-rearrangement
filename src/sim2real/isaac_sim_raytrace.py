@@ -732,6 +732,13 @@ def main():
 
     wrist_rep_writer = rep.BasicWriter(output_dir=wrist_output_dir, frame_padding=3)
 
+    rp3 = rep.create.render_product("/OmniverseKit_Persp", (int(640 * 3), int(480 * 3)))
+    rp_rgb = rep.AnnotatorRegistry.get_annotator("rgb")
+    rp_rgb.attach(rp3)
+    viewer_rep_writer = rep.BasicWriter(
+        output_dir=output_dir + "_viewer", frame_padding=3
+    )
+
     # Now we are ready!
     print("[INFO]: Setup complete...")
 
@@ -818,6 +825,8 @@ def main():
         obs_pose_ori = torch.from_numpy(obs_pose_ori).unsqueeze(0)
 
         obs_view.set_world_poses(positions=obs_pose_pos, orientations=obs_pose_ori)
+
+    run_until_quit(simulation_app=simulation_app, world=sim)
 
     for _ in range(100):
         sim.step()
@@ -923,6 +932,9 @@ def main():
                 )
                 wrist_rep_writer.write(
                     convert_dict_to_backend(wrist_camera.data.output, backend="numpy")
+                )
+                viewer_rep_writer.write(
+                    {"rgb": rp_rgb.get_data(), "trigger_outputs": {"on_time": 0}}
                 )
                 # rep_writer.write(resize_dict(camera.data.output))
                 # wrist_rep_writer.write(resize_dict(wrist_camera.data.output))
