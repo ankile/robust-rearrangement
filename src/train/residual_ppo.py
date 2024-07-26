@@ -82,13 +82,7 @@ def main(cfg: DictConfig):
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
 
-    # assert not (cfg.anneal_lr and cfg.adaptive_lr)
-
     run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
-
-    run_directory = f"runs/debug-residual_ppo-residual-8"
-    run_directory += "-delete" if cfg.debug else ""
-    print(f"Run directory: {run_directory}")
 
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)

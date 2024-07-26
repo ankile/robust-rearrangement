@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=lp_rppo_med_roll
+#SBATCH --job-name=lp_rppo_med
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     base_policy.wandb_id=lp-state-dr-med-1/fziwvs8k \

@@ -1,3 +1,4 @@
+from pathlib import Path
 from omegaconf import DictConfig, OmegaConf
 from src.behavior import get_actor
 from src.behavior.base import Actor
@@ -32,10 +33,10 @@ def load_bc_actor(run_id: str, wt_type="best_success_rate", device="cuda"):
 
 
 def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online"):
-    cache_dir = os.environ.get("WANDB_CACHE_DIR", "./wandb_cache")
-    cache_file = os.path.join(cache_dir, f"{run_id.replace('/', '-')}_{wt_type}.pkl")
+    cache_dir = Path(os.environ.get("WANDB_CACHE_DIR", "./wandb_cache")) / "model_wts"
+    cache_file = cache_dir / f"{run_id.replace('/', '-')}_{wt_type}.pkl"
 
-    if wandb_mode == "offline" and os.path.exists(cache_file):
+    if wandb_mode == "offline" and cache_file.exists():
         # Load the cached data from the file system
         with open(cache_file, "rb") as f:
             cfg, model_path = pickle.load(f)
@@ -70,7 +71,7 @@ def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online")
                 )
 
             # Cache the data on the file system for future use
-            os.makedirs(cache_dir, exist_ok=True)
+            cache_dir.mkdir(parents=True, exist_ok=True)
             with open(cache_file, "wb") as f:
                 pickle.dump((cfg, model_path), f)
 
