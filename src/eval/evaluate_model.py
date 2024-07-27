@@ -178,7 +178,7 @@ if __name__ == "__main__":
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
     parser.add_argument(
-        "--action-type", type=str, default="pos", choices=["delta", "pos"]
+        "--action-type", type=str, default="pos", choices=["delta", "pos", "relative"]
     )
     parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--multitask", action="store_true")
@@ -202,6 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("--parts-poses-in-robot-frame", action="store_true")
 
     parser.add_argument("--save-rollouts-suffix", type=str, default="")
+
     # Parse the arguments
     args = parser.parse_args()
 

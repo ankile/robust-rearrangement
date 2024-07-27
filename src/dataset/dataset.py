@@ -95,6 +95,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         self.normalizer = LinearNormalizer()
 
+        # The dataset only has `delta/pos` control modes, use pos if `relative` is selected
+        control_mode = "pos" if control_mode == ControlMode.relative else control_mode
+
         # Read from zarr dataset
         combined_data, metadata = combine_zarr_datasets(
             dataset_paths,
@@ -102,7 +105,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 "color_image1",
                 "color_image2",
                 "robot_state",
-                f"action/{control_mode}",
+                "action/pos",
+                "action/delta",
                 "skill",
             ],
             max_episodes=data_subset,
@@ -127,11 +131,25 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Fit the normalizer to the data
         self.normalizer.fit(self.train_data)
 
-        # Normalize data to [-1,1]
-        for key in self.normalizer.keys():
-            self.train_data[key] = self.normalizer(
-                self.train_data[key], key, forward=True
-            )
+        if self.control_mode == ControlMode.relative:
+            # Now we normalize the position part of the actions by taking
+            # pred_horizon x max(action/delta) for each action
+            max_delta_action = np.max(np.abs(combined_data["action/delta"][:, :3]))
+            self.normalizer.stats.action.min[:3] = -max_delta_action * pred_horizon
+            self.normalizer.stats.action.max[:3] = max_delta_action * pred_horizon
+
+            # Also set the rest of the action to [-1, 1], i.e., no normalization
+            self.normalizer.stats.action.min[3:] = -1.0
+            self.normalizer.stats.action.max[3:] = 1.0
+
+            # We don't normalize the robot state in the relative control mode
+
+        else:
+            # Normalize data to [-1,1] only when action mode is not relative
+            for key in self.normalizer.keys():
+                self.train_data[key] = self.normalizer(
+                    self.train_data[key], key, forward=True
+                )
 
         # Add the color images to the train_data (it's not supposed to be normalized)
         # and move the channels to the front
@@ -265,6 +283,32 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["action"] = nsample["action"][
             self.first_action_idx : self.final_action_idx, :
         ]
+
+        if self.control_mode == ControlMode.relative:
+            # Each action in the chunk will be relative to the current EE pose
+            curr_ee_pos = nsample["robot_state"][-1, :3]
+            curr_ee_6d = nsample["robot_state"][-1, 3:9]
+            curr_ee_quat = C.rotation_6d_to_quaternion(curr_ee_6d)
+
+            # Calculate the relative pos action (the actions are absolute poses to begin with)
+            nsample["action"][:, :3] = nsample["action"][:, :3] - curr_ee_pos
+
+            # Calculate the relative rot action
+            action_quat = C.rotation_6d_to_quaternion(nsample["action"][:, 3:9])
+
+            # Want a quaternion such that if it's applied to the current EE pose, it will result in the action (absolute pose)
+            # This is the same as the relative rotation between the current EE pose and the action
+            # curr_quat * rel_quat = action_quat -> rel_quat = curr_quat^-1 * action_quat
+            action_quat = C.quaternion_multiply(
+                C.quaternion_invert(curr_ee_quat), action_quat
+            )
+
+            nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat)
+
+            # Normalize the relative actions
+            nsample["action"] = self.normalizer(
+                nsample["action"], "action", forward=True
+            )
 
         # Add the task index and success flag to the sample
         nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])

@@ -9,6 +9,8 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from src.common.context import suppress_all_output
 
+from ipdb import set_trace as bp
+
 
 def turn_off_april_tags():
     from furniture_bench.envs import furniture_sim_env
