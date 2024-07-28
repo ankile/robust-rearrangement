@@ -143,6 +143,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.normalizer.stats.action.max[3:] = 1.0
 
             # We don't normalize the robot state in the relative control mode
+            self.normalizer.stats.robot_state.min[:] = -1.0
+            self.normalizer.stats.robot_state.max[:] = 1.0
 
         else:
             # Normalize data to [-1,1] only when action mode is not relative
@@ -282,28 +284,36 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # Discard unused actions
         nsample["action"] = nsample["action"][
             self.first_action_idx : self.final_action_idx, :
-        ]
+        ].clone()
 
         if self.control_mode == ControlMode.relative:
             # Each action in the chunk will be relative to the current EE pose
             curr_ee_pos = nsample["robot_state"][-1, :3]
             curr_ee_6d = nsample["robot_state"][-1, 3:9]
-            curr_ee_quat = C.rotation_6d_to_quaternion(curr_ee_6d)
+            curr_ee_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(curr_ee_6d)
 
             # Calculate the relative pos action (the actions are absolute poses to begin with)
             nsample["action"][:, :3] = nsample["action"][:, :3] - curr_ee_pos
 
+            # See if any elements in the relative pos action are NaN or bigger than 1
+            if torch.any(torch.isnan(nsample["action"][:, :3])) or torch.any(
+                torch.abs(nsample["action"][:, :3]) > 1.0
+            ):
+                print("Relative pos action has NaN or elements bigger than 1")
+
             # Calculate the relative rot action
-            action_quat = C.rotation_6d_to_quaternion(nsample["action"][:, 3:9])
+            action_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(
+                nsample["action"][:, 3:9]
+            )
 
             # Want a quaternion such that if it's applied to the current EE pose, it will result in the action (absolute pose)
             # This is the same as the relative rotation between the current EE pose and the action
-            # curr_quat * rel_quat = action_quat -> rel_quat = curr_quat^-1 * action_quat
-            action_quat = C.quaternion_multiply(
-                C.quaternion_invert(curr_ee_quat), action_quat
+            # curr_quat * rel_quat = action_quat_xyzw -> rel_quat = curr_quat^-1 * action_quat_xyzw
+            action_quat_xyzw = C.quaternion_multiply(
+                C.quaternion_invert(curr_ee_quat_xyzw), action_quat_xyzw
             )
 
-            nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat)
+            nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat_xyzw)
 
             # Normalize the relative actions
             nsample["action"] = self.normalizer(
@@ -624,19 +634,19 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             # Each action in the chunk will be relative to the current EE pose
             curr_ee_pos = nsample["obs"][-1, :3]
             curr_ee_6d = nsample["obs"][-1, 3:9]
-            curr_ee_quat = C.rotation_6d_to_quaternion(curr_ee_6d)
+            curr_ee_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(curr_ee_6d)
 
             # Calculate the relative pos action (the actions are absolute poses to begin with)
             nsample["action"][:, :3] = nsample["action"][:, :3] - curr_ee_pos
 
             # Calculate the relative rot action
-            action_quat = C.rotation_6d_to_quaternion(nsample["action"][:, 3:9])
+            action_quat = C.rotation_6d_to_quaternion_xyzw(nsample["action"][:, 3:9])
 
             # Want a quaternion such that if it's applied to the current EE pose, it will result in the action (absolute pose)
             # This is the same as the relative rotation between the current EE pose and the action
             # curr_quat * rel_quat = action_quat -> rel_quat = curr_quat^-1 * action_quat
             action_quat = C.quaternion_multiply(
-                C.quaternion_invert(curr_ee_quat), action_quat
+                C.quaternion_invert(curr_ee_quat_xyzw), action_quat
             )
 
             nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat)

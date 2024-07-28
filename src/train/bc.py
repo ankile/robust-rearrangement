@@ -343,6 +343,8 @@ def main(cfg: DictConfig):
 
     print(f"Job started at: {starttime}")
 
+    early_stop = False
+
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
     tglobal = trange(
@@ -373,6 +375,9 @@ def main(cfg: DictConfig):
             loss, losses_log = actor.compute_loss(batch)
             loss.backward()
 
+            # Gradient clipping
+            grad_norm = torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=1.0)
+
             # Step the optimizers and schedulers
             for (_, opt), scheduler in zip(optimizers, lr_schedulers):
                 opt.step()
@@ -381,18 +386,20 @@ def main(cfg: DictConfig):
             if cfg.training.ema.use:
                 ema.update()
 
-            # Log losses
+            # Log the loss and gradients
             loss_cpu = loss.item()
-            epoch_loss.append(loss_cpu)
             step_log = {
                 "batch_loss": loss_cpu,
+                "grad_norm": grad_norm,
                 **losses_log,
             }
+            epoch_loss.append(loss_cpu)
 
             # Add the learning rates to the log
             for name, opt in optimizers:
                 step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
 
+            # Write the log to wandb
             wandb.log(step_log)
 
             tepoch.set_postfix(loss=loss_cpu)
@@ -462,6 +469,12 @@ def main(cfg: DictConfig):
             # If using EMA, restore the model
             if cfg.training.ema.use:
                 ema.restore()
+
+            # Since we now have a new test loss, we can update the early stopper
+            early_stop = early_stopper.update(test_loss_mean)
+            epoch_log["early_stopper/counter"] = early_stopper.counter
+            epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
+            epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
 
         if (
             cfg.training.checkpoint_model
@@ -605,12 +618,6 @@ def main(cfg: DictConfig):
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:
             ema.copy_to_model()
-
-        # Update the early stopper
-        early_stop = early_stopper.update(test_loss_mean)
-        epoch_log["early_stopper/counter"] = early_stopper.counter
-        epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
-        epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
 
         # Log epoch stats
         wandb.log(epoch_log)

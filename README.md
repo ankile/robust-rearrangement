@@ -76,7 +76,7 @@ tar -xzf IsaacGym_Preview_4_Package.tar.gz
 Now, you can install the IsaacGym package by navigating to the `isaacgym` directory and running:
 
 ```bash
-pip install -e python --no-cache-dir --force-reinstall
+pip install -e isaacgym/python --no-cache-dir --force-reinstall
 ```
 
 _Note: The `--no-cache-dir` and `--force-reinstall` flags are used to avoid potential issues with the installation we encountered._

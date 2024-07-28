@@ -343,10 +343,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             action_pred[:, :, :3] += curr_pos[:, None, :]
 
             # Each action in the chunk will be relative to the current EE pose
-            curr_ori_quat = C.rotation_6d_to_quaternion(curr_ori_6d)
+            curr_ori_quat = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
 
             # Calculate the relative rot action
-            action_quat = C.rotation_6d_to_quaternion(action_pred[:, :, 3:9])
+            action_quat = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
 
             # Apply the relative quat on top of the current quat to get the absolute quat
             action_quat = C.quaternion_multiply(curr_ori_quat[:, None], action_quat)
