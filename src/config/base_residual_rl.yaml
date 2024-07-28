@@ -3,6 +3,7 @@ defaults:
 
 seed: null
 torch_deterministic: false
+gpu_id: 0
 headless: true
 reset_on_failure: false
 reset_every_iteration: true

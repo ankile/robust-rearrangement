@@ -89,7 +89,7 @@ def main(cfg: DictConfig):
     torch.manual_seed(cfg.seed)
     torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
-    gpu_id = 0
+    gpu_id = cfg.gpu_id
     device = torch.device(f"cuda:{gpu_id}")
 
     turn_off_april_tags()
