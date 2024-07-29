@@ -42,14 +42,6 @@ Activate the environment by running:
 conda activate rr
 ```
 
-Once installed and activated, make some compatibility changes to the environment by running:
-
-```bash
-pip install setuptools==65.5.0
-pip install --upgrade pip wheel==0.38.4
-pip install termcolor
-```
-
 
 ### Install IsaacGym
 
