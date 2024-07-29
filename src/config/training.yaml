@@ -12,8 +12,8 @@ training:
   start_epoch: 0
   steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
 
-  sample_every: 5
-  eval_every: 5
+  sample_every: 10
+  eval_every: 10
   
   load_checkpoint_run_id: null
   checkpoint_model: true

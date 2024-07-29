@@ -272,6 +272,8 @@ def calculate_success_rate(
     all_parts_poses = list()
     all_success = list()
 
+    save_rollouts = rollout_save_dir is not None or save_rollouts_to_wandb
+
     pbar.pbar_desc(n_success)
     for i in range(n_rollouts // env.num_envs):
         # Update the progress bar
@@ -292,13 +294,14 @@ def calculate_success_rate(
         n_success += success.sum().item()
 
         # Save the results from the rollout
-        all_robot_states.extend([robot_states[i] for i in range(env.num_envs)])
-        all_imgs1.extend(imgs1)
-        all_imgs2.extend(imgs2)
-        all_actions.extend(actions)
-        all_rewards.extend(rewards)
-        all_parts_poses.extend(parts_poses)
-        all_success.extend(success)
+        if save_rollouts:
+            all_robot_states.extend([robot_states[i] for i in range(env.num_envs)])
+            all_imgs1.extend(imgs1)
+            all_imgs2.extend(imgs2)
+            all_actions.extend(actions)
+            all_rewards.extend(rewards)
+            all_parts_poses.extend(parts_poses)
+            all_success.extend(success)
 
         if break_on_n_success and n_success >= stop_after_n_success:
             print(
@@ -318,7 +321,7 @@ def calculate_success_rate(
         first_success = []
 
     print(f"Checking if we should save rollouts (rollout_save_dir: {rollout_save_dir})")
-    if rollout_save_dir is not None or save_rollouts_to_wandb:
+    if save_rollouts:
         have_img_obs = len(all_imgs1) > 0
         print(
             f"Saving rollouts, have image observations: {have_img_obs} (will make dummy video if False)"
