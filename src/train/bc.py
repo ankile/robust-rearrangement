@@ -193,7 +193,7 @@ def main(cfg: DictConfig):
         dataset=test_dataset,
         batch_size=cfg.training.batch_size,
         num_workers=cfg.data.dataloader_workers,
-        shuffle=False,
+        shuffle=True,
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
@@ -264,6 +264,9 @@ def main(cfg: DictConfig):
         mode=cfg.wandb.mode,
         notes=cfg.wandb.notes,
     )
+
+    if cfg.wandb.watch_model:
+        run.watch(actor, log="all", log_freq=1000)
 
     if cfg.wandb.continue_run_id is not None:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
@@ -367,6 +370,23 @@ def main(cfg: DictConfig):
             batch = dict_to_device(batch, device)
             loss, losses_log = actor.compute_loss(batch)
             loss.backward()
+
+            # Gradient clipping
+            if cfg.training.clip_grad_norm:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    actor.parameters(), max_norm=1.0
+                )
+            else:
+                grad_norm = torch.norm(
+                    torch.stack(
+                        [
+                            torch.norm(p.grad.detach(), 2)
+                            for p in actor.parameters()
+                            if p.grad is not None
+                        ]
+                    ),
+                    2,
+                )
 
             # Step the optimizers and schedulers
             for (_, opt), scheduler in zip(optimizers, lr_schedulers):
