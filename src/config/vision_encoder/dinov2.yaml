@@ -1,0 +1,4 @@
+model: dinov2_vits14
+freeze: false
+pretrained: true
+backbone: vits14
