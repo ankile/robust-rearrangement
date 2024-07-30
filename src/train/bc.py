@@ -495,6 +495,7 @@ def main(cfg: DictConfig):
 
         if (
             cfg.training.checkpoint_model
+            and cfg.training.checkpoint_interval > 0
             and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
