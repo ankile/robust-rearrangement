@@ -142,9 +142,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             self.normalizer.stats.action.min[3:] = -1.0
             self.normalizer.stats.action.max[3:] = 1.0
 
-            # We don't normalize the robot state in the relative control mode
-            self.normalizer.stats.robot_state.min[:] = -1.0
-            self.normalizer.stats.robot_state.max[:] = 1.0
+            # We don't normalize the robot state current pose in the relative control mode
+            self.normalizer.stats.robot_state.min[:9] = -1.0
+            self.normalizer.stats.robot_state.max[:9] = 1.0
 
         else:
             # Normalize data to [-1,1] only when action mode is not relative
@@ -318,6 +318,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             # Normalize the relative actions
             nsample["action"] = self.normalizer(
                 nsample["action"], "action", forward=True
+            )
+
+            # Normalize the robot state
+            nsample["robot_state"] = self.normalizer(
+                nsample["robot_state"], "robot_state", forward=True
             )
 
         # Add the task index and success flag to the sample
