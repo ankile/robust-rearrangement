@@ -89,6 +89,14 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         self.observation_type = cfg.observation_type
 
+        # Define what parts of the robot state to use
+        self.include_proprioceptive_pos = actor_cfg.get(
+            "include_proprioceptive_pos", True
+        )
+        self.include_proprioceptive_ori = actor_cfg.get(
+            "include_proprioceptive_ori", True
+        )
+
         # Regularization
         self.augment_image = cfg.data.augment_image
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
@@ -246,6 +254,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Convert the robot_state to use rot_6d instead of quaternion
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        robot_state[..., :3] *= int(self.include_proprioceptive_pos)
+        robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -511,6 +521,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
+
+        # Take out the parts of the robot_state that we don't want
+        nobs[..., :3] *= int(self.include_proprioceptive_pos)
+        nobs[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         if flatten:
             # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)

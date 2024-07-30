@@ -1,3 +1,8 @@
+# Extend the base_actor config
+defaults:
+  - base_actor
+  - diffusion_model: unet
+
 name: diffusion
 
 action_horizon: ${action_horizon}
@@ -21,6 +26,3 @@ confusion_loss_anchored: false
 weight_confusion_loss_by_action: false
 
 projection_dim: 128
-
-defaults:
-  - diffusion_model: unet

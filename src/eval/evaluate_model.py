@@ -335,7 +335,7 @@ if __name__ == "__main__":
                 # Check that we didn't set the wrong action type and pose representation
                 assert cfg.control.control_mode == args.action_type
                 assert (
-                    cfg.rollout.parts_poses_in_robot_frame
+                    cfg.rollout.get("parts_poses_in_robot_frame", False)
                     == args.parts_poses_in_robot_frame
                 )
 

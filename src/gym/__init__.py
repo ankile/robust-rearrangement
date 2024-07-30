@@ -112,6 +112,10 @@ def get_rl_env(
         # Filter out keys with `image` in them
         obs_keys = [key for key in obs_keys if "image" not in key]
 
+    if action_type == "relative":
+        print(
+            "[INFO] Using relative actions. This keeps the environment using position actions."
+        )
     action_type = "pos" if action_type == "relative" else action_type
 
     with suppress_all_output(not verbose):
