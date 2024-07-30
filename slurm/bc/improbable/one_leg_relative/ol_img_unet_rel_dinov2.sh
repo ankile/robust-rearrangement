@@ -26,4 +26,5 @@ python -m src.train.bc +experiment=image/diff_unet \
     wandb.watch_model=true \
     wandb.name=img-rel-dinov2-15 \
     wandb.project=ol-image-relative-1 \
-    dryrun=true
+    wandb.continue_run_id=kig2unzy \
+    dryrun=false

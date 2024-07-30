@@ -320,6 +320,7 @@ def main(cfg: DictConfig):
         best_test_loss = state_dict.get(
             "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
         )
+        test_loss_mean = best_test_loss
         best_success_rate = state_dict.get(
             "best_success_rate", run.summary.get("best_success_rate", 0)
         )
