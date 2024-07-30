@@ -350,21 +350,15 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         add_relative_pose: bool = False,
         normalizer: LinearNormalizer = None,
         include_future_obs: bool = False,
-        parts_poses_in_robot_frame: bool = False,
     ):
-        assert control_mode == ControlMode.relative or not parts_poses_in_robot_frame
-
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
         self.predict_past_actions = predict_past_actions
         self.control_mode = control_mode
         self.include_future_obs = include_future_obs
-        self.parts_poses_in_robot_frame = parts_poses_in_robot_frame
 
         # Read from zarr dataset
-        # The dataset only has `delta/pos` control modes, use pos if `relative` is selected
-        control_mode = "pos" if control_mode == ControlMode.relative else control_mode
         combined_data, metadata = combine_zarr_datasets(
             dataset_paths,
             [
@@ -393,21 +387,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
         action = torch.from_numpy(combined_data[f"action/{control_mode}"])
         parts_poses = torch.from_numpy(combined_data["parts_poses"])
 
-        if self.parts_poses_in_robot_frame:
-            from furniture_bench import config
-
-            # Parts are by default in april frame, convert to robot frame
-            base_tag_from_robot_mat = torch.tensor(
-                config["robot"]["tag_base_from_robot_base"]
-            )
-
-            part_poses_mat = C.pose2mat_batched(
-                parts_poses[:, :, :3], parts_poses[:, :, 3:7]
-            )
-
-            robot_coord_poses_mat = base_tag_from_robot_mat @ part_poses_mat
-            parts_poses = torch.cat(C.mat2pose_batched(robot_coord_poses_mat), dim=-1)
-
         self.train_data = {
             "parts_poses": parts_poses,
             "robot_state": robot_state,
@@ -424,58 +403,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         if task == "place-tabletop":
             self._make_tabletop_goal()
-
-        # If control mode is relative we need a different normalization scheme
-        # I.e., we only normalize the position part of the poses
-        if self.control_mode == ControlMode.relative:
-            from torch import nn
-
-            # NOTE: For now, only implement relative poses for the action
-            # === Normalize the parts poses and robot state ===
-            # # We need the ee position and parts position limits to be the
-            # # same for the relative pose calculation
-            # # Startby finding the limits for the robot state
-            # ee_pos_min = self.train_data["robot_state"][:, :3].min(dim=0).values
-            # ee_pos_max = self.train_data["robot_state"][:, :3].max(dim=0).values
-
-            # # Find the limits for the parts poses, but first reshape so that
-            # # the parts poses are (N, P, 7)
-            # parts_pos = (
-            #     self.train_data["parts_poses"]
-            #     .view(self.train_data["parts_poses"].shape[0], -1, 7)[:, :, :3]
-            #     .view(-1, 3)
-            # )
-            # parts_pos_min = parts_pos.min(dim=0).values
-            # parts_pos_max = parts_pos.max(dim=0).values
-
-            # # Find the overall min and max for the positions
-            # pos_min = torch.min(ee_pos_min, parts_pos_min)
-            # pos_max = torch.max(ee_pos_max, parts_pos_max)
-
-            # # Update the robot_state in the normalizer with the new limits
-            # self.normalizer.stats.robot_state.min[:3] = pos_min
-            # self.normalizer.stats.robot_state.max[:3] = pos_max
-
-            # # Set the orientation part of the robot state to [-1, 1] (rot_6d, no normalization)
-            # self.normalizer.stats.robot_state.min[3:9] = -1.0
-            # self.normalizer.stats.robot_state.max[3:9] = 1.0
-
-            # # Make a view into the normalizer stats for the parts poses
-            # parts_pose_min = self.normalizer.stats.parts_poses.min.view(-1, 7)
-            # parts_pose_max = self.normalizer.stats.parts_poses.max.view(-1, 7)
-
-            # # Set the position part of the parts poses to the overall min and max
-            # parts_pose_min[:, :3] = pos_min
-            # parts_pose_max[:, :3] = pos_max
-
-            # # Set the orientation part of the parts poses to [-1, 1] (quat, no normalization)
-            # parts_pose_min[:, 3:7] = -1.0
-            # parts_pose_max[:, 3:7] = 1.0
-
-            # === Normalize the actions ===
-            # Normalize the position part of the actions (for now, no normalization at all)
-            self.normalizer.stats.action.min[:] = -1.0
-            self.normalizer.stats.action.max[:] = 1.0
 
         # Normalize data to [-1,1]
         for key in self.normalizer.keys():
@@ -498,7 +425,7 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
             N = parts_poses.shape[0]
             n_parts = parts_poses.shape[1] // 7
 
-            # Get the robot state end-effector pose
+            # Get the robot state
             ee_pos = robot_state[:, None, :3]
             ee_quat_xyzw = G.rot_6d_to_isaac_quat(robot_state[:, 3:9]).view(N, 1, 4)
             ee_pose = torch.cat([ee_pos, ee_quat_xyzw], dim=-1)
@@ -629,27 +556,6 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         # Discard unused observations
         nsample["obs"] = nsample["obs"][: self.last_obs, :]
-
-        if self.control_mode == ControlMode.relative:
-            # Each action in the chunk will be relative to the current EE pose
-            curr_ee_pos = nsample["obs"][-1, :3]
-            curr_ee_6d = nsample["obs"][-1, 3:9]
-            curr_ee_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(curr_ee_6d)
-
-            # Calculate the relative pos action (the actions are absolute poses to begin with)
-            nsample["action"][:, :3] = nsample["action"][:, :3] - curr_ee_pos
-
-            # Calculate the relative rot action
-            action_quat = C.rotation_6d_to_quaternion_xyzw(nsample["action"][:, 3:9])
-
-            # Want a quaternion such that if it's applied to the current EE pose, it will result in the action (absolute pose)
-            # This is the same as the relative rotation between the current EE pose and the action
-            # curr_quat * rel_quat = action_quat -> rel_quat = curr_quat^-1 * action_quat
-            action_quat = C.quaternion_multiply(
-                C.quaternion_invert(curr_ee_quat_xyzw), action_quat
-            )
-
-            nsample["action"][:, 3:9] = C.quaternion_to_rotation_6d(action_quat)
 
         # Sum up the returns accrued during the action chunk
         # Double check if this should be calculated only for executed actions
