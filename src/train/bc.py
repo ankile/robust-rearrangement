@@ -284,28 +284,33 @@ def main(cfg: DictConfig):
 
         if "model_state_dict" in state_dict:
             actor.load_state_dict(state_dict["model_state_dict"])
-            opt_noise.load_state_dict(state_dict["optimizer_state_dict"])
-            opt_encoder.load_state_dict(state_dict["encoder_optimizer_state_dict"])
-            lr_scheduler.load_state_dict(state_dict["scheduler_state_dict"])
-            lr_scheduler_encoder.load_state_dict(
-                state_dict["encoder_scheduler_state_dict"]
-            )
+            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
+                scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
+
         else:
             actor.load_state_dict(state_dict)
 
         print(f"Loaded weights from run {run_id}")
 
         # Set the best test loss and success rate to the one from the run
-        best_test_loss = run.summary.get("test_epoch_loss", float("inf"))
-        best_success_rate = run.summary.get("best_success_rate", 0)
-        prev_best_success_rate = best_success_rate
+        best_test_loss = state_dict.get(
+            "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
+        )
+        best_success_rate = state_dict.get(
+            "best_success_rate", run.summary.get("best_success_rate", 0)
+        )
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        global_step = state_dict.get("global_step", run.step)
 
+        prev_best_success_rate = best_success_rate
     else:
         # Train loop
         best_test_loss = float("inf")
         test_loss_mean = float("inf")
         best_success_rate = 0
         prev_best_success_rate = 0
+        global_step = 0
 
     # Print the run name and storage location
     print(f"Run name: {run.name}")
@@ -408,7 +413,10 @@ def main(cfg: DictConfig):
             for name, opt in optimizers:
                 step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
 
-            wandb.log(step_log)
+            wandb.log(step_log, step=global_step, step=global_step)
+
+            # Update the global step
+            global_step += 1
 
             tepoch.set_postfix(loss=loss_cpu)
 
@@ -459,8 +467,10 @@ def main(cfg: DictConfig):
                 # Add model params and meta data to the save dict
                 save_dict = {
                     "model_state_dict": actor.state_dict(),
-                    "epoch": epoch_idx,
                     "best_test_loss": best_test_loss,
+                    "best_success_rate": best_success_rate,
+                    "epoch": epoch_idx,
+                    "global_step": global_step,
                 }
 
                 # Add the optimizer and scheduler states to the save dict
@@ -489,8 +499,10 @@ def main(cfg: DictConfig):
             # Add model params and meta data to the save dict
             save_dict = {
                 "model_state_dict": actor_state,
-                "epoch": epoch_idx,
                 "best_test_loss": best_test_loss,
+                "epoch": epoch_idx,
+                "best_success_rate": best_success_rate,
+                "global_step": global_step,
             }
 
             # Add the optimizer and scheduler states to the save dict
@@ -597,8 +609,11 @@ def main(cfg: DictConfig):
                 # Add model params and meta data to the save dict
                 save_dict = {
                     "model_state_dict": actor.state_dict(),
-                    "epoch": epoch_idx,
                     "best_test_loss": best_test_loss,
+                    "best_success_rate": best_success_rate,
+                    "epoch": epoch_idx,
+                    "global_step": global_step,
+
                 }
 
                 # Add the optimizer and scheduler states to the save dict
@@ -627,7 +642,7 @@ def main(cfg: DictConfig):
         epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
 
         # Log epoch stats
-        wandb.log(epoch_log)
+        wandb.log(epoch_log, step=global_step)
         tglobal.set_postfix(
             time=now(),
             loss=epoch_log["epoch_loss"],
