@@ -50,6 +50,24 @@ print("=== Activate TF32 training? Deactivated for now...")
 # torch.backends.cudnn.allow_tf32 = True
 
 
+def log_action_mse(log_dict, category, pred_action, gt_action):
+    B, T, _ = pred_action.shape
+    pred_action = pred_action.view(B, T, -1, 10)
+    gt_action = gt_action.view(B, T, -1, 10)
+    log_dict[f"action_sample/{category}_action_mse_error"] = (
+        torch.nn.functional.mse_loss(pred_action, gt_action)
+    )
+    log_dict[f"action_sample/{category}_action_mse_error_pos"] = (
+        torch.nn.functional.mse_loss(pred_action[..., :3], gt_action[..., :3])
+    )
+    log_dict[f"action_sample/{category}_action_mse_error_rot"] = (
+        torch.nn.functional.mse_loss(pred_action[..., 3:9], gt_action[..., 3:9])
+    )
+    log_dict[f"action_sample/{category}_action_mse_error_width"] = (
+        torch.nn.functional.mse_loss(pred_action[..., 9], gt_action[..., 9])
+    )
+
+
 def to_native(obj):
     try:
         return OmegaConf.to_object(obj)
@@ -421,7 +439,7 @@ def main(cfg: DictConfig):
             for name, opt in optimizers:
                 step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
 
-            wandb.log(step_log, step=global_step, step=global_step)
+            wandb.log(step_log, step=global_step)
 
             # Update the global step
             global_step += 1
@@ -432,7 +450,10 @@ def main(cfg: DictConfig):
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
 
-        if ((epoch_idx + 1) % cfg.training.eval_every) == 0:
+        if (
+            cfg.training.eval_every > 0
+            and (epoch_idx + 1) % cfg.training.eval_every == 0
+        ):
             # Evaluation loop
             actor.eval()
 
@@ -467,30 +488,109 @@ def main(cfg: DictConfig):
             for k, v in eval_losses_log.items():
                 epoch_log[f"test_{k}"] = np.mean(v)
 
+            if (
+                cfg.rollout.rollouts
+                and (epoch_idx + 1) % cfg.rollout.every == 0
+                and np.mean(test_loss_mean) < cfg.rollout.loss_threshold
+            ):
+                # Do not load the environment until we successfuly made it this far
+                if env is None:
+                    env: FurnitureRLSimEnv = get_rl_env(
+                        cfg.training.gpu_id,
+                        furniture=cfg.rollout.furniture,
+                        num_envs=cfg.rollout.num_envs,
+                        randomness=cfg.rollout.randomness,
+                        observation_space=cfg.observation_type,
+                        resize_img=False,
+                        act_rot_repr=cfg.control.act_rot_repr,
+                        ctrl_mode=cfg.control.controller,
+                        action_type=cfg.control.control_mode,
+                        parts_poses_in_robot_frame=cfg.rollout.parts_poses_in_robot_frame,
+                        headless=True,
+                        verbose=True,
+                    )
+
+                best_success_rate = do_rollout_evaluation(
+                    config=cfg,
+                    env=env,
+                    save_rollouts_to_file=cfg.rollout.save_rollouts,
+                    save_rollouts_to_wandb=False,
+                    actor=actor,
+                    best_success_rate=best_success_rate,
+                    epoch_idx=epoch_idx,
+                )
+
+            # Prepare the save dict once and we can reuse below
+            actor_state = ema.shadow if cfg.training.ema.use else actor.state_dict()
+            save_dict = {
+                "model_state_dict": actor_state,
+                "best_test_loss": best_test_loss,
+                "best_success_rate": best_success_rate,
+                "epoch": epoch_idx,
+                "global_step": global_step,
+            }
+
+            # Add the optimizer and scheduler states to the save dict
+            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
+
             # Save the model if the test loss is the best so far
-            if cfg.training.checkpoint_model and test_loss_mean < best_test_loss:
+            if (
+                cfg.training.store_best_test_loss_model
+                and test_loss_mean < best_test_loss
+            ):
                 best_test_loss = test_loss_mean
                 save_path = str(model_save_dir / f"actor_chkpt_best_test_loss.pt")
-
-                # Add model params and meta data to the save dict
-                save_dict = {
-                    "model_state_dict": actor.state_dict(),
-                    "best_test_loss": best_test_loss,
-                    "best_success_rate": best_success_rate,
-                    "epoch": epoch_idx,
-                    "global_step": global_step,
-                }
-
-                # Add the optimizer and scheduler states to the save dict
-                for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                    save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                    save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
-                torch.save(
-                    save_dict,
-                    save_path,
-                )
+                torch.save(save_dict, save_path)
                 wandb.save(save_path)
+
+            # Save the model if the success rate is the best so far
+            if (
+                cfg.training.store_best_success_rate_model
+                and best_success_rate > prev_best_success_rate
+            ):
+                prev_best_success_rate = best_success_rate
+                save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
+                torch.save(save_dict, save_path)
+                wandb.save(save_path)
+
+            if cfg.training.store_last_model:
+                save_path = str(model_save_dir / f"actor_chkpt_last.pt")
+                torch.save(save_dict, save_path)
+                wandb.save(save_path)
+
+            if (
+                cfg.training.checkpoint_interval > 0
+                and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
+            ):
+                save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
+                torch.save(save_dict, save_path)
+                wandb.save(save_path)
+
+            # Run diffusion sampling on a training batch
+            if (
+                cfg.training.sample_every > 0
+                and (epoch_idx + 1) % cfg.training.sample_every == 0
+            ):
+
+                with torch.no_grad():
+                    # sample trajectory from training set, and evaluate difference
+                    train_sampling_batch = dict_to_device(
+                        next(iter(trainloader)), device
+                    )
+                    pred_action = actor.action_pred(train_sampling_batch)
+                    gt_action = actor.normalizer(
+                        train_sampling_batch["action"], "action", forward=False
+                    )
+                    log_action_mse(epoch_log, "train", pred_action, gt_action)
+
+                    val_sampling_batch = dict_to_device(next(iter(testloader)), device)
+                    gt_action = actor.normalizer(
+                        val_sampling_batch["action"], "action", forward=False
+                    )
+                    pred_action = actor.action_pred(val_sampling_batch)
+                    log_action_mse(epoch_log, "val", pred_action, gt_action)
 
             # If using EMA, restore the model
             if cfg.training.ema.use:
@@ -501,151 +601,6 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/counter"] = early_stopper.counter
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
-
-        if (
-            cfg.training.checkpoint_model
-            and cfg.training.checkpoint_interval > 0
-            and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
-        ):
-            save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
-
-            actor_state = ema.shadow if cfg.training.ema.use else actor.state_dict()
-
-            # Add model params and meta data to the save dict
-            save_dict = {
-                "model_state_dict": actor_state,
-                "best_test_loss": best_test_loss,
-                "epoch": epoch_idx,
-                "best_success_rate": best_success_rate,
-                "global_step": global_step,
-            }
-
-            # Add the optimizer and scheduler states to the save dict
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
-            torch.save(
-                save_dict,
-                save_path,
-            )
-            wandb.save(save_path)
-
-        def log_action_mse(log_dict, category, pred_action, gt_action):
-            B, T, _ = pred_action.shape
-            pred_action = pred_action.view(B, T, -1, 10)
-            gt_action = gt_action.view(B, T, -1, 10)
-            log_dict[f"action_sample/{category}_action_mse_error"] = (
-                torch.nn.functional.mse_loss(pred_action, gt_action)
-            )
-            log_dict[f"action_sample/{category}_action_mse_error_pos"] = (
-                torch.nn.functional.mse_loss(pred_action[..., :3], gt_action[..., :3])
-            )
-            log_dict[f"action_sample/{category}_action_mse_error_rot"] = (
-                torch.nn.functional.mse_loss(pred_action[..., 3:9], gt_action[..., 3:9])
-            )
-            log_dict[f"action_sample/{category}_action_mse_error_width"] = (
-                torch.nn.functional.mse_loss(pred_action[..., 9], gt_action[..., 9])
-            )
-
-        # run diffusion sampling on a training batch
-        if ((epoch_idx + 1) % cfg.training.sample_every) == 0:
-            # Set the model to eval mode and load the EMA shadow if needed
-            actor.eval()
-
-            if cfg.training.ema.use:
-                ema.apply_shadow()
-
-            with torch.no_grad():
-                # sample trajectory from training set, and evaluate difference
-                train_sampling_batch = dict_to_device(next(iter(trainloader)), device)
-                pred_action = actor.action_pred(train_sampling_batch)
-                gt_action = actor.normalizer(
-                    train_sampling_batch["action"], "action", forward=False
-                )
-                log_action_mse(epoch_log, "train", pred_action, gt_action)
-
-                val_sampling_batch = dict_to_device(next(iter(testloader)), device)
-                gt_action = actor.normalizer(
-                    val_sampling_batch["action"], "action", forward=False
-                )
-                pred_action = actor.action_pred(val_sampling_batch)
-                log_action_mse(epoch_log, "val", pred_action, gt_action)
-
-            # Restore the model to the original state
-            if cfg.training.ema.use:
-                ema.restore()
-
-        if (
-            cfg.rollout.rollouts
-            and (epoch_idx + 1) % cfg.rollout.every == 0
-            and np.mean(test_loss_mean) < cfg.rollout.loss_threshold
-        ):
-            # Set the model to eval mode and load the EMA shadow if needed
-            actor.eval()
-
-            if cfg.training.ema.use:
-                ema.apply_shadow()
-
-            # Do not load the environment until we successfuly made it this far
-            if env is None:
-                env: FurnitureRLSimEnv = get_rl_env(
-                    cfg.training.gpu_id,
-                    furniture=cfg.rollout.furniture,
-                    num_envs=cfg.rollout.num_envs,
-                    randomness=cfg.rollout.randomness,
-                    observation_space=cfg.observation_type,
-                    resize_img=False,
-                    act_rot_repr=cfg.control.act_rot_repr,
-                    ctrl_mode=cfg.control.controller,
-                    action_type=cfg.control.control_mode,
-                    parts_poses_in_robot_frame=cfg.rollout.parts_poses_in_robot_frame,
-                    headless=True,
-                    verbose=True,
-                )
-
-            best_success_rate = do_rollout_evaluation(
-                config=cfg,
-                env=env,
-                save_rollouts_to_file=cfg.rollout.save_rollouts,
-                save_rollouts_to_wandb=False,
-                actor=actor,
-                best_success_rate=best_success_rate,
-                epoch_idx=epoch_idx,
-            )
-
-            # Save the model if the success rate is the best so far
-            if (
-                cfg.training.checkpoint_model
-                and best_success_rate > prev_best_success_rate
-            ):
-                prev_best_success_rate = best_success_rate
-                save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
-
-                # Add model params and meta data to the save dict
-                save_dict = {
-                    "model_state_dict": actor.state_dict(),
-                    "best_test_loss": best_test_loss,
-                    "best_success_rate": best_success_rate,
-                    "epoch": epoch_idx,
-                    "global_step": global_step,
-
-                }
-
-                # Add the optimizer and scheduler states to the save dict
-                for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                    save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                    save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
-                torch.save(
-                    save_dict,
-                    save_path,
-                )
-                wandb.save(save_path)
-
-            # Restore the model to the original state
-            if cfg.training.ema.use:
-                ema.restore()
 
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:

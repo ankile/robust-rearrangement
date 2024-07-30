@@ -22,4 +22,4 @@ python -m src.train.bc +experiment=image/diff_unet \
     wandb.name=img-baseline-clip-1 \
     wandb.watch_model=true \
     wandb.project=ol-image-relative-1 \
-    dryrun=false
+    dryrun=true
