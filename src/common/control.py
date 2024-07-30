@@ -6,3 +6,4 @@ class RotationMode:
 class ControlMode:
     position = "pos"
     delta = "delta"
+    relative = "relative"

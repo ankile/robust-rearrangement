@@ -9,6 +9,8 @@ from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from src.common.context import suppress_all_output
 
+from ipdb import set_trace as bp
+
 
 def turn_off_april_tags():
     from furniture_bench.envs import furniture_sim_env
@@ -109,6 +111,12 @@ def get_rl_env(
     if observation_space == "state":
         # Filter out keys with `image` in them
         obs_keys = [key for key in obs_keys if "image" not in key]
+
+    if action_type == "relative":
+        print(
+            "[INFO] Using relative actions. This keeps the environment using position actions."
+        )
+    action_type = "pos" if action_type == "relative" else action_type
 
     with suppress_all_output(not verbose):
         env = FurnitureRLSimEnv(

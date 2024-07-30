@@ -45,6 +45,11 @@ logger.set_level(logger.DISABLED)
 OmegaConf.register_new_resolver("eval", eval)
 
 
+print("=== Activate TF32 training? Deactivated for now...")
+# torch.backends.cuda.matmul.allow_tf32 = True
+# torch.backends.cudnn.allow_tf32 = True
+
+
 def to_native(obj):
     try:
         return OmegaConf.to_object(obj)
@@ -346,6 +351,8 @@ def main(cfg: DictConfig):
 
     print(f"Job started at: {starttime}")
 
+    early_stop = False
+
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
     tglobal = trange(
@@ -401,13 +408,14 @@ def main(cfg: DictConfig):
             if cfg.training.ema.use:
                 ema.update()
 
-            # Log losses
+            # Log the loss and gradients
             loss_cpu = loss.item()
-            epoch_loss.append(loss_cpu)
             step_log = {
                 "batch_loss": loss_cpu,
+                "grad_norm": grad_norm,
                 **losses_log,
             }
+            epoch_loss.append(loss_cpu)
 
             # Add the learning rates to the log
             for name, opt in optimizers:
@@ -488,8 +496,15 @@ def main(cfg: DictConfig):
             if cfg.training.ema.use:
                 ema.restore()
 
+            # Since we now have a new test loss, we can update the early stopper
+            early_stop = early_stopper.update(test_loss_mean)
+            epoch_log["early_stopper/counter"] = early_stopper.counter
+            epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
+            epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
         if (
             cfg.training.checkpoint_model
+            and cfg.training.checkpoint_interval > 0
             and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
         ):
             save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
@@ -584,6 +599,7 @@ def main(cfg: DictConfig):
                     act_rot_repr=cfg.control.act_rot_repr,
                     ctrl_mode=cfg.control.controller,
                     action_type=cfg.control.control_mode,
+                    parts_poses_in_robot_frame=cfg.rollout.parts_poses_in_robot_frame,
                     headless=True,
                     verbose=True,
                 )
@@ -634,12 +650,6 @@ def main(cfg: DictConfig):
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:
             ema.copy_to_model()
-
-        # Update the early stopper
-        early_stop = early_stopper.update(test_loss_mean)
-        epoch_log["early_stopper/counter"] = early_stopper.counter
-        epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
-        epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
 
         # Log epoch stats
         wandb.log(epoch_log, step=global_step)

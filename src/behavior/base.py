@@ -22,6 +22,7 @@ from pytorch3d.transforms import (
     matrix_to_rotation_6d,
     euler_angles_to_matrix,
 )
+import furniture_bench.controllers.control_utils as C
 
 
 # Update the PostInitCaller to be compatible
@@ -88,11 +89,20 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         self.observation_type = cfg.observation_type
 
+        # Define what parts of the robot state to use
+        self.include_proprioceptive_pos = actor_cfg.get(
+            "include_proprioceptive_pos", True
+        )
+        self.include_proprioceptive_ori = actor_cfg.get(
+            "include_proprioceptive_ori", True
+        )
+
         # Regularization
         self.augment_image = cfg.data.augment_image
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
+        self.action_type = cfg.control.control_mode
 
         # Convert the stats to tensors on the device
         if self.observation_type == "image":
@@ -244,6 +254,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Convert the robot_state to use rot_6d instead of quaternion
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        robot_state[..., :3] *= int(self.include_proprioceptive_pos)
+        robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -329,6 +341,28 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # unnormalize action
         # (B, pred_horizon, action_dim)
         action_pred = self.normalizer(naction, "action", forward=False)
+
+        # These actions may be `pos`, `delta`, or `relative`, if relative, we make them absolute
+        if self.action_type == "relative":
+            # Need the current EE position in the robot frame unnormalized
+            curr_pose = self.normalizer(nobs[:, :16], "robot_state", forward=False)[
+                :, :9
+            ]
+            curr_pos = curr_pose[:, :3]
+            curr_ori_6d = curr_pose[:, 3:9]
+            action_pred[:, :, :3] += curr_pos[:, None, :]
+
+            # Each action in the chunk will be relative to the current EE pose
+            curr_ori_quat = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
+
+            # Calculate the relative rot action
+            action_quat = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
+
+            # Apply the relative quat on top of the current quat to get the absolute quat
+            action_quat = C.quaternion_multiply(curr_ori_quat[:, None], action_quat)
+
+            # Convert the absolute quat to 6D rotation
+            action_pred[:, :, 3:9] = C.quaternion_to_rotation_6d(action_quat)
 
         # Add the actions to the queue
         # only take action_horizon number of actions
@@ -487,6 +521,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
+
+        # Take out the parts of the robot_state that we don't want
+        nobs[..., :3] *= int(self.include_proprioceptive_pos)
+        nobs[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         if flatten:
             # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
