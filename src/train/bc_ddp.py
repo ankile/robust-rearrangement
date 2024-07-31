@@ -379,7 +379,6 @@ def main(cfg: DictConfig):
     early_stop = False
 
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
-
     tglobal = trange(
         cfg.training.start_epoch,
         cfg.training.num_epochs,
@@ -387,7 +386,6 @@ def main(cfg: DictConfig):
         total=cfg.training.num_epochs,
         desc=pbar_desc,
     )
-    trainloader.sampler.set_epoch(cfg.training.start_epoch)
 
     for epoch_idx in tglobal:
         epoch_loss = list()
@@ -399,9 +397,12 @@ def main(cfg: DictConfig):
 
         # batch loop
         actor.train()
+        trainloader.sampler.set_epoch(epoch_idx)
+
         tepoch = tqdm(
             trainloader,
             desc=f"Training, GPU: {gpu_id}",
+            position=gpu_id,
             leave=False,
             total=len(trainloader),
         )
