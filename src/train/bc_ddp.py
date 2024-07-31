@@ -282,20 +282,43 @@ def main(cfg: DictConfig):
         smooth_factor=cfg.early_stopper.smooth_factor,
     )
     config_dict = OmegaConf.to_container(cfg, resolve=True)
-    # Init wandb
-    run = wandb.init(
-        id=cfg.wandb.continue_run_id,
-        name=cfg.wandb.name,
-        resume=None if cfg.wandb.continue_run_id is None else "must",
-        project=cfg.wandb.project,
-        entity=cfg.wandb.get("entity", "ankile"),
-        config=config_dict,
-        mode=cfg.wandb.mode,
-        notes=cfg.wandb.notes,
-    )
 
-    # if cfg.wandb.watch_model:
-    #     run.watch(actor, log="all", log_freq=1000)
+    # Init wandb
+    if gpu_id == 0:
+        run = wandb.init(
+            id=cfg.wandb.continue_run_id,
+            name=cfg.wandb.name,
+            resume=None if cfg.wandb.continue_run_id is None else "must",
+            project=cfg.wandb.project,
+            entity=cfg.wandb.get("entity", "ankile"),
+            config=config_dict,
+            mode=cfg.wandb.mode,
+            notes=cfg.wandb.notes,
+        )
+
+        # In sweeps, the init is ignored, so to make sure that the cfg is saved correctly
+        # to wandb we need to log it manually
+        wandb.config.update(config_dict)
+
+        # save stats to wandb and update the cfg object
+        train_size = int(dataset.n_samples * (1 - cfg.data.test_split))
+        test_size = dataset.n_samples - train_size
+
+        dataset_stats = {
+            "num_samples_train": train_size,
+            "num_samples_test": test_size,
+            "num_episodes_train": int(
+                len(dataset.episode_ends) * (1 - cfg.data.test_split)
+            ),
+            "num_episodes_test": int(len(dataset.episode_ends) * cfg.data.test_split),
+            "dataset_metadata": dataset.metadata,
+        }
+
+        # Add the dataset stats to the wandb summary
+        wandb.summary.update(dataset_stats)
+
+        starttime = now()
+        wandb.summary["start_time"] = starttime
 
     if cfg.wandb.continue_run_id is not None:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
@@ -346,30 +369,6 @@ def main(cfg: DictConfig):
     print(f"Run name: {run.name}")
     print(f"Run storage location: {run.dir}")
 
-    # In sweeps, the init is ignored, so to make sure that the cfg is saved correctly
-    # to wandb we need to log it manually
-    wandb.config.update(config_dict)
-
-    # save stats to wandb and update the cfg object
-    train_size = int(dataset.n_samples * (1 - cfg.data.test_split))
-    test_size = dataset.n_samples - train_size
-
-    dataset_stats = {
-        "num_samples_train": train_size,
-        "num_samples_test": test_size,
-        "num_episodes_train": int(
-            len(dataset.episode_ends) * (1 - cfg.data.test_split)
-        ),
-        "num_episodes_test": int(len(dataset.episode_ends) * cfg.data.test_split),
-        "dataset_metadata": dataset.metadata,
-    }
-
-    # Add the dataset stats to the wandb summary
-    wandb.summary.update(dataset_stats)
-
-    starttime = now()
-    wandb.summary["start_time"] = starttime
-
     # Create model save dir
     model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
     model_save_dir.mkdir(parents=True, exist_ok=True)
@@ -399,7 +398,12 @@ def main(cfg: DictConfig):
 
         # batch loop
         actor.train()
-        tepoch = tqdm(trainloader, desc=f"Training, GPU: {gpu_id}", leave=False, total=len(trainloader))
+        tepoch = tqdm(
+            trainloader,
+            desc=f"Training, GPU: {gpu_id}",
+            leave=False,
+            total=len(trainloader),
+        )
         for batch in tepoch:
             # Zero the gradients in all optimizers
             for _, opt in optimizers:
@@ -407,7 +411,7 @@ def main(cfg: DictConfig):
 
             # Get a batch on device and compute loss and gradients
             batch = dict_to_device(batch, device)
-            loss, losses_log = actor.module.compute_loss(batch)
+            loss, losses_log = actor(batch)
             loss.backward()
 
             # Gradient clipping
@@ -448,7 +452,8 @@ def main(cfg: DictConfig):
             for name, opt in optimizers:
                 step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
 
-            wandb.log(step_log, step=global_step)
+            if gpu_id == 0:
+                wandb.log(step_log, step=global_step)
 
             # Update the global step
             global_step += 1
@@ -620,7 +625,9 @@ def main(cfg: DictConfig):
             ema.copy_to_model()
 
         # Log epoch stats
-        wandb.log(epoch_log, step=global_step)
+        if gpu_id == 0:
+            wandb.log(epoch_log, step=global_step)
+
         tglobal.set_postfix(
             time=now(),
             loss=epoch_log["epoch_loss"],

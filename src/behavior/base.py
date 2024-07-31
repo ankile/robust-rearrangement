@@ -346,9 +346,11 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # These actions may be `pos`, `delta`, or `relative`, if relative, we make them absolute
         if self.action_type == "relative":
             # Need the current EE position in the robot frame unnormalized
-            curr_pose = self.normalizer(nobs.view(B, self.obs_horizon, -1)[:, -1, :16], "robot_state", forward=False)[
-                :, :9
-            ]
+            curr_pose = self.normalizer(
+                nobs.view(B, self.obs_horizon, -1)[:, -1, :16],
+                "robot_state",
+                forward=False,
+            )[:, :9]
             curr_pos = curr_pose[:, :3]
             curr_ori_6d = curr_pose[:, 3:9]
             action_pred[:, :, :3] += curr_pos[:, None, :]
@@ -572,6 +574,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
     def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
+
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.compute_loss(batch)
 
     def confusion_loss(self, batch, feature1, feature2):
         domain_idx: torch.Tensor = batch["domain"]
