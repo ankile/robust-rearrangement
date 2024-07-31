@@ -286,6 +286,8 @@ def main(cfg: DictConfig):
     starttime = now()
     print(f"Job started at: {starttime}")
 
+    print(f"This process has access to {os.cpu_count()} CPUs.")
+
     # Init wandb
     if gpu_id == 0:
         run = wandb.init(
@@ -385,6 +387,7 @@ def main(cfg: DictConfig):
         initial=cfg.training.start_epoch,
         total=cfg.training.num_epochs,
         desc=pbar_desc,
+        position=0,
     )
 
     for epoch_idx in tglobal:
@@ -402,7 +405,7 @@ def main(cfg: DictConfig):
         tepoch = tqdm(
             trainloader,
             desc=f"Training, GPU: {gpu_id}",
-            position=gpu_id,
+            position=gpu_id + 1,
             leave=False,
             total=len(trainloader),
         )
