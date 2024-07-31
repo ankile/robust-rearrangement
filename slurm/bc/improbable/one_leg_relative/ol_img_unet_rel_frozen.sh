@@ -24,4 +24,5 @@ python -m src.train.bc +experiment=image/diff_unet \
     wandb.watch_model=false \
     wandb.name=img-rel-clip-frozen-1 \
     wandb.project=ol-image-relative-1 \
+    wandb.continue_run_id=2qqsjq68 \
     dryrun=false

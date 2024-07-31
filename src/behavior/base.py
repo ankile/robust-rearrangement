@@ -346,9 +346,11 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # These actions may be `pos`, `delta`, or `relative`, if relative, we make them absolute
         if self.action_type == "relative":
             # Need the current EE position in the robot frame unnormalized
-            curr_pose = self.normalizer(nobs.view(B, self.obs_horizon, -1)[:, -1, :16], "robot_state", forward=False)[
-                :, :9
-            ]
+            curr_pose = self.normalizer(
+                nobs.view(B, self.obs_horizon, -1)[:, -1, :16],
+                "robot_state",
+                forward=False,
+            )[:, :9]
             curr_pos = curr_pose[:, :3]
             curr_ori_6d = curr_pose[:, 3:9]
             action_pred[:, :, :3] += curr_pos[:, None, :]

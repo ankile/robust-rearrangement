@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-a100,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-free-cycles
+#SBATCH -q vision-pulkitag-main
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=10
@@ -23,5 +23,6 @@ python -m src.train.bc +experiment=image/diff_unet \
     wandb.watch_model=false \
     wandb.name=img-rel-clip-big-12 \
     wandb.project=ol-image-relative-1 \
+    wandb.continue_run_id=hecj9w5n \
     dryrun=false
     
