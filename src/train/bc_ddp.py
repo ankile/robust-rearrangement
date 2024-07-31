@@ -283,6 +283,9 @@ def main(cfg: DictConfig):
     )
     config_dict = OmegaConf.to_container(cfg, resolve=True)
 
+    starttime = now()
+    print(f"Job started at: {starttime}")
+
     # Init wandb
     if gpu_id == 0:
         run = wandb.init(
@@ -317,63 +320,61 @@ def main(cfg: DictConfig):
         # Add the dataset stats to the wandb summary
         wandb.summary.update(dataset_stats)
 
-        starttime = now()
         wandb.summary["start_time"] = starttime
 
-    if cfg.wandb.continue_run_id is not None:
-        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+        # Print the run name and storage location
+        print(f"Run name: {run.name}")
+        print(f"Run storage location: {run.dir}")
 
-        cfg.training.start_epoch = run.summary.get("epoch", 0)
+        # Create model save dir
+        model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
+        model_save_dir.mkdir(parents=True, exist_ok=True)
 
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        # if cfg.wandb.continue_run_id is not None:
+        #     print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        # Load the weights from the run
-        _, wts = get_model_from_api_or_cached(
-            run_id, "latest", wandb_mode=cfg.wandb.mode
-        )
+        #     cfg.training.start_epoch = run.summary.get("epoch", 0)
 
-        state_dict = torch.load(wts)
+        #     run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
 
-        if "model_state_dict" in state_dict:
-            actor.load_state_dict(state_dict["model_state_dict"])
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
-                scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
+        #     # Load the weights from the run
+        #     _, wts = get_model_from_api_or_cached(
+        #         run_id, "latest", wandb_mode=cfg.wandb.mode
+        #     )
 
-        else:
-            actor.load_state_dict(state_dict)
+        #     state_dict = torch.load(wts)
 
-        print(f"Loaded weights from run {run_id}")
+        #     if "model_state_dict" in state_dict:
+        #         actor.load_state_dict(state_dict["model_state_dict"])
+        #         for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+        #             opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
+        #             scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
 
-        # Set the best test loss and success rate to the one from the run
-        best_test_loss = state_dict.get(
-            "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
-        )
-        test_loss_mean = best_test_loss
-        best_success_rate = state_dict.get(
-            "best_success_rate", run.summary.get("best_success_rate", 0)
-        )
-        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
-        global_step = state_dict.get("global_step", run.step)
+        #     else:
+        #         actor.load_state_dict(state_dict)
 
-        prev_best_success_rate = best_success_rate
-    else:
-        # Train loop
-        best_test_loss = float("inf")
-        test_loss_mean = float("inf")
-        best_success_rate = 0
-        prev_best_success_rate = 0
-        global_step = 0
+        #     print(f"Loaded weights from run {run_id}")
 
-    # Print the run name and storage location
-    print(f"Run name: {run.name}")
-    print(f"Run storage location: {run.dir}")
+        #     # Set the best test loss and success rate to the one from the run
+        #     best_test_loss = state_dict.get(
+        #         "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
+        #     )
+        #     test_loss_mean = best_test_loss
+        #     best_success_rate = state_dict.get(
+        #         "best_success_rate", run.summary.get("best_success_rate", 0)
+        #     )
+        #     epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        #     global_step = state_dict.get("global_step", run.step)
 
-    # Create model save dir
-    model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
-    model_save_dir.mkdir(parents=True, exist_ok=True)
+        #     prev_best_success_rate = best_success_rate
+        # else:
 
-    print(f"Job started at: {starttime}")
+    # Train loop
+    best_test_loss = float("inf")
+    test_loss_mean = float("inf")
+    best_success_rate = 0
+    prev_best_success_rate = 0
+    global_step = 0
 
     early_stop = False
 
