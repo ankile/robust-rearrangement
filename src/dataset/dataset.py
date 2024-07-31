@@ -275,8 +275,6 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 additional_samples = self.indices[additional_indices]
                 self.indices = np.concatenate((self.indices, additional_samples))
     
-        bp()
-
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
@@ -309,14 +307,11 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             # Get the sample index within the zarr dataset
             within_zarr_idx_start = nsample["within_zarr_idx"][0].item()
             # within_zarr_idx_end = nsample["within_zarr_idx"][self.obs_horizon].item()
+            if self.obs_horizon > 1:
+                print(f'WARNING!!! obs_horizon > 1, this is not supported yet')
             within_zarr_idx_end = within_zarr_idx_start + 1
 
-            # # Load the image information from disk (zarr datasets)
-            # for key in self.image_keys:
-            #     # Load the image data from the zarr dataset
-            #     nsample[key] = torch.from_numpy(
-            #         self.zarr_datasets[zarr_idx][key][within_zarr_idx_start : within_zarr_idx_end]
-            #     ).permute(0, 3, 1, 2)
+            # Load the image information from disk (zarr datasets)
             nsample["color_image1"] = torch.from_numpy(
                 self.zarr_ci1[zarr_idx][within_zarr_idx_start : within_zarr_idx_end]
             ).permute(0, 3, 1, 2)
