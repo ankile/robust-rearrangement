@@ -239,7 +239,7 @@ class DiffusionTransformer(ModuleAttrMixin):
 
         # special case the position embedding parameter in the root GPT module as not decayed
         no_decay.add("pos_emb")
-        no_decay.add("_dummy_variable")
+        # no_decay.add("_dummy_variable")
         if self.cond_pos_emb is not None:
             no_decay.add("cond_pos_emb")
 

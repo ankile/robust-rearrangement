@@ -2,6 +2,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from typing import Dict, Union, List
+import zarr
 
 from src.dataset.normalizer import LinearNormalizer
 from src.dataset.zarr import combine_zarr_datasets
@@ -86,6 +87,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
         minority_class_power: bool = False,
+        load_into_memory: bool = True
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -98,20 +100,41 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # The dataset only has `delta/pos` control modes, use pos if `relative` is selected
         control_mode = "pos" if control_mode == ControlMode.relative else control_mode
 
-        # Read from zarr dataset
-        combined_data, metadata = combine_zarr_datasets(
-            dataset_paths,
-            [
-                "color_image1",
-                "color_image2",
-                "robot_state",
-                "action/pos",
-                "action/delta",
-                "skill",
-            ],
-            max_episodes=data_subset,
-            max_ep_cnt=max_episode_count,
-        )
+
+        self.non_image_keys = [
+            "robot_state",
+            "action/pos",
+            "action/delta",
+            "skill"
+        ]
+
+        self.image_keys = [
+            "color_image1",
+            "color_image2",
+        ]
+        self.load_into_memory = load_into_memory
+        if self.load_into_memory:
+            # Read from zarr dataset (images and non-image data)
+            combined_data, metadata = combine_zarr_datasets(
+                dataset_paths,
+                self.non_image_keys + self.image_keys,
+                max_episodes=data_subset,
+                max_ep_cnt=max_episode_count,
+            )
+        else:
+            # Read non-image data into memory
+            combined_data, metadata = combine_zarr_datasets(
+                dataset_paths,
+                self.non_image_keys,
+                max_episodes=data_subset,
+                max_ep_cnt=max_episode_count,
+            )
+
+            # Open the zarr datasets in read mode
+            self.dataset_paths = dataset_paths
+            self.zarr_datasets = [zarr.open(path, mode="r") for path in dataset_paths]
+            self.zarr_ci1 = [zd["color_image1"] for zd in self.zarr_datasets]
+            self.zarr_ci2 = [zd["color_image2"] for zd in self.zarr_datasets]
 
         # (N, D)
         # Get only the first data_subset episodes
@@ -155,12 +178,16 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         # Add the color images to the train_data (it's not supposed to be normalized)
         # and move the channels to the front
-        self.train_data["color_image1"] = torch.from_numpy(
-            combined_data["color_image1"]
-        ).permute(0, 3, 1, 2)
-        self.train_data["color_image2"] = torch.from_numpy(
-            combined_data["color_image2"]
-        ).permute(0, 3, 1, 2)
+        if self.load_into_memory:
+            self.train_data["color_image1"] = torch.from_numpy(
+                combined_data["color_image1"]
+            ).permute(0, 3, 1, 2)
+            self.train_data["color_image2"] = torch.from_numpy(
+                combined_data["color_image2"]
+            ).permute(0, 3, 1, 2)
+
+        self.train_data["zarr_idx"] = torch.from_numpy(combined_data["zarr_idx"])
+        self.train_data["within_zarr_idx"] = torch.from_numpy(combined_data["within_zarr_idx"])
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -247,6 +274,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 # Create additional samples in self.indices for minority class samples
                 additional_samples = self.indices[additional_indices]
                 self.indices = np.concatenate((self.indices, additional_samples))
+    
+        bp()
 
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
@@ -273,6 +302,27 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             sample_start_idx=sample_start_idx,
             sample_end_idx=sample_end_idx,
         )
+        if not self.load_into_memory:
+            # Get the zarr dataset index (these are all the same across the whole sample)
+            zarr_idx = nsample["zarr_idx"][0]
+
+            # Get the sample index within the zarr dataset
+            within_zarr_idx_start = nsample["within_zarr_idx"][0].item()
+            # within_zarr_idx_end = nsample["within_zarr_idx"][self.obs_horizon].item()
+            within_zarr_idx_end = within_zarr_idx_start + 1
+
+            # # Load the image information from disk (zarr datasets)
+            # for key in self.image_keys:
+            #     # Load the image data from the zarr dataset
+            #     nsample[key] = torch.from_numpy(
+            #         self.zarr_datasets[zarr_idx][key][within_zarr_idx_start : within_zarr_idx_end]
+            #     ).permute(0, 3, 1, 2)
+            nsample["color_image1"] = torch.from_numpy(
+                self.zarr_ci1[zarr_idx][within_zarr_idx_start : within_zarr_idx_end]
+            ).permute(0, 3, 1, 2)
+            nsample["color_image2"] = torch.from_numpy(
+                self.zarr_ci2[zarr_idx][within_zarr_idx_start : within_zarr_idx_end]
+            ).permute(0, 3, 1, 2)
 
         # Discard unused observations
         # TODO: This is where a performance improvement can be made, i.e., don't load

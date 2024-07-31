@@ -40,6 +40,7 @@ import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
+import torch.distributed as dist
 
 
 from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
@@ -151,6 +152,7 @@ def main(cfg: DictConfig):
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
             minority_class_power=cfg.data.get("minority_class_power", False),
+            load_into_memory=cfg.data.get("load_into_memory", True),
         )
     elif cfg.observation_type == "state":
         dataset = FurnitureStateDataset(
@@ -621,6 +623,9 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/counter"] = early_stopper.counter
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+    
+        print(f'Barrier to allow all processes to finish before epoch {epoch_idx+1}')
+        dist.barrier()
 
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:

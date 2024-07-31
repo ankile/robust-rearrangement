@@ -18,4 +18,5 @@ data:
   include_future_obs: false
   minority_class_power: false
   data_paths_override: null
+  load_into_memory: true
   parts_poses_in_robot_frame: ${parts_poses_in_robot_frame}
