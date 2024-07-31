@@ -118,12 +118,14 @@ def now():
 def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
-    print(OmegaConf.to_yaml(cfg))
     env = None
 
     ddp_setup()
     gpu_id = int(os.environ["LOCAL_RANK"])
     device = torch.device("cuda", gpu_id)
+
+    if gpu_id == 0:
+        print(OmegaConf.to_yaml(cfg))
 
     if cfg.data.data_paths_override is None:
         data_path = get_processed_paths(
@@ -287,7 +289,6 @@ def main(cfg: DictConfig):
 
     starttime = now()
     print(f"Job started at: {starttime}")
-
     print(f"This process has access to {os.cpu_count()} CPUs.")
 
     # Init wandb
@@ -626,8 +627,8 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/counter"] = early_stopper.counter
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
-    
-        print(f'Barrier to allow all processes to finish before epoch {epoch_idx+1}')
+
+        # print(f'Barrier to allow all processes to finish before epoch {epoch_idx+1}')
         dist.barrier()
 
         # If switch is enabled, copy the the shadow to the model at the end of each epoch

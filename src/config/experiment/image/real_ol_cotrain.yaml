@@ -23,10 +23,12 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 100
+  checkpoint_interval: 1000
   num_epochs: 5000
   steps_per_epoch: 100
   encoder_lr: 1e-5
+  eval_every: 50
+  sample_every: 100
 
 lr_scheduler:
   name: cosine
