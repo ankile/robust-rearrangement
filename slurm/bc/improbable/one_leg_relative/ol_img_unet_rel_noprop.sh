@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=02-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=ol_img_rel_r3m
+#SBATCH --job-name=ol_img_rel_r3m_noprop
 
 export HOME=/data/scratch/ankile
 
@@ -22,11 +22,11 @@ python -m src.train.bc +experiment=image/diff_unet \
     pred_horizon=32 training.batch_size=256 \
     training.encoder_lr=1e-5 \
     lr_scheduler.encoder_warmup_steps=50000 \
-    actor.include_proprioceptive_pos=true \
-    actor.include_proprioceptive_ori=true \
+    actor.include_proprioceptive_pos=false \
+    actor.include_proprioceptive_ori=false \
     control.control_mode=relative \
     training.clip_grad_norm=true \
     wandb.watch_model=true \
-    wandb.name=img-rel-r3m-22 \
+    wandb.name=img-rel-r3m-noprop-21 \
     wandb.project=ol-image-relative-1 \
     dryrun=false

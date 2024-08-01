@@ -14,7 +14,7 @@ torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/r
     randomness='[low,med,med_perturb]' \
     environment='[real,sim]' \
     training.batch_size=128 \
-    data.dataloader_workers=20 \
+    data.dataloader_workers=$OMP_NUM_THREADS \
     control.control_mode=relative \
     training.clip_grad_norm=true \
     wandb.mode=offline \

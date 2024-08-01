@@ -8,12 +8,12 @@
 #SBATCH --mem=64GB
 #SBATCH --time=02-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=ol_img_rel_r3m
+#SBATCH --job-name=ol_img_rel_trans_r3m
 
 export HOME=/data/scratch/ankile
 
 python -m src.train.bc +experiment=image/diff_unet \
-    actor.diffusion_model.down_dims='[128,256,512]' \
+    actor/diffusion_model=transformer \
     randomness='[low,low_perturb]' \
     rollout=rollout rollout.randomness=low rollout.every=50 \
     rollout.max_steps=700 rollout.num_envs=32 \
@@ -27,6 +27,6 @@ python -m src.train.bc +experiment=image/diff_unet \
     control.control_mode=relative \
     training.clip_grad_norm=true \
     wandb.watch_model=true \
-    wandb.name=img-rel-r3m-22 \
+    wandb.name=img-rel-r3m-trans-23 \
     wandb.project=ol-image-relative-1 \
     dryrun=false

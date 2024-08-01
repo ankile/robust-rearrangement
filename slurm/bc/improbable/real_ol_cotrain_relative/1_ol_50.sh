@@ -21,6 +21,6 @@ torchrun --standalone --nproc_per_node=4 -m src.train.bc_ddp +experiment=image/r
     data.dataloader_workers=$OMP_NUM_THREADS \
     control.control_mode=relative \
     training.clip_grad_norm=true \
-    wandb.mode=offline \
+    wandb.mode=online \
     wandb.project=real-ol-cotrain-relative-1 \
-    dryrun=true
+    dryrun=false
