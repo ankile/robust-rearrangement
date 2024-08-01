@@ -79,9 +79,11 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         }
         self.normalizer.load_state_dict(base_normalizer_state_dict)
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def compute_loss(self, batch: Dict[str, torch.Tensor], base_only: bool=True) -> torch.Tensor:
         # Cut off the unused observations before passing to the bc loss
         bc_loss, losses = super().compute_loss(batch)
+        if base_only:
+            return bc_loss, losses
 
         # Predict the action
         with torch.no_grad():
@@ -242,3 +244,14 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
     @property
     def critic_parameters(self):
         return [p for n, p in self.residual_policy.named_parameters() if "critic" in n]
+
+    @property
+    def base_actor_parameters(self):
+        """
+        Return the parameters of the base model (actor only)
+        """
+        return [
+            p
+            for n, p in self.model.named_parameters()
+            if not (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
