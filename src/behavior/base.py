@@ -575,6 +575,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.compute_loss(batch)
+
     def confusion_loss(self, batch, feature1, feature2):
         domain_idx: torch.Tensor = batch["domain"]
 

@@ -61,7 +61,8 @@ def get_processed_path(
     path = add_subdir(path, demo_outcome)
 
     # We can mix suffixes
-    path = add_subdir(path, suffix)
+    if suffix is not None:
+        path = add_subdir(path, suffix)
 
     # Set the file extension
     path = path.with_suffix(".zarr")
@@ -183,7 +184,8 @@ def get_raw_paths(
     paths = add_glob_part(paths, randomness)
 
     # Add the suffix pattern to all paths
-    paths = add_glob_part(paths, suffix)
+    if suffix is not None:
+        paths = add_glob_part(paths, suffix)
 
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)

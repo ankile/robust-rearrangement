@@ -4,24 +4,26 @@
 #SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=20
-#SBATCH --mem=64GB
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128GB
 #SBATCH --time=02-00:00
-#SBATCH --gres=gpu:1
-#SBATCH --job-name=ol_img_diff_rel_clip_frozen
+#SBATCH --gres=gpu:4
+#SBATCH --job-name=ol_img_diff_rel_clipvit
 
-python -m src.train.bc +experiment=image/diff_unet \
+export OMP_NUM_THREADS=16
+
+torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/diff_unet \
     actor.diffusion_model.down_dims='[128,256,512]' \
-    vision_encoder.freeze=true \
-    randomness='[low,low_perturb]' \
+    vision_encoder=clip_vit \
     rollout=rollout rollout.randomness=low rollout.every=50 \
-    rollout.max_steps=700 rollout.num_envs=32 \
+    randomness='[low,low_perturb]' \
     furniture=one_leg regularization.weight_decay=0 \
     training.ema.use=false \
-    pred_horizon=32 training.batch_size=256 \
+    training.encoder_lr=1e-5 \
+    pred_horizon=32 training.batch_size=64 \
     control.control_mode=relative \
     training.clip_grad_norm=true \
     wandb.watch_model=false \
-    wandb.name=img-rel-clip-frozen-1 \
+    wandb.name=img-rel-clipvit-25 \
     wandb.project=ol-image-relative-1 \
-    dryrun=false
+    dryrun=true

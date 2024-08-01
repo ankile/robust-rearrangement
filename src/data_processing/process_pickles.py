@@ -384,6 +384,7 @@ if __name__ == "__main__":
     parser.add_argument("--randomize-order", action="store_true")
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--n-cpus", type=int, default=1)
+    parser.add_argument("--chunk-size", type=int, default=1000)
     args = parser.parse_args()
 
     assert not args.randomize_order or args.offset == 0, "Cannot offset with randomize"
@@ -434,7 +435,7 @@ if __name__ == "__main__":
         )
 
     # Process all pickle files
-    chunksize = 1_000
+    chunksize = args.chunk_size
     noop_threshold = 0.0
     n_cpus = min(os.cpu_count(), args.n_cpus)
 

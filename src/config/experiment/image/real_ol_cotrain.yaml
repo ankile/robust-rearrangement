@@ -23,15 +23,17 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 100
+  checkpoint_interval: 1000
   num_epochs: 5000
   steps_per_epoch: 100
   encoder_lr: 1e-5
+  eval_every: 50
+  sample_every: 100
 
 lr_scheduler:
   name: cosine
-  warmup_steps: 1_000
-  encoder_warmup_steps: 25_000
+  warmup_steps: 2_000
+  encoder_warmup_steps: 50_000
 
 regularization:
   feature_layernorm: true
