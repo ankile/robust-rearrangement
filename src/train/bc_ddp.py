@@ -278,7 +278,7 @@ def main(cfg: DictConfig):
         lr_schedulers.append(lr_scheduler_encoder)
 
     if cfg.training.ema.use:
-        ema = SwitchEMA(actor, cfg.training.ema.decay)
+        ema = SwitchEMA(actor.module, cfg.training.ema.decay)
         ema.register()
 
     early_stopper = EarlyStopper(
@@ -335,44 +335,7 @@ def main(cfg: DictConfig):
         model_save_dir = Path(cfg.training.model_save_dir) / wandb.run.name
         model_save_dir.mkdir(parents=True, exist_ok=True)
 
-        # if cfg.wandb.continue_run_id is not None:
-        #     print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-
-        #     cfg.training.start_epoch = run.summary.get("epoch", 0)
-
-        #     run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
-
-        #     # Load the weights from the run
-        #     _, wts = get_model_from_api_or_cached(
-        #         run_id, "latest", wandb_mode=cfg.wandb.mode
-        #     )
-
-        #     state_dict = torch.load(wts)
-
-        #     if "model_state_dict" in state_dict:
-        #         actor.load_state_dict(state_dict["model_state_dict"])
-        #         for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-        #             opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
-        #             scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
-
-        #     else:
-        #         actor.load_state_dict(state_dict)
-
-        #     print(f"Loaded weights from run {run_id}")
-
-        #     # Set the best test loss and success rate to the one from the run
-        #     best_test_loss = state_dict.get(
-        #         "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
-        #     )
-        #     test_loss_mean = best_test_loss
-        #     best_success_rate = state_dict.get(
-        #         "best_success_rate", run.summary.get("best_success_rate", 0)
-        #     )
-        #     epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
-        #     global_step = state_dict.get("global_step", run.step)
-
-        #     prev_best_success_rate = best_success_rate
-        # else:
+        # TODO: Handle checkpoint loading and auto-resume properly here
 
     # Train loop
     best_test_loss = float("inf")
@@ -382,6 +345,9 @@ def main(cfg: DictConfig):
     global_step = 0
 
     early_stop = False
+
+    # Wait here until all ranks are ready to begin training
+    dist.barrier()
 
     pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
     tglobal = trange(
@@ -556,11 +522,6 @@ def main(cfg: DictConfig):
                 "global_step": global_step,
             }
 
-            # Add the optimizer and scheduler states to the save dict
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
             # Save the model if the test loss is the best so far
             if (
                 cfg.training.store_best_test_loss_model
@@ -583,6 +544,14 @@ def main(cfg: DictConfig):
 
             if cfg.training.store_last_model:
                 save_path = str(model_save_dir / f"actor_chkpt_last.pt")
+
+                # Add the optimizer and scheduler states to the save dict
+                # NOTE: We only do it here because this is the model we'll use for resuming runs
+                # and as such will save disk space
+                for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                    save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+                    save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
+
                 torch.save(save_dict, save_path)
                 wandb.save(save_path)
 
@@ -628,9 +597,6 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
 
-        # print(f'Barrier to allow all processes to finish before epoch {epoch_idx+1}')
-        dist.barrier()
-
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:
             ema.copy_to_model()
@@ -649,7 +615,8 @@ def main(cfg: DictConfig):
 
         # If we are in offline mode, trigger the sync
         if (
-            cfg.wandb.mode == "offline"
+            gpu_id == 0
+            and cfg.wandb.mode == "offline"
             and (epoch_idx % cfg.wandb.get("osh_sync_interval", 1)) == 0
         ):
             trigger_sync()
@@ -660,6 +627,9 @@ def main(cfg: DictConfig):
                 f"Early stopping at epoch {epoch_idx} as test loss did not improve for {early_stopper.patience} epochs."
             )
             break
+
+        # Barrier to allow all processes to finish before next epoch
+        dist.barrier()
 
     tglobal.close()
     wandb.finish()
