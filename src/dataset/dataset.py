@@ -87,7 +87,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pad_after: bool = True,
         max_episode_count: Union[dict, None] = None,
         minority_class_power: bool = False,
-        load_into_memory: bool = True
+        load_into_memory: bool = True,
     ):
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
@@ -100,12 +100,12 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         # The dataset only has `delta/pos` control modes, use pos if `relative` is selected
         control_mode = "pos" if control_mode == ControlMode.relative else control_mode
 
-
         self.non_image_keys = [
             "robot_state",
             "action/pos",
             "action/delta",
-            "skill"
+            "skill",
+            "parts_poses",
         ]
 
         self.image_keys = [
@@ -186,8 +186,23 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 combined_data["color_image2"]
             ).permute(0, 3, 1, 2)
 
+        # TODO: Make this more general, for now, just pick out the parts of interest
+        poses = torch.from_numpy(combined_data["parts_poses"]).reshape(-1, 6, 7)
+
+        # Convert to 6D orientation
+        poses = torch.cat(
+            [poses[:, :, :3], C.quaternion_to_rotation_6d(poses[:, :, 3:7])], dim=-1
+        )
+
+        # Pick out parts with index 0 and 4
+        poses = torch.stack([poses[:, 0], poses[:, 4]], dim=1)
+
+        self.train_data["parts_poses"] = poses.reshape(-1, 2 * 9)
+
         self.train_data["zarr_idx"] = torch.from_numpy(combined_data["zarr_idx"])
-        self.train_data["within_zarr_idx"] = torch.from_numpy(combined_data["within_zarr_idx"])
+        self.train_data["within_zarr_idx"] = torch.from_numpy(
+            combined_data["within_zarr_idx"]
+        )
 
         # compute start and end of each state-action sequence
         # also handles padding
@@ -274,7 +289,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
                 # Create additional samples in self.indices for minority class samples
                 additional_samples = self.indices[additional_indices]
                 self.indices = np.concatenate((self.indices, additional_samples))
-    
+
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
@@ -308,15 +323,15 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             within_zarr_idx_start = nsample["within_zarr_idx"][0].item()
             # within_zarr_idx_end = nsample["within_zarr_idx"][self.obs_horizon].item()
             if self.obs_horizon > 1:
-                print(f'WARNING!!! obs_horizon > 1, this is not supported yet')
+                print(f"WARNING!!! obs_horizon > 1, this is not supported yet")
             within_zarr_idx_end = within_zarr_idx_start + 1
 
             # Load the image information from disk (zarr datasets)
             nsample["color_image1"] = torch.from_numpy(
-                self.zarr_ci1[zarr_idx][within_zarr_idx_start : within_zarr_idx_end]
+                self.zarr_ci1[zarr_idx][within_zarr_idx_start:within_zarr_idx_end]
             ).permute(0, 3, 1, 2)
             nsample["color_image2"] = torch.from_numpy(
-                self.zarr_ci2[zarr_idx][within_zarr_idx_start : within_zarr_idx_end]
+                self.zarr_ci2[zarr_idx][within_zarr_idx_start:within_zarr_idx_end]
             ).permute(0, 3, 1, 2)
 
         # Discard unused observations
@@ -325,6 +340,9 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         nsample["color_image1"] = nsample["color_image1"][: self.obs_horizon, :]
         nsample["color_image2"] = nsample["color_image2"][: self.obs_horizon, :]
         nsample["robot_state"] = nsample["robot_state"][: self.obs_horizon, :]
+
+        # Discard unused parts poses
+        nsample["parts_poses"] = nsample["parts_poses"][: self.obs_horizon, :]
 
         # Discard unused actions
         nsample["action"] = nsample["action"][

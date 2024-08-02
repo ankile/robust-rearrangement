@@ -50,6 +50,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     rescale_loss_for_domain: bool = False
     confusion_loss_anchored: bool = False
     weight_confusion_loss_by_action: bool = False
+    pose_pred_loss_coef: float = 0.0
 
     encoding_dim: int
     augment_image: bool
@@ -97,10 +98,6 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             "include_proprioceptive_ori", True
         )
 
-        # Regularization
-        self.augment_image = cfg.data.augment_image
-        self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
-
         self.device = device
         self.action_type = cfg.control.control_mode
 
@@ -108,6 +105,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         if self.observation_type == "image":
             self._initiate_image_encoder(cfg)
 
+            # Regularization
+            self.augment_image = cfg.data.augment_image
+            self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
             self.feature_noise = cfg.regularization.get("feature_noise", None)
             self.feature_dropout = cfg.regularization.get("feature_dropout", None)
             self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
@@ -131,6 +131,19 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self.weight_confusion_loss_by_action = actor_cfg.get(
                 "weight_confusion_loss_by_action", False
             )
+            self.pose_pred_loss_coef = actor_cfg.get("pose_pred_loss_coef", 0.0)
+
+            if self.pose_pred_loss_coef > 0:
+                # Create a small predicton network head to predict the pose
+                # It will take in the features from the encoder and predict the pose
+                self.pose_pred_head = nn.Sequential(
+                    nn.Linear(2 * self.encoding_dim, 128),
+                    nn.ReLU(),
+                    # We'll hardcode the output to be 3 x (3 + 6) for the position and orientation
+                    # of the end effector and the two parts used in `one_leg`
+                    # TODO: Make this more flexible to handle variable part numbers
+                    nn.Linear(128, 3 * 9),
+                )
 
         elif self.observation_type == "state":
             self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
@@ -515,6 +528,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
                 confusion_loss = self.confusion_loss(batch, feature1, feature2)
                 batch["confusion_loss"] = confusion_loss
 
+            if self.pose_pred_loss_coef > 0:
+                # Compute the auxiliary pose loss
+                pose_prediction_loss = self.pose_prediction_loss(
+                    batch, feature1, feature2
+                )
+                batch["pose_prediction_loss"] = pose_prediction_loss
+
             # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
             nobs = torch.cat([nrobot_state, feature1, feature2], dim=-1)
 
@@ -635,6 +655,27 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Sum along all dimensions except the last to compute the accumulated loss
         loss = differences.mean(dim=(0, 1, 2))
+
+        return loss
+
+    def pose_prediction_loss(self, batch, feature1, feature2):
+        # Concatenate the features for the input to the pose prediction head
+        feature = torch.cat([feature1, feature2], dim=-1)
+
+        # Get the ground truth poses
+        gt_poses = torch.cat(
+            [
+                batch["robot_state"][:, :, :9],
+                batch["parts_poses"],
+            ],
+            dim=-1,
+        )
+
+        # Predict the pose
+        pred_poses = self.pose_pred_head(feature)
+
+        # Compute the loss
+        loss = torch.nn.functional.mse_loss(pred_poses, gt_poses, reduction="mean")
 
         return loss
 
