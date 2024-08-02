@@ -380,7 +380,10 @@ class SimpleDiffIKFrankaEnv:
         self.last_grasp = torch.Tensor([-1]).float().to(self.device).squeeze()
         self.last_grip_step = 0
 
-        self.grasp_margin = 0.02 - 0.001  # To prevent repeating open and close actions
+        # self.grasp_margin = 0.75  # To prevent repeating open and close actions
+        self.grasp_margin = 0.25  # To prevent repeating open and close actions
+        # self.grasp_margin = 0.1  # To prevent repeating open and close actions
+        # self.grasp_margin = 0.02 - 0.001  # To prevent repeating open and close actions
 
         # flags
         self.observation_type = observation_type
@@ -393,6 +396,11 @@ class SimpleDiffIKFrankaEnv:
 
         self.Kq_new = torch.Tensor([150.0, 120.0, 160.0, 100.0, 110.0, 100.0, 40.0])
         self.Kqd_new = torch.Tensor([20.0, 20.0, 20.0, 20.0, 12.0, 12.0, 8.0])
+
+        # self.Kq_new = torch.Tensor([225.0, 180.0, 240.0, 150.0, 110.0, 100.0, 50.0])
+        # self.Kqd_new = torch.Tensor([28.0, 28.0, 28.0, 28.0, 12.0, 12.0, 8.0])
+        # self.Kq_new = torch.Tensor([400.0, 400.0, 400.0, 400.0, 250.0, 150.0, 50.0])
+        # self.Kqd_new = torch.Tensor([50.0, 50.0, 50.0, 50.0, 30.0, 25.0, 15.0])
 
         # Move the robot to home to begin with
         self.gripper.goto(0.08, 0.05, 0.1, blocking=False)
@@ -659,6 +667,8 @@ class SimpleDiffIKFrankaEnv:
 
         parts_poses[0, :7] = parts_poses_april[0, :7]
         parts_poses[0, 28:35] = parts_poses_april[0, 28:35]
+        # keep z coord of the table fixed
+        # parts_poses[0, 2] = self.part_reset_poses[0, 2]
 
         self.last_parts_poses = parts_poses.clone()
 
@@ -690,9 +700,9 @@ class SimpleDiffIKFrankaEnv:
                 pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
             )
 
-            mc_util.meshcat_frame_show(
-                self.mc_vis, f"scene/leg_reset_pose", leg_reset_pose_mat
-            )
+            # mc_util.meshcat_frame_show(
+            #     self.mc_vis, f"scene/leg_reset_pose", leg_reset_pose_mat
+            # )
 
             mc_util.meshcat_frame_show(self.mc_vis, f"scene/leg_pose", leg_pose_mat)
 
@@ -704,9 +714,9 @@ class SimpleDiffIKFrankaEnv:
                 pose_frame_target_mat=np.eye(4),
                 pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
             )
-            mc_util.meshcat_frame_show(
-                self.mc_vis, f"scene/top_reset_pose", top_reset_pose_mat
-            )
+            # mc_util.meshcat_frame_show(
+            #     self.mc_vis, f"scene/top_reset_pose", top_reset_pose_mat
+            # )
 
             top_pose_mat_tag = T.pose2mat(parts_poses.squeeze()[0:7].cpu().numpy())
             top_pose_mat = convert_reference_frame_mat(
@@ -715,6 +725,14 @@ class SimpleDiffIKFrankaEnv:
                 pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
             )
             mc_util.meshcat_frame_show(self.mc_vis, f"scene/top_pose", top_pose_mat)
+
+            obs_pose_mat_tag = T.pose2mat(parts_poses.squeeze()[-7:].cpu().numpy())
+            obs_pose_mat = convert_reference_frame_mat(
+                pose_source_mat=obs_pose_mat_tag,
+                pose_frame_target_mat=np.eye(4),
+                pose_frame_source_mat=config["robot"]["tag_base_from_robot_base"],
+            )
+            mc_util.meshcat_frame_show(self.mc_vis, f"scene/obs_pose", obs_pose_mat)
 
         obs = dict(
             parts_poses=torch.clamp(parts_poses, -1.5, 1.5),
@@ -832,7 +850,14 @@ class SimpleDiffIKFrankaEnv:
                 self.cached_leg_pose_mat_ee = None
 
                 # Just sleep for a hot minute to let the gripper open a bit
-                time.sleep(0.1)
+                # time.sleep(0.1)
+                # bp()
+                while (
+                    self.gripper.get_state().width
+                    < 0.075  # 0.0798 - fully open
+                    # self.gripper.get_state().is_moving
+                ):  # self.gripper.get_state().width < 0.075 # 0.0798 - fully open
+                    time.sleep(0.01)
 
             self.gripper_open = not self.gripper_open
             self.last_grip_step = 0
@@ -1063,7 +1088,8 @@ class FurnitureRLSimEnvMultiStepWrapper:
 
         obs = torch.cat([robot_state, parts_poses], dim=-1)
         nobs = self.normalizer(obs, "observations", forward=True)
-        nobs = torch.clamp(nobs, -5, 5)
+        # nobs = torch.clamp(nobs, -5, 5)
+        nobs = torch.clamp(nobs, -1, 1)
 
         # Insert a dummy dimension for the n_obs_steps (n_envs, obs_dim) -> (n_envs, n_obs_steps, obs_dim)
         nobs = nobs.unsqueeze(1)  # .cpu().numpy()
@@ -1071,48 +1097,185 @@ class FurnitureRLSimEnvMultiStepWrapper:
         return nobs
 
 
+output_path = Path("outputs") / datetime.now().strftime("%Y-%m-%d")
+output_path.mkdir(parents=True, exist_ok=True)
+
 store_run_list = False
 
 if store_run_list:
 
-    run_list = [
-        # DPPO after 200 iterations
-        {
-            "name": "DPPO-200",
-            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_200.pt",
-            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
-        },
-        # DP after BC pretraining
-        {
-            "name": "DP-BC",
-            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_0.pt",
-            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
-        },
-        # Gaussian MLP after 200 iterations
-        {
-            "name": "Gaussian-200",
-            "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/checkpoint/state_200.pt",
-            "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/.hydra",
-        },
-    ]
+    # Old normalization
+    if False:
+        run_list = [
+            # DPPO after 200 iterations
+            {
+                "name": "DPPO-200",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
+            },
+            # DPPO with some noising
+            {
+                "name": "DPPO-200-with-noise",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-10_23-53-18/checkpoint/state_250.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-10_23-53-18/.hydra",
+            },
+            # DP after BC pretraining
+            {
+                "name": "DP-BC",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/checkpoint/state_0.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-04_17-04-28/.hydra",
+            },
+            # Gaussian MLP after 200 iterations
+            {
+                "name": "Gaussian-200",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-02_11-57-36/.hydra",
+            },
+            # New UNet
+            {
+                "name": "DPPO-new",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-07_23-48-51/checkpoint/state_100.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-07_23-48-51/.hydra",
+            },
+            # New UNet - 2
+            {
+                "name": "DPPO-new",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-07_23-48-51/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-07_23-48-51/.hydra",
+            },
+            # only smooth (unsure)
+            {
+                "name": "DPPO-only-1",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-17_19-14-15/checkpoint/state_300.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-17_19-14-15/.hydra",
+            },
+            # only state noise (unsure)
+            {
+                "name": "DPPO-only-2",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-17_19-35-16/checkpoint/state_400.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-17_19-35-16/.hydra",
+            },
+            # fixture obs noise
+            {
+                "name": "DPPO-fixture-noise",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/.hydra",
+            },
+            # fixture obs noise
+            {
+                "name": "DPPO-fixture-noise-2",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/checkpoint/state_100.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/.hydra",
+            },
+            # fixture obs noise
+            {
+                "name": "DPPO-fixture-noise-3",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/checkpoint/state_250.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_20-17-40/.hydra",
+            },
+            # force perts
+            {
+                "name": "DPPO-force-perts",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/.hydra",
+            },
+            # force perts
+            {
+                "name": "DPPO-force-perts-2",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/checkpoint/state_250.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/.hydra",
+            },
+            # force perts
+            {
+                "name": "DPPO-force-perts-3",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/checkpoint/state_150.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_22-37-08/.hydra",
+            },
+            # fixture noise + perts
+            {
+                "name": "DPPO-force-pert-and-fixture-noise",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_23-23-42/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-23_23-23-42/.hydra",
+            },
+            # action noise
+            {
+                "name": "DPPO-an1",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_21-21-48/checkpoint/state_300.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_21-21-48/.hydra",
+            },
+            # action noise 2
+            {
+                "name": "DPPO-an2",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_21-23-01/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_21-23-01/.hydra",
+            },
+            # action noise + force perts
+            {
+                "name": "DPPO-pert-an",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_22-27-05/checkpoint/state_300.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-24_22-27-05/.hydra",
+            },
+        ]
+        # New normalization
+    else:
+        run_list = [
+            # new DPPO with new normalization
+            {
+                "name": "DPPO-new-norm",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-26_02-05-09/checkpoint/state_150.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-26_02-05-09/.hydra",
+            },
+            # BC with new normalization
+            {
+                "name": "BC-new-norm",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-26_02-05-09/checkpoint/state_0.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_diffusion_unet_ta16_td100_tdf-5/2024-07-26_02-05-09/.hydra",
+            },
+            # Gaussian 2 with new normalization (with BC)
+            {
+                "name": "Gaussian-new-bc",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-26_03-04-52/checkpoint/state_200.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-26_03-04-52/.hydra",
+            },
+            # Gaussian 2 with new normalization (pre-trained only)
+            {
+                "name": "BC-Gaussian-new-bc",
+                "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-26_03-04-52/checkpoint/state_0.pt",
+                "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-26_03-04-52/.hydra",
+            },
+            # # Gaussian 1 with new normalization
+            # {
+            #     "name": "Gaussian-new-norm",
+            #     "wt_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-25_23-32-56/checkpoint/state_200.pt",
+            #     "cfg_path": "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/one_leg_low_dim_ft_gaussian_mlp_ta8/2024-07-25_23-32-56/.hydra",
+            # },
+        ]
 
     # Randomly shuffle the list of runs
     np.random.shuffle(run_list)
 
     # Save the list is a json file
-    with open("outputs/run_list.json", "w") as f:
+    with open(output_path / "run_list.json", "w") as f:
         json.dump(run_list, f, indent=4)
 
     sys.exit(0)
 
 # Load the run list in a random order we don't know
-with open("outputs/run_list.json", "r") as f:
+with open(output_path / "run_list.json", "r") as f:
     run_list = json.load(f)
 
+# normalization_path = "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/normalization.pth"
+normalization_path = "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/new_normalization/normalization.pth"
 
-normalization_path = "/home/anthony/repos/research/robust-rearrangement/models/one_leg_low/normalization.pth"
+# run_idx = 2
+# run_idx = 4
+# run_idx = 13  # 8, 9, 10, 11, 12, 13, 14
+# run_idx = -2
 
-run_idx = 0  # np.random.randint(0, 3)
+# run_idx = 3
+run_idx = np.random.randint(0, len(run_list))
+# with open("outputs/2024-07-27/run_idx.txt", "a") as f:
+#     f.write(f"{run_idx}\n")
 
 
 @hydra.main(
@@ -1152,6 +1315,16 @@ def main(cfg: DictConfig):
     ep_end = z["episode_ends"][0]
     parts_poses = torch.from_numpy(z["parts_poses"][:ep_end, :])
 
+    # bp()
+    # parts_poses[0, 35] += -0.025
+    # parts_poses[0, 36] += 0.02
+    # parts_poses[0, 35] += -0.0125
+    # parts_poses[0, 36] += 0.01
+
+    # parts_poses[0, 36] += 0.02
+    # parts_poses[0, 36] -= 0.015
+    # parts_poses[0, 36] -= 0.005
+
     # Initial parts poses from the demo dataset
     demo_init_parts_poses = parts_poses[:1].to(device)
 
@@ -1180,7 +1353,7 @@ def main(cfg: DictConfig):
     start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     keyboard = KeyboardInterface()
-    f = open(f"outputs/eval_run_{run_idx=}_{start_time=}.csv", mode="w")
+    f = open(output_path / f"eval_run_{run_idx=}_{start_time=}.csv", mode="w")
 
     f.write(
         f"Starting evaluation for run {run_idx} at {start_time}\n"
@@ -1205,11 +1378,18 @@ def main(cfg: DictConfig):
         print(f"Starting evaluation...\n\n\n")
         time.sleep(1.0)
 
+        # alpha = 0.05
         alpha = 0.0
         start_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
         f.write(f"Starting episode {i} at {start_time}\n")
         f.flush()
+
+        print(f"Running evaluation for run {run_idx} at {start_time}")
+        _ = input("Press enter to continue...")
+
+        with open("outputs/2024-07-27/run_idx.txt", "a") as f:
+            f.write(f"{run_idx}\n")
 
         leg4_pos = slice(16 + 28, 16 + 31)
         top_pos = slice(16 + 0, 16 + 3)
@@ -1231,13 +1411,15 @@ def main(cfg: DictConfig):
                 time.sleep(1.0)
                 continue
 
-            samples = actor(
+            output_venv = actor(
                 # cond=torch.from_numpy(obs).float().to(device),
                 cond=obs,
                 deterministic=True,
-                return_chain=True,
+                # return_chain=True,
             )
-            output_venv = samples.trajectories  # n_env x horizon x act
+
+            if not isinstance(output_venv, torch.Tensor):
+                output_venv = output_venv.trajectories  # n_env x horizon x act
             # output_venv = samples.trajectories.cpu().numpy()  # n_env x horizon x act
             action_venv = output_venv[:, :8]
 
