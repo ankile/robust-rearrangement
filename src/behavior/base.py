@@ -97,6 +97,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         self.include_proprioceptive_ori = actor_cfg.get(
             "include_proprioceptive_ori", True
         )
+        self.augment_image = cfg.data.augment_image
+        self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
         self.action_type = cfg.control.control_mode
@@ -106,8 +108,6 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self._initiate_image_encoder(cfg)
 
             # Regularization
-            self.augment_image = cfg.data.augment_image
-            self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
             self.feature_noise = cfg.regularization.get("feature_noise", None)
             self.feature_dropout = cfg.regularization.get("feature_dropout", None)
             self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)

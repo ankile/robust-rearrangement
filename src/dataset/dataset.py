@@ -77,7 +77,7 @@ def sample_sequence(
 class FurnitureImageDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_paths: Union[List[str], str],
+        dataset_paths: Union[List[Path], Path],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,

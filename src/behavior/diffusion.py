@@ -166,6 +166,12 @@ class DiffusionPolicy(Actor):
 
             loss += self.confusion_loss_beta * confusion_loss
 
+        if self.pose_pred_loss_coef > 0:
+            pose_pred_loss = batch["pose_prediction_loss"]
+            losses["pose_prediction_loss"] = pose_pred_loss.item()
+
+            loss += self.pose_pred_loss_coef * pose_pred_loss
+
         return loss, losses
 
 
