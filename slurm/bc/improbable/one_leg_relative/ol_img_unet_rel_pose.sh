@@ -1,14 +1,16 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a100,vision-pulkitag-v100,vision-pulkitag-a6000,vision-pulkitag-3090
+#SBATCH -p vision-pulkitag-a100
 #SBATCH -q vision-pulkitag-main
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=01-00:00
+#SBATCH --time=02-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=ol_img_pos_baseline
+#SBATCH --job-name=ol_img_rel_pose
+
+export HOME=/data/scratch/ankile
 
 python -m src.train.bc +experiment=image/diff_unet \
     actor.diffusion_model.down_dims='[128,256,512]' \
@@ -17,9 +19,14 @@ python -m src.train.bc +experiment=image/diff_unet \
     rollout.max_steps=700 rollout.num_envs=32 \
     furniture=one_leg regularization.weight_decay=0 \
     training.ema.use=false \
+    pred_horizon=32 training.batch_size=256 \
+    training.encoder_lr=1e-5 \
+    lr_scheduler.encoder_warmup_steps=50000 \
+    actor.include_proprioceptive_pos=true \
+    actor.include_proprioceptive_ori=true \
+    actor.pose_pred_loss_coef=0.01 \
+    control.control_mode=relative \
     training.clip_grad_norm=true \
-    control.control_mode=pos \
-    wandb.name=img-baseline-clip-1 \
-    wandb.watch_model=true \
+    wandb.name=img-rel-pose-sm-27 \
     wandb.project=ol-image-relative-1 \
-    dryrun=true
+    dryrun=false

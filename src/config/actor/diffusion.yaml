@@ -20,9 +20,6 @@ num_diffusion_iters: 100
 clip_sample: true
 
 loss_fn: MSELoss  # MSELoss | L1Loss
-confusion_loss_beta: 0.0
-rescale_loss_for_domain: false
-confusion_loss_anchored: false
-weight_confusion_loss_by_action: false
+
 
 projection_dim: 128

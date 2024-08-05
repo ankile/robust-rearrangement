@@ -119,6 +119,7 @@ def combine_zarr_datasets(
 
         # Add the frame-based data
         for key in tqdm(keys, desc="Loading data", position=1, leave=False):
+
             for i in tqdm(
                 range(0, end_idxs[-1], batch_size),
                 desc=f"Loading batches for {key}",
@@ -147,8 +148,12 @@ def combine_zarr_datasets(
             dataset.attrs["domain"][:max_episodes]
         ]
 
-        combined_data["zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = ii
-        combined_data["within_zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = np.arange(0, end_idxs[-1])
+        combined_data["zarr_idx"][
+            last_episode_end : last_episode_end + end_idxs[-1]
+        ] = ii
+        combined_data["within_zarr_idx"][
+            last_episode_end : last_episode_end + end_idxs[-1]
+        ] = np.arange(0, end_idxs[-1])
 
         # Upddate the counters
         last_episode_end += end_idxs[-1]

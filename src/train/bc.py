@@ -440,7 +440,7 @@ def main(cfg: DictConfig):
             for name, opt in optimizers:
                 step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
 
-            wandb.log(step_log, step=global_step)
+            wandb.log(step_log, step=global_step, commit=False)
 
             # Update the global step
             global_step += 1
@@ -608,7 +608,7 @@ def main(cfg: DictConfig):
             ema.copy_to_model()
 
         # Log epoch stats
-        wandb.log(epoch_log, step=global_step)
+        wandb.log(epoch_log, step=global_step, commit=True)
         tglobal.set_postfix(
             time=now(),
             loss=epoch_log["epoch_loss"],

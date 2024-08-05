@@ -1,2 +1,9 @@
 include_proprioceptive_pos: true
 include_proprioceptive_ori: true
+
+confusion_loss_beta: 0.0
+rescale_loss_for_domain: false
+confusion_loss_anchored: false
+weight_confusion_loss_by_action: false
+
+pose_pred_loss_coef: 0.0
