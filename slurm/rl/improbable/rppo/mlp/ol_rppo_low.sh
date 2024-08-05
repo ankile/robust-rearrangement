@@ -18,4 +18,4 @@ python -m src.train.residual_ppo +experiment=rl/residual_mlp_ppo \
     actor.residual_policy.learn_std=false \
     ent_coef=0.0 \
     sample_perturbations=false \
-    debug=true
+    debug=false
