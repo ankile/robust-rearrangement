@@ -6,6 +6,7 @@ from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from src.train.residual_ppo_w_bc import to_native
 
 with suppress_stdout():
     import furniture_bench
@@ -66,13 +67,6 @@ def log_action_mse(log_dict, category, pred_action, gt_action):
     log_dict[f"action_sample/{category}_action_mse_error_width"] = (
         torch.nn.functional.mse_loss(pred_action[..., 9], gt_action[..., 9])
     )
-
-
-def to_native(obj):
-    try:
-        return OmegaConf.to_object(obj)
-    except ValueError:
-        return obj
 
 
 def set_dryrun_params(cfg: DictConfig):

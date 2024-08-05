@@ -61,32 +61,6 @@ n_iterations_train_only_value: 0
 
 base_bc:
   train_bc: false
-  train_with_bc_every: 100
-  num_iterations: 1000
-  updates_per_iter: 100
-  lr_scheduler:
-    name: cosine
-    warmup_steps: 1000
-    encoder_warmup_steps: 5000
-  learning_rate: 1e-4
-  actor_lr: 1e-4
-  clip_grad_norm: false
-  clip_sample: true
-  mixed_precision: false
-  replay_buffer_size: 1000000
-  
-  num_epochs: 200
-  batch_size: 64
-  start_epoch: 0
-  steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
-
-  checkpoint_model: true
-  checkpoint_interval: -1
-
-  ema:
-    use: false
-    decay: 0.999
-    switch: false
 
 # Calculate the batch size as the data collection steps times the number of environments
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}

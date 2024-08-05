@@ -1,14 +1,16 @@
-import os
+# import os
 from pathlib import Path
 import furniture_bench  # noqa
 
 from ipdb import set_trace as bp
 
 
+from src.common.hydra import to_native
 from tqdm import tqdm, trange
 import random
 import time
-from dataclasses import dataclass
+
+# from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -22,7 +24,8 @@ from src.dataset.dataset import (
     FurnitureStateDataset,
 )
 from torch.utils.data import DataLoader
-from src.dataset.dataloader import FixedStepsDataloader
+
+# from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_to_device
 from src.common.files import get_processed_paths, path_override
 from src.eval.eval_utils import get_model_from_api_or_cached
@@ -31,7 +34,8 @@ from diffusers.optimization import get_scheduler
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
-from src.models.ema import SwitchEMA
+
+# from src.models.ema import SwitchEMA
 
 
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
@@ -51,13 +55,6 @@ from src.gym import turn_off_april_tags
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
-
-
-def to_native(obj):
-    try:
-        return OmegaConf.to_object(obj)
-    except ValueError:
-        return obj
 
 
 @torch.no_grad()
@@ -90,7 +87,7 @@ def calculate_advantage(
 
 
 class TorchReplayBuffer:
-# class TorchReplayBuffer(torch.utils.data.Dataset):
+    # class TorchReplayBuffer(torch.utils.data.Dataset):
     def __init__(
         self,
         max_size: int,
@@ -99,9 +96,9 @@ class TorchReplayBuffer:
         pred_horizon: int = 8,
         obs_horizon: int = 1,
         action_horizon: int = 32,
-        device: str="cuda:0"
+        device: str = "cuda:0",
     ):
-        
+
         self.device = device
 
         self.pred_horizon = pred_horizon
@@ -113,10 +110,8 @@ class TorchReplayBuffer:
         self.state_dim = state_dim
         self.action_dim = action_dim
 
-        self.states = torch.empty(
-            (max_size, state_dim), dtype=torch.float32)
-        self.actions = torch.empty(
-            (max_size, action_dim), dtype=torch.float32)
+        self.states = torch.empty((max_size, state_dim), dtype=torch.float32)
+        self.actions = torch.empty((max_size, action_dim), dtype=torch.float32)
         self.rewards = torch.empty(max_size, dtype=torch.float32)
         self.dones = torch.zeros(max_size, dtype=torch.bool)
 
@@ -160,7 +155,13 @@ class TorchReplayBuffer:
                 sample_start_idx = 0 + start_offset
                 sample_end_idx = sequence_length - end_offset
                 indices.append(
-                    [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx, i]
+                    [
+                        buffer_start_idx,
+                        buffer_end_idx,
+                        sample_start_idx,
+                        sample_end_idx,
+                        i,
+                    ]
                 )
         indices = np.array(indices)
         return indices
@@ -192,7 +193,13 @@ class TorchReplayBuffer:
             result[key] = data
         return result
 
-    def add_trajectory(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, dones: torch.Tensor):
+    def add_trajectory(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+    ):
         # Get the indices corresponding to the end of each episode
         episode_ends = torch.where(dones)[0]
         episode_idxs = torch.where(dones)[1]
@@ -206,32 +213,43 @@ class TorchReplayBuffer:
             if self.ptr + end_idx + 1 > self.max_size:
                 end_idx = self.max_size - self.ptr - 1
                 restart = True
-            
+
             # Add the data to the buffer
-            self.states[self.ptr : self.ptr + end_idx + 1] = states[:end_idx + 1, ep_idx] 
-            self.actions[self.ptr : self.ptr + end_idx + 1] = actions[:end_idx + 1, ep_idx]    
-            self.rewards[self.ptr : self.ptr + end_idx + 1] = rewards[:end_idx + 1, ep_idx]
-            self.dones[self.ptr : self.ptr + end_idx + 1] = dones[:end_idx + 1, ep_idx]
+            self.states[self.ptr : self.ptr + end_idx + 1] = states[
+                : end_idx + 1, ep_idx
+            ]
+            self.actions[self.ptr : self.ptr + end_idx + 1] = actions[
+                : end_idx + 1, ep_idx
+            ]
+            self.rewards[self.ptr : self.ptr + end_idx + 1] = rewards[
+                : end_idx + 1, ep_idx
+            ]
+            self.dones[self.ptr : self.ptr + end_idx + 1] = dones[: end_idx + 1, ep_idx]
 
             # Increment the start_idx (go to the next full episode)
             self.ptr = self.ptr + end_idx + 1 if not restart else 0
             self.size = min(self.size + end_idx + 1, self.max_size)
-    
-    def form_batch(self, nsample_list: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+
+    def form_batch(
+        self, nsample_list: List[Dict[str, torch.Tensor]]
+    ) -> Dict[str, torch.Tensor]:
         out_batch = dict()
         for key in nsample_list[0].keys():
-            out_batch[key] = torch.stack([nsample[key] for nsample in nsample_list], dim=0)
+            out_batch[key] = torch.stack(
+                [nsample[key] for nsample in nsample_list], dim=0
+            )
         return out_batch
-    
+
     def rebuild_seq_indices(self):
         # First, get the valid indices depending on our episode ends and sequence length
-        episode_ends = torch.where(self.dones[:self.size])[0].cpu().numpy()
+        episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
         self.indices = self.create_sample_indices(
-            episode_ends, 
-            sequence_length=self.sequence_length, 
+            episode_ends,
+            sequence_length=self.sequence_length,
             pad_before=self.obs_horizon - 1,
-            pad_after=self.action_horizon - 1)
-    
+            pad_after=self.action_horizon - 1,
+        )
+
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
         (
@@ -253,25 +271,24 @@ class TorchReplayBuffer:
         )
 
         return nsample
-    
+
     def __len__(self):
         return len(self.indices)
 
-    def sample_batch(self, batch_size: int):
-        from IPython import embed; embed()
+    # def sample_batch(self, batch_size: int):
 
-        # Loop over the batch size and sample sequences
-        nsample_list = list()
-        for _ in range(batch_size):
+    #     # Loop over the batch size and sample sequences
+    #     nsample_list = list()
+    #     for _ in range(batch_size):
 
-            idx = np.random.randint(0, len(self.indices))
-            nsample = self[idx]
-            nsample_list.append(nsample)
+    #         idx = np.random.randint(0, len(self.indices))
+    #         nsample = self[idx]
+    #         nsample_list.append(nsample)
 
-        # Collate into a batch 
-        out_batch = self.form_batch(nsample_list)
-    
-        return out_batch
+    #     # Collate into a batch
+    #     out_batch = self.form_batch(nsample_list)
+
+    #     return out_batch
 
 
 @hydra.main(
@@ -391,35 +408,22 @@ def main(cfg: DictConfig):
         agent.base_actor_parameters,
         lr=cfg.base_bc.learning_rate,
         eps=1e-5,
-        weight_decay=1e-6
+        weight_decay=1e-6,
     )
 
-    lr_scheduler_base = get_scheduler(
-        name=cfg.base_bc.lr_scheduler.name,
-        optimizer=optimizer_base,
-        num_warmup_steps=cfg.base_bc.lr_scheduler.warmup_steps,
-        num_training_steps=cfg.base_bc.num_iterations
-    )
+    # lr_scheduler_base = get_scheduler(
+    #     name=cfg.base_bc.lr_scheduler.name,
+    #     optimizer=optimizer_base,
+    #     num_warmup_steps=cfg.base_bc.lr_scheduler.warmup_steps,
+    #     num_training_steps=cfg.base_bc.num_iterations,
+    # )
 
-    if cfg.base_bc.ema.use:
-        base_ema = SwitchEMA(agent.model, cfg.base_bc.ema.decay)
-        base_ema.register()
-
-    if cfg.data.data_paths_override is None:
-        data_path = get_processed_paths(
-            controller=to_native(cfg.control.controller),
-            domain=to_native(cfg.data.environment),
-            task=to_native(cfg.data.furniture),
-            demo_source=to_native(cfg.data.demo_source),
-            randomness=to_native(cfg.data.randomness),
-            demo_outcome=to_native(cfg.data.demo_outcome),
-            suffix=to_native(cfg.data.suffix),
-        )
-    else:
-        data_path = path_override(cfg.data.data_paths_override)
+    # if cfg.base_bc.ema.use:
+    #     base_ema = SwitchEMA(agent.model, cfg.base_bc.ema.decay)
+    #     base_ema.register()
 
     base_bc_dataset = FurnitureStateDataset(
-        dataset_paths=data_path,
+        dataset_paths=[Path(p) for p in to_native(base_cfg.data_path)],
         pred_horizon=cfg.data.pred_horizon,
         obs_horizon=cfg.data.obs_horizon,
         action_horizon=cfg.data.action_horizon,
@@ -432,7 +436,7 @@ def main(cfg: DictConfig):
     )
 
     # Create dataloaders
-    base_bc_trainload_kwargs = dict(
+    base_bc_trainloader = DataLoader(
         dataset=base_bc_dataset,
         batch_size=cfg.base_bc.batch_size,
         num_workers=0,
@@ -442,32 +446,26 @@ def main(cfg: DictConfig):
         drop_last=False,
         persistent_workers=False,
     )
-    # base_bc_trainloader = (
-    #     FixedStepsDataloader(**base_bc_trainload_kwargs, n_batches=cfg.training.steps_per_epoch)
-    #     if cfg.training.steps_per_epoch != -1
-    #     else DataLoader(**base_bc_trainload_kwargs)
-    # )
-    base_bc_trainloader = DataLoader(**base_bc_trainload_kwargs)
 
-    if (
-        "pretrained_wts" in cfg.actor.residual_policy
-        and cfg.actor.residual_policy.pretrained_wts
-    ):
-        print(
-            f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
-        )
-        run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
+    # if (
+    #     "pretrained_wts" in cfg.actor.residual_policy
+    #     and cfg.actor.residual_policy.pretrained_wts
+    # ):
+    #     print(
+    #         f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
+    #     )
+    #     run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
 
-        if "actor_logstd" in run_state_dict["model_state_dict"]:
-            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-        else:
-            agent.load_state_dict(run_state_dict["model_state_dict"])
-        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        lr_scheduler_critic.load_state_dict(
-            run_state_dict["scheduler_critic_state_dict"]
-        )
+    #     if "actor_logstd" in run_state_dict["model_state_dict"]:
+    #         agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+    #     else:
+    #         agent.load_state_dict(run_state_dict["model_state_dict"])
+    #     optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+    #     optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+    #     lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+    #     lr_scheduler_critic.load_state_dict(
+    #         run_state_dict["scheduler_critic_state_dict"]
+    #     )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -625,25 +623,28 @@ def main(cfg: DictConfig):
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()} fps={env_step * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
                 )
 
-        # Find which environments are successful, and fetch these trajectories
-        success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
-        success_obs = obs[:, success_idxs, :-10]
-        success_actions = full_nactions[:, success_idxs]
-        success_rewards = rewards[:, success_idxs]
+        # We only want to store successful trajectories collected during evaluation
+        # to not train on exploration noise
+        if eval_mode:
+            # Find which environments are successful, and fetch these trajectories
+            success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
+            success_obs = obs[:, success_idxs, :-10]
+            success_actions = full_nactions[:, success_idxs]
+            success_rewards = rewards[:, success_idxs]
 
-        # This has all timesteps including and after episode is done
-        success_dones = rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
+            # This has all timesteps including and after episode is done
+            success_dones = (
+                rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
+            )
 
-        # Let's mask out the ones that come after the first "done" was received 
-        first_done_mask = success_dones.cumsum(dim=0) > 1
-        success_dones[first_done_mask] = False  
+            # Let's mask out the ones that come after the first "done" was received
+            first_done_mask = success_dones.cumsum(dim=0) > 1
+            success_dones[first_done_mask] = False
 
-        # Add the successful trajectories to the replay buffer
-        buffer.add_trajectory(
-            success_obs, success_actions, success_rewards, success_dones
-        )
-
-        # replay_batch = buffer.sample(batch_size=4)
+            # Add the successful trajectories to the replay buffer
+            buffer.add_trajectory(
+                success_obs, success_actions, success_rewards, success_dones
+            )
 
         # Calculate the success rate
         # Find the rewards that are not zero
@@ -911,28 +912,42 @@ def main(cfg: DictConfig):
             f"Iteration {iteration}/{cfg.num_iterations}, global step {global_step}, SPS {sps}"
         )
 
-        # Prepare the replay buffer and data loader for this epoch
-        buffer.rebuild_seq_indices()
-        buffer_trainloader = DataLoader(
-            buffer,
-            batch_size=cfg.base_bc.batch_size,
-            # num_workers=cfg.data.dataloader_workers,
-            num_workers=0,
-            shuffle=True,
-            pin_memory=True,
-            drop_last=False,
-            persistent_workers=False,
+        # Calculate how many training iterations we've done
+        training_iterations = iteration - cfg.eval_first
+        training_iterations -= iteration // cfg.eval_interval
+
+        print(
+            f"At iteration {iteration}, we've done {training_iterations} training iterations "
+            f"and {iteration - training_iterations} evaluation iterations"
         )
-        
-        if cfg.base_bc.train_bc and iteration % cfg.base_bc.train_with_bc_every == 0:
+
+        if (
+            cfg.base_bc.train_bc
+            and buffer.size > 0
+            and training_iterations % cfg.base_bc.train_with_bc_every == 0
+        ):
+
+            # Prepare the replay buffer and data loader for this epoch
+            buffer.rebuild_seq_indices()
+            buffer_trainloader = DataLoader(
+                buffer,
+                batch_size=cfg.base_bc.batch_size,
+                # num_workers=cfg.data.dataloader_workers,
+                num_workers=0,
+                shuffle=True,
+                pin_memory=True,
+                drop_last=False,
+                persistent_workers=False,
+            )
 
             base_bc_epoch_loss = list()
             buffer_epoch_loss = list()
             tepoch = tqdm(
-                zip(base_bc_trainloader, buffer_trainloader), 
-                desc="Training", 
-                leave=False, 
-                total=min(len(base_bc_trainloader), len(buffer_trainloader)))
+                zip(base_bc_trainloader, buffer_trainloader),
+                desc="Training",
+                leave=False,
+                total=min(len(base_bc_trainloader), len(buffer_trainloader)),
+            )
 
             # Train the base policy with BC for a few iterations
             for base_batch, buffer_batch in tepoch:
@@ -950,27 +965,38 @@ def main(cfg: DictConfig):
                 buffer_loss, buffer_losses_log = agent.compute_loss(buffer_batch)
                 buffer_loss.backward()
 
-                # Step the optimizers and schedulers
-                optimizer_base.step()
-                lr_scheduler_base.step()
-
-                if cfg.base_bc.ema.use:
-                    base_ema.update()
-
-                # Log losses
-                base_bc_loss_cpu = base_bc_loss.item()
-                buffer_loss_cpu = buffer_loss.item()
-                base_bc_epoch_loss.append(base_bc_loss_cpu)
-                buffer_epoch_loss.append(buffer_loss_cpu)
                 bc_step_log = {
-                    "base_batch_loss": base_bc_loss_cpu,
-                    "buffer_batch_loss": buffer_loss_cpu,
                     **base_bc_losses_log,
                     **buffer_losses_log,
                 }
 
+                if cfg.base_bc.clip_grad_norm:
+                    grad_norm = nn.utils.clip_grad_norm_(
+                        agent.base_actor_parameters, 1.0
+                    )
+                    bc_step_log["grad_norm"] = grad_norm
+
+                # Step the optimizers and schedulers
+                optimizer_base.step()
+                # lr_scheduler_base.step()
+
+                # if cfg.base_bc.ema.use:
+                #     base_ema.update()
+
+                # Log losses
+                base_bc_loss_cpu = base_bc_loss.item()
+                buffer_loss_cpu = buffer_loss.item()
+
+                bc_step_log["base_batch_loss"] = (base_bc_loss_cpu,)
+                bc_step_log["buffer_batch_loss"] = (buffer_loss_cpu,)
+
+                base_bc_epoch_loss.append(base_bc_loss_cpu)
+                buffer_epoch_loss.append(buffer_loss_cpu)
+
                 wandb.log(bc_step_log)
-                tepoch.set_postfix(base_loss=base_bc_loss_cpu, buffer_loss=buffer_loss_cpu)
+                tepoch.set_postfix(
+                    base_loss=base_bc_loss_cpu, buffer_loss=buffer_loss_cpu
+                )
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 

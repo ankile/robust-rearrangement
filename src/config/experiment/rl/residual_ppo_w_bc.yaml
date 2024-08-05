@@ -10,6 +10,30 @@ base_policy:
 base_bc:
   train_bc: true
   train_with_bc_every: 1
+  learning_rate: 1e-6
+  clip_grad_norm: false
+  replay_buffer_size: 1000000
+  batch_size: 1024
+
+  # num_iterations: 1000
+  # max_updates_per_iter: 100
+  # lr_scheduler:
+  #   name: cosine
+  #   warmup_steps: 1000
+  #   encoder_warmup_steps: 5000
+  # actor_lr: 1e-4
+  
+  # num_epochs: 200
+  # start_epoch: 0
+  # steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
+
+  # checkpoint_model: true
+  # checkpoint_interval: -1
+
+  # ema:
+  #   use: false
+  #   decay: 0.999
+  #   switch: false
 
 env:
   randomness: low
