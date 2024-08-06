@@ -214,6 +214,8 @@ class TorchReplayBuffer:
             self.rewards[self.ptr : self.ptr + ep_len] = rewards[:ep_len, ep_idx]
             self.dones[self.ptr : self.ptr + ep_len] = dones[:ep_len, ep_idx]
 
+            bp()
+
             # Increment the start_idx (go to the next full episode)
             self.ptr = self.ptr + ep_len if not restart else 0
             self.size = min(self.size + ep_len, self.max_size)
@@ -232,9 +234,8 @@ class TorchReplayBuffer:
         # First, get the valid indices depending on our episode ends and sequence length
         # episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
         # This expects the episode_ends to be the last index of the episode, not inclusive
-        episode_ends = (
-            torch.argmin(self.dones[: self.size], dim=0).indices.cpu().numpy() + 1
-        )
+        # bp()
+        episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
         self.indices = self.create_sample_indices(
             episode_ends,
             sequence_length=self.sequence_length,
@@ -948,18 +949,18 @@ def main(cfg: DictConfig):
                 optimizer_base.zero_grad()
 
                 # Make predictions with agent
-                base_batch = dict_to_device(base_batch, device)
-                base_bc_loss, base_bc_losses_log = agent.compute_loss(
-                    base_batch, base_only=True
-                )
-                base_bc_loss.backward()
-
-                # Make predictions with agent
                 buffer_batch = dict_to_device(buffer_batch, device)
                 buffer_loss, buffer_losses_log = agent.compute_loss(
                     buffer_batch, base_only=True
                 )
-                buffer_loss.backward()
+                (buffer_loss / 2).backward()
+
+                # Make predictions with agent
+                base_batch = dict_to_device(base_batch, device)
+                base_bc_loss, base_bc_losses_log = agent.compute_loss(
+                    base_batch, base_only=True
+                )
+                (base_bc_loss / 2).backward()
 
                 bc_step_log = {
                     **base_bc_losses_log,
