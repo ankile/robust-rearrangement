@@ -16,27 +16,18 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.behavior.residual_diffusion import (
-    ResidualDiffusionPolicy,
-    ResidualTrainingValues,
-)
-from src.dataset.dataset import (
-    FurnitureStateDataset,
-)
+from src.behavior.residual_diffusion import ResidualDiffusionPolicy
+from src.dataset.dataset import FurnitureStateDataset
 from torch.utils.data import DataLoader
 
 # from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_to_device
-from src.common.files import get_processed_paths, path_override
 from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
-
-# from src.models.ema import SwitchEMA
-
 
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
@@ -200,7 +191,7 @@ class TorchReplayBuffer:
         rewards: torch.Tensor,
         dones: torch.Tensor,
     ):
-        # Get the indices corresponding to the end of each episode
+        # Get the indices corresponding to the end of each episode with end index inclusive
         episode_ends = torch.where(dones)[0]
         episode_idxs = torch.where(dones)[1]
 
@@ -208,27 +199,24 @@ class TorchReplayBuffer:
         for ep_idx, end_idx in zip(episode_idxs, episode_ends):
             # print(f'Index: {ep_idx}, End: {end_idx}')
 
+            ep_len = end_idx + 1
+
             # Decide what slice of the buffer to use - if the episode is too long, just cut it off
             restart = False
-            if self.ptr + end_idx + 1 > self.max_size:
-                end_idx = self.max_size - self.ptr - 1
+            if self.ptr + ep_len > self.max_size:
+                # If the episode is too long, cut it off
+                ep_len = self.max_size - self.ptr
                 restart = True
 
             # Add the data to the buffer
-            self.states[self.ptr : self.ptr + end_idx + 1] = states[
-                : end_idx + 1, ep_idx
-            ]
-            self.actions[self.ptr : self.ptr + end_idx + 1] = actions[
-                : end_idx + 1, ep_idx
-            ]
-            self.rewards[self.ptr : self.ptr + end_idx + 1] = rewards[
-                : end_idx + 1, ep_idx
-            ]
-            self.dones[self.ptr : self.ptr + end_idx + 1] = dones[: end_idx + 1, ep_idx]
+            self.states[self.ptr : self.ptr + ep_len] = states[:ep_len, ep_idx]
+            self.actions[self.ptr : self.ptr + ep_len] = actions[:ep_len, ep_idx]
+            self.rewards[self.ptr : self.ptr + ep_len] = rewards[:ep_len, ep_idx]
+            self.dones[self.ptr : self.ptr + ep_len] = dones[:ep_len, ep_idx]
 
             # Increment the start_idx (go to the next full episode)
-            self.ptr = self.ptr + end_idx + 1 if not restart else 0
-            self.size = min(self.size + end_idx + 1, self.max_size)
+            self.ptr = self.ptr + ep_len if not restart else 0
+            self.size = min(self.size + ep_len, self.max_size)
 
     def form_batch(
         self, nsample_list: List[Dict[str, torch.Tensor]]
@@ -242,7 +230,11 @@ class TorchReplayBuffer:
 
     def rebuild_seq_indices(self):
         # First, get the valid indices depending on our episode ends and sequence length
-        episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
+        # episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
+        # This expects the episode_ends to be the last index of the episode, not inclusive
+        episode_ends = (
+            torch.argmin(self.dones[: self.size], dim=0).indices.cpu().numpy() + 1
+        )
         self.indices = self.create_sample_indices(
             episode_ends,
             sequence_length=self.sequence_length,
@@ -914,7 +906,7 @@ def main(cfg: DictConfig):
 
         # Calculate how many training iterations we've done
         training_iterations = iteration - cfg.eval_first
-        training_iterations -= iteration // cfg.eval_interval
+        training_iterations -= (iteration - cfg.eval_first) // cfg.eval_interval
 
         print(
             f"At iteration {iteration}, we've done {training_iterations} training iterations "
@@ -957,12 +949,16 @@ def main(cfg: DictConfig):
 
                 # Make predictions with agent
                 base_batch = dict_to_device(base_batch, device)
-                base_bc_loss, base_bc_losses_log = agent.compute_loss(base_batch)
+                base_bc_loss, base_bc_losses_log = agent.compute_loss(
+                    base_batch, base_only=True
+                )
                 base_bc_loss.backward()
 
                 # Make predictions with agent
                 buffer_batch = dict_to_device(buffer_batch, device)
-                buffer_loss, buffer_losses_log = agent.compute_loss(buffer_batch)
+                buffer_loss, buffer_losses_log = agent.compute_loss(
+                    buffer_batch, base_only=True
+                )
                 buffer_loss.backward()
 
                 bc_step_log = {
@@ -993,7 +989,7 @@ def main(cfg: DictConfig):
                 base_bc_epoch_loss.append(base_bc_loss_cpu)
                 buffer_epoch_loss.append(buffer_loss_cpu)
 
-                wandb.log(bc_step_log)
+                wandb.log(bc_step_log, step=global_step)
                 tepoch.set_postfix(
                     base_loss=base_bc_loss_cpu, buffer_loss=buffer_loss_cpu
                 )

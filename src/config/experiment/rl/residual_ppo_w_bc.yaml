@@ -11,7 +11,7 @@ base_bc:
   train_bc: true
   train_with_bc_every: 1
   learning_rate: 1e-6
-  clip_grad_norm: false
+  clip_grad_norm: true
   replay_buffer_size: 1000000
   batch_size: 1024
 
@@ -43,7 +43,8 @@ residual_l2: 0.0
 
 wandb:
   entity: robust-assembly
-  project: ol-rppo-dr-${env.randomness}-1
+  # project: ol-rppo-dr-${env.randomness}-1
+  project: tmp-bc-in-the-lopp-rl-test
   mode: online
 
 debug: false

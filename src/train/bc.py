@@ -43,7 +43,7 @@ trigger_sync = TriggerWandbSyncHook(
 )
 
 logger.set_level(logger.DISABLED)
-OmegaConf.register_new_resolver("eval", eval)
+# OmegaConf.register_new_resolver("eval", eval)
 
 
 print("=== Activate TF32 training? Deactivated for now...")
