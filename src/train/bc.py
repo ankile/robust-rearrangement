@@ -274,9 +274,9 @@ def main(cfg: DictConfig):
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
         name=cfg.wandb.name,
-        resume=None if cfg.wandb.continue_run_id is None else "must",
+        resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
-        entity=cfg.wandb.get("entity", "ankile"),
+        entity=cfg.wandb.get("entity", "robust-assembly"),
         config=config_dict,
         mode=cfg.wandb.mode,
         notes=cfg.wandb.notes,
@@ -285,7 +285,7 @@ def main(cfg: DictConfig):
     if cfg.wandb.watch_model:
         run.watch(actor, log="all", log_freq=1000)
 
-    if cfg.wandb.continue_run_id is not None:
+    if cfg.wandb.continue_run_id is not None and run.step > 0:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
         cfg.training.start_epoch = run.summary.get("epoch", 0)
@@ -293,9 +293,14 @@ def main(cfg: DictConfig):
         run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
 
         # Load the weights from the run
-        _, wts = get_model_from_api_or_cached(
-            run_id, "latest", wandb_mode=cfg.wandb.mode
-        )
+        try:
+            _, wts = get_model_from_api_or_cached(
+                run_id, "last", wandb_mode=cfg.wandb.mode
+            )
+        except:
+            _, wts = get_model_from_api_or_cached(
+                run_id, "latest", wandb_mode=cfg.wandb.mode
+            )
 
         state_dict = torch.load(wts)
 
