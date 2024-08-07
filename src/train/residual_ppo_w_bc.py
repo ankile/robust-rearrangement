@@ -6,6 +6,7 @@ from ipdb import set_trace as bp
 
 
 from src.common.hydra import to_native
+from src.dataset.dataloader import EndlessDataloader, FixedStepsDataloader
 from tqdm import tqdm, trange
 import random
 import time
@@ -88,6 +89,8 @@ class TorchReplayBuffer:
         obs_horizon: int = 1,
         action_horizon: int = 32,
         device: str = "cuda:0",
+        predict_past_actions: bool = False,
+        include_future_obs: bool = False,
     ):
 
         self.device = device
@@ -96,7 +99,17 @@ class TorchReplayBuffer:
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
 
-        self.sequence_length = obs_horizon + pred_horizon - 1
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
+
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
+        self.final_action_idx = self.first_action_idx + self.pred_horizon
+        self.last_obs = (
+            self.obs_horizon if not include_future_obs else self.sequence_length
+        )
 
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -109,8 +122,8 @@ class TorchReplayBuffer:
         self.train_data = {
             "obs": self.states,
             "action": self.actions,
-            "rewards": self.rewards,
-            "dones": self.dones,
+            # "rewards": self.rewards,
+            # "dones": self.dones,
         }
 
         self.max_size = max_size
@@ -192,15 +205,12 @@ class TorchReplayBuffer:
         dones: torch.Tensor,
     ):
         # Get the indices corresponding to the end of each episode with end index inclusive
-        episode_ends = torch.where(dones)[0]
+        episode_ends = torch.where(dones)[0] + 1
         episode_idxs = torch.where(dones)[1]
 
         # Only add the timesteps that are part of the episode
-        for ep_idx, end_idx in zip(episode_idxs, episode_ends):
+        for ep_idx, ep_len in zip(episode_idxs, episode_ends):
             # print(f'Index: {ep_idx}, End: {end_idx}')
-
-            ep_len = end_idx + 1
-
             # Decide what slice of the buffer to use - if the episode is too long, just cut it off
             restart = False
             if self.ptr + ep_len > self.max_size:
@@ -213,8 +223,6 @@ class TorchReplayBuffer:
             self.actions[self.ptr : self.ptr + ep_len] = actions[:ep_len, ep_idx]
             self.rewards[self.ptr : self.ptr + ep_len] = rewards[:ep_len, ep_idx]
             self.dones[self.ptr : self.ptr + ep_len] = dones[:ep_len, ep_idx]
-
-            bp()
 
             # Increment the start_idx (go to the next full episode)
             self.ptr = self.ptr + ep_len if not restart else 0
@@ -234,7 +242,6 @@ class TorchReplayBuffer:
         # First, get the valid indices depending on our episode ends and sequence length
         # episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
         # This expects the episode_ends to be the last index of the episode, not inclusive
-        # bp()
         episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
         self.indices = self.create_sample_indices(
             episode_ends,
@@ -263,25 +270,18 @@ class TorchReplayBuffer:
             sample_end_idx=sample_end_idx,
         )
 
+        # Discard unused actions
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
+
+        # Discard unused observations
+        nsample["obs"] = nsample["obs"][: self.last_obs, :]
+
         return nsample
 
     def __len__(self):
         return len(self.indices)
-
-    # def sample_batch(self, batch_size: int):
-
-    #     # Loop over the batch size and sample sequences
-    #     nsample_list = list()
-    #     for _ in range(batch_size):
-
-    #         idx = np.random.randint(0, len(self.indices))
-    #         nsample = self[idx]
-    #         nsample_list.append(nsample)
-
-    #     # Collate into a batch
-    #     out_batch = self.form_batch(nsample_list)
-
-    #     return out_batch
 
 
 @hydra.main(
@@ -299,8 +299,6 @@ def main(cfg: DictConfig):
 
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
-
-    # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
     run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
@@ -404,18 +402,7 @@ def main(cfg: DictConfig):
         weight_decay=1e-6,
     )
 
-    # lr_scheduler_base = get_scheduler(
-    #     name=cfg.base_bc.lr_scheduler.name,
-    #     optimizer=optimizer_base,
-    #     num_warmup_steps=cfg.base_bc.lr_scheduler.warmup_steps,
-    #     num_training_steps=cfg.base_bc.num_iterations,
-    # )
-
-    # if cfg.base_bc.ema.use:
-    #     base_ema = SwitchEMA(agent.model, cfg.base_bc.ema.decay)
-    #     base_ema.register()
-
-    base_bc_dataset = FurnitureStateDataset(
+    demo_dataset = FurnitureStateDataset(
         dataset_paths=[Path(p) for p in to_native(base_cfg.data_path)],
         pred_horizon=cfg.data.pred_horizon,
         obs_horizon=cfg.data.obs_horizon,
@@ -429,8 +416,8 @@ def main(cfg: DictConfig):
     )
 
     # Create dataloaders
-    base_bc_trainloader = DataLoader(
-        dataset=base_bc_dataset,
+    demo_trainloader = FixedStepsDataloader(
+        dataset=demo_dataset,
         batch_size=cfg.base_bc.batch_size,
         num_workers=0,
         # num_workers=cfg.data.dataloader_workers,
@@ -438,27 +425,8 @@ def main(cfg: DictConfig):
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
+        n_batches=cfg.base_bc.max_updates_per_epoch,
     )
-
-    # if (
-    #     "pretrained_wts" in cfg.actor.residual_policy
-    #     and cfg.actor.residual_policy.pretrained_wts
-    # ):
-    #     print(
-    #         f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
-    #     )
-    #     run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
-
-    #     if "actor_logstd" in run_state_dict["model_state_dict"]:
-    #         agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-    #     else:
-    #         agent.load_state_dict(run_state_dict["model_state_dict"])
-    #     optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-    #     optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-    #     lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-    #     lr_scheduler_critic.load_state_dict(
-    #         run_state_dict["scheduler_critic_state_dict"]
-    #     )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -557,6 +525,8 @@ def main(cfg: DictConfig):
         obs_horizon=agent.obs_horizon,
         action_horizon=agent.action_horizon,
         device=device,
+        predict_past_actions=cfg.data.predict_past_actions,
+        include_future_obs=cfg.data.include_future_obs,
     )
 
     while global_step < cfg.total_timesteps:
@@ -933,67 +903,77 @@ def main(cfg: DictConfig):
                 persistent_workers=False,
             )
 
-            base_bc_epoch_loss = list()
+            demo_epoch_loss = list()
             buffer_epoch_loss = list()
-            tepoch = tqdm(
-                zip(base_bc_trainloader, buffer_trainloader),
-                desc="Training",
-                leave=False,
-                total=min(len(base_bc_trainloader), len(buffer_trainloader)),
-            )
+            grad_norms = list()
+            gradient_steps = 0
 
-            # Train the base policy with BC for a few iterations
-            for base_batch, buffer_batch in tepoch:
+            agent.train()
 
-                # Zero the gradients in all optimizers
-                optimizer_base.zero_grad()
+            for epoch in range(cfg.base_bc.num_epochs):
 
-                # Make predictions with agent
-                buffer_batch = dict_to_device(buffer_batch, device)
-                buffer_loss, buffer_losses_log = agent.compute_loss(
-                    buffer_batch, base_only=True
+                tepoch = tqdm(
+                    zip(demo_trainloader, buffer_trainloader),
+                    desc="Training",
+                    leave=True,
+                    total=min(len(demo_trainloader), len(buffer_trainloader)),
                 )
-                (buffer_loss / 2).backward()
+                # Train the base policy with BC for a few iterations
+                for demo_batch, buffer_batch, _ in tepoch:
 
-                # Make predictions with agent
-                base_batch = dict_to_device(base_batch, device)
-                base_bc_loss, base_bc_losses_log = agent.compute_loss(
-                    base_batch, base_only=True
-                )
-                (base_bc_loss / 2).backward()
+                    # Zero the gradients in all optimizers
+                    optimizer_base.zero_grad()
 
-                bc_step_log = {
-                    **base_bc_losses_log,
-                    **buffer_losses_log,
-                }
+                    # Make predictions with agent
+                    demo_batch = dict_to_device(demo_batch, device)
+                    demo_loss, _ = agent.compute_loss(demo_batch, base_only=True)
+                    (demo_loss / 2).backward()
 
-                if cfg.base_bc.clip_grad_norm:
+                    # Make predictions with agent
+                    buffer_batch = dict_to_device(buffer_batch, device)
+                    buffer_loss, _ = agent.compute_loss(buffer_batch, base_only=True)
+                    (buffer_loss / 2).backward()
+
+                    # Clip to a big value if we don't want to clip the gradients
+                    # so that we can still log the gradient norms
                     grad_norm = nn.utils.clip_grad_norm_(
-                        agent.base_actor_parameters, 1.0
+                        agent.base_actor_parameters,
+                        1 if cfg.base_bc.clip_grad_norm else 1000,
                     )
-                    bc_step_log["grad_norm"] = grad_norm
+                    grad_norms.append(grad_norm)
 
-                # Step the optimizers and schedulers
-                optimizer_base.step()
-                # lr_scheduler_base.step()
+                    # Step the optimizers and schedulers
+                    optimizer_base.step()
+                    gradient_steps += 1
 
-                # if cfg.base_bc.ema.use:
-                #     base_ema.update()
+                    # Log losses
+                    demo_loss_cpu = demo_loss.item()
+                    buffer_loss_cpu = buffer_loss.item()
 
-                # Log losses
-                base_bc_loss_cpu = base_bc_loss.item()
-                buffer_loss_cpu = buffer_loss.item()
+                    demo_epoch_loss.append(demo_loss_cpu)
+                    buffer_epoch_loss.append(buffer_loss_cpu)
 
-                bc_step_log["base_batch_loss"] = (base_bc_loss_cpu,)
-                bc_step_log["buffer_batch_loss"] = (buffer_loss_cpu,)
+                    tepoch.set_postfix(
+                        base_loss=demo_loss_cpu, buffer_loss=buffer_loss_cpu
+                    )
 
-                base_bc_epoch_loss.append(base_bc_loss_cpu)
-                buffer_epoch_loss.append(buffer_loss_cpu)
+            mean_demo_loss = np.mean(demo_epoch_loss)
+            mean_buffer_loss = np.mean(buffer_epoch_loss)
+            mean_loss = (mean_demo_loss + mean_buffer_loss) / 2
 
-                wandb.log(bc_step_log, step=global_step)
-                tepoch.set_postfix(
-                    base_loss=base_bc_loss_cpu, buffer_loss=buffer_loss_cpu
-                )
+            wandb.log(
+                {
+                    "base_bc/demo_loss": mean_demo_loss,
+                    "base_bc/buffer_loss": mean_buffer_loss,
+                    "base_bc/loss": mean_loss,
+                    "base_bc/grad_norm": np.mean(grad_norms),
+                    "base_bc/epoch": training_iterations,
+                    "base_bc/iteration": iteration,
+                    "base_bc/gradient_steps": gradient_steps,
+                },
+                step=global_step,
+            )
+            agent.eval()
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 

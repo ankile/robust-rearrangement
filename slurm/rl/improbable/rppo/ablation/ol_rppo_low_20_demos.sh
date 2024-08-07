@@ -20,4 +20,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     actor.residual_policy.learn_std=false \
     actor.residual_policy.action_scale=0.1 \
     sample_perturbations=false \
+    wandb.continue_run_id=119tqrfu \
     debug=false

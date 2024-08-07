@@ -14,21 +14,9 @@ base_bc:
   clip_grad_norm: true
   replay_buffer_size: 1000000
   batch_size: 1024
-
-  # num_iterations: 1000
-  # max_updates_per_iter: 100
-  # lr_scheduler:
-  #   name: cosine
-  #   warmup_steps: 1000
-  #   encoder_warmup_steps: 5000
-  # actor_lr: 1e-4
-  
-  # num_epochs: 200
-  # start_epoch: 0
-  # steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
-
-  # checkpoint_model: true
-  # checkpoint_interval: -1
+  num_epochs: 3
+  cycle_bc_loader: true
+  max_updates_per_epoch: 100
 
   # ema:
   #   use: false
@@ -44,7 +32,7 @@ residual_l2: 0.0
 wandb:
   entity: robust-assembly
   # project: ol-rppo-dr-${env.randomness}-1
-  project: tmp-bc-in-the-lopp-rl-test
+  project: tmp-bc-in-the-loop-rl-test
   mode: online
 
 debug: false

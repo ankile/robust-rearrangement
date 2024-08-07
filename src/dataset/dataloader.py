@@ -1,5 +1,6 @@
 import torch
 import itertools
+import numpy as np
 
 
 class FixedStepsDataloader(torch.utils.data.DataLoader):
