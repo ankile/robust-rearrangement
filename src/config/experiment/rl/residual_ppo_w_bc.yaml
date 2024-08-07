@@ -14,9 +14,10 @@ base_bc:
   clip_grad_norm: true
   replay_buffer_size: 1000000
   batch_size: 1024
-  num_epochs: 3
+  num_epochs: 1
   cycle_bc_loader: true
   max_updates_per_epoch: 100
+  improvement_threshold: 0.0 # E.g., 0.1 for 10% improvement
 
   # ema:
   #   use: false

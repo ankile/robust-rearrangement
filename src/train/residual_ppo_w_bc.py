@@ -297,6 +297,7 @@ def main(cfg: DictConfig):
     start_time = time.time()
     training_cum_time = 0
     running_mean_success_rate = 0.0
+    nominal_eval_performance = None
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -376,29 +377,6 @@ def main(cfg: DictConfig):
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()} fps={env_step * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
                 )
 
-        # We only want to store successful trajectories collected during evaluation
-        # to not train on exploration noise
-        if eval_mode:
-            # Find which environments are successful, and fetch these trajectories
-            success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
-            success_obs = obs[:, success_idxs, :-10]
-            success_actions = full_nactions[:, success_idxs]
-            success_rewards = rewards[:, success_idxs]
-
-            # This has all timesteps including and after episode is done
-            success_dones = (
-                rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
-            )
-
-            # Let's mask out the ones that come after the first "done" was received
-            first_done_mask = success_dones.cumsum(dim=0) > 1
-            success_dones[first_done_mask] = False
-
-            # Add the successful trajectories to the replay buffer
-            buffer.add_trajectory(
-                success_obs, success_actions, success_rewards, success_dones
-            )
-
         # Calculate the success rate
         # Find the rewards that are not zero
         # Env is successful if it received a reward more than or equal to n_parts_to_assemble
@@ -423,6 +401,34 @@ def main(cfg: DictConfig):
         print(
             f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
         )
+
+        # We only want to store successful trajectories collected during evaluation
+        # to not train on exploration noise
+        if (
+            eval_mode
+            and nominal_eval_performance is not None
+            and (success_rate - nominal_eval_performance)
+            >= cfg.base_bc.improvement_threshold
+        ):
+            # Find which environments are successful, and fetch these trajectories
+            success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
+            success_obs = obs[:, success_idxs, :-10]
+            success_actions = full_nactions[:, success_idxs]
+            success_rewards = rewards[:, success_idxs]
+
+            # This has all timesteps including and after episode is done
+            success_dones = (
+                rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
+            )
+
+            # Let's mask out the ones that come after the first "done" was received
+            first_done_mask = success_dones.cumsum(dim=0) > 1
+            success_dones[first_done_mask] = False
+
+            # Add the successful trajectories to the replay buffer
+            buffer.add_trajectory(
+                success_obs, success_actions, success_rewards, success_dones
+            )
 
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
