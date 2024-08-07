@@ -1,7 +1,9 @@
 from typing import Tuple
 
+from furniture_bench.controllers.control_utils import proprioceptive_quat_to_6d_rotation
 import numpy as np
 
+from src.dataset.normalizer import LinearNormalizer
 from src.models.utils import PrintParamCountMixin
 import torch
 import torch.nn as nn
@@ -128,6 +130,8 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             requires_grad=kwargs.get("learn_std", True),
         )
 
+        self.normalizer = None
+
         self.print_model_params()
 
     def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
@@ -173,14 +177,26 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         action_mean: torch.Tensor = self.actor_mean(res_nobs)
         gt_res_action_scaled = gt_res_action / self.action_scale
         return torch.nn.functional.mse_loss(action_mean, gt_res_action_scaled)
-        # action_logstd = self.actor_logstd.expand_as(action_mean)
-        # action_std = torch.exp(action_logstd)
-        # probs = Normal(action_mean, action_std)
 
-        # gt_res_action_scaled = gt_res_action / self.action_scale
+    def set_normalizer(self, normalizer: LinearNormalizer):
+        self.normalizer = LinearNormalizer()
+        self.normalizer.load_state_dict(normalizer.state_dict())
 
-        # # Sum over the action dimension (last dimension)
-        # return -probs.log_prob(gt_res_action_scaled).sum(dim=-1).mean()
+    def correct_action(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """
+        Predict the correction to the action given the observation and the action
+        """
+        assert self.normalizer is not None
+        robot_state = proprioceptive_quat_to_6d_rotation(obs["robot_state"])
+        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
+        nparts_poses = self.normalizer(obs["parts_poses"], "parts_poses", forward=True)
+        naction = self.normalizer(action, "action", forward=True)
+
+        nobs = torch.cat([nrobot_state, nparts_poses, naction], dim=-1)
+
+        naction_corrected = naction + self.actor_mean(nobs) * self.action_scale
+
+        return self.normalizer(naction_corrected, "action", forward=False)
 
 
 class BiggerResidualPolicy(ResidualPolicy):

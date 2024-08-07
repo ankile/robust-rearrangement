@@ -16,7 +16,7 @@ from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
-from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
+from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
 
 
@@ -135,7 +135,7 @@ def main(cfg: DictConfig):
     if isinstance(agent, DiffusionPolicy):
         agent.inference_steps = 4
 
-    env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
+    env: RLPolicyEnvWrapper = RLPolicyEnvWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
         normalize_reward=cfg.normalize_reward,

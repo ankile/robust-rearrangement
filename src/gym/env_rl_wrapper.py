@@ -185,16 +185,13 @@ class RunningMeanStdClip:
         return torch.clamp(x_normalized, -self.clip_value, self.clip_value)
 
 
-class ResidualPolicyEnvWrapper:
+class RLPolicyEnvWrapper:
 
     def __init__(
         self,
         env: FurnitureRLSimEnv,
         max_env_steps=300,
-        ee_dof=10,
-        task="oneleg",
         normalize_reward=False,
-        add_relative_pose=False,
         reset_on_success=True,
         reset_on_failure=False,
         reward_clip=5.0,
@@ -203,8 +200,6 @@ class ResidualPolicyEnvWrapper:
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
-        self.task = task
-        self.add_relative_pose = add_relative_pose
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
         self.device = device
@@ -220,7 +215,9 @@ class ResidualPolicyEnvWrapper:
         )
 
         # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
+        self.action_space = gym.spaces.Box(
+            -1, 1, shape=(self.env.action_space.shape[-1],)
+        )
 
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
