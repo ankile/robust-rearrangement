@@ -158,6 +158,7 @@ def main(cfg: DictConfig):
     # before putting them in the training dataset
     normalizer = LinearNormalizer()
     normalizer.load_state_dict(student.normalizer.state_dict())
+    normalizer.cpu()
 
     student.to(device)
     student.eval()
