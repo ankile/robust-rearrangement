@@ -919,7 +919,7 @@ def main(cfg: DictConfig):
                     total=min(len(demo_trainloader), len(buffer_trainloader)),
                 )
                 # Train the base policy with BC for a few iterations
-                for demo_batch, buffer_batch, _ in tepoch:
+                for demo_batch, buffer_batch in tepoch:
 
                     # Zero the gradients in all optimizers
                     optimizer_base.zero_grad()
@@ -939,7 +939,7 @@ def main(cfg: DictConfig):
                     grad_norm = nn.utils.clip_grad_norm_(
                         agent.base_actor_parameters,
                         1 if cfg.base_bc.clip_grad_norm else 1000,
-                    )
+                    ).item()
                     grad_norms.append(grad_norm)
 
                     # Step the optimizers and schedulers

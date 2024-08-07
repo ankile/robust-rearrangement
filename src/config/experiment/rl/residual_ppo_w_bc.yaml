@@ -31,8 +31,8 @@ residual_l2: 0.0
 
 wandb:
   entity: robust-assembly
-  # project: ol-rppo-dr-${env.randomness}-1
-  project: tmp-bc-in-the-loop-rl-test
+  project: ol-rppo-dr-${env.randomness}-1
+  # project: tmp-bc-in-the-loop-rl-test
   mode: online
 
 debug: false
