@@ -20,10 +20,11 @@ observation_type: state
 
 num_envs: 1024
 num_env_steps: 600
-num_epochs: 50
+num_epochs: 1
 batch_size: 1024
 num_iterations: 100
 replay_buffer_size: 1000000
+clip_grad_norm: true
 
 beta: 0.5
 

@@ -7,7 +7,6 @@ from ipdb import set_trace as bp
 
 
 from src.common.hydra import to_native
-from src.dataset.dataloader import EndlessDataloader, FixedStepsDataloader
 from src.dataset.normalizer import LinearNormalizer
 from src.models.residual import ResidualPolicy
 from tqdm import tqdm, trange
@@ -30,7 +29,6 @@ from diffusers.optimization import get_scheduler
 
 
 from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
-from src.common.config_util import merge_base_bc_config_with_root_config
 
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
@@ -163,16 +161,16 @@ def main(cfg: DictConfig):
     student.to(device)
     student.eval()
 
-    optimizer_actor = optim.AdamW(
+    optimizer_student = optim.AdamW(
         student.parameters(),
         lr=cfg.learning_rate_student,
         eps=1e-5,
         weight_decay=1e-6,
     )
 
-    lr_scheduler_actor = get_scheduler(
+    lr_scheduler_student = get_scheduler(
         name=cfg.lr_scheduler.name,
-        optimizer=optimizer_actor,
+        optimizer=optimizer_student,
         num_warmup_steps=cfg.lr_scheduler.warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
@@ -209,14 +207,14 @@ def main(cfg: DictConfig):
 
         # run_state_dict = torch.load(wts)
 
-        # if "actor_logstd" in run_state_dict["model_state_dict"]:
+        # if "student_logstd" in run_state_dict["model_state_dict"]:
         #     agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
         # else:
         #     agent.load_state_dict(run_state_dict["model_state_dict"])
 
-        # optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        # optimizer_student.load_state_dict(run_state_dict["optimizer_student_state_dict"])
         # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        # lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        # lr_scheduler_student.load_state_dict(run_state_dict["scheduler_student_state_dict"])
         # lr_scheduler_critic.load_state_dict(
         #     run_state_dict["scheduler_critic_state_dict"]
         # )
@@ -252,6 +250,7 @@ def main(cfg: DictConfig):
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
     rewards = torch.zeros((steps_per_iteration, cfg.num_envs))
     dones = torch.zeros((steps_per_iteration, cfg.num_envs))
+    is_action_from_student = torch.zeros((steps_per_iteration, cfg.num_envs))
 
     start_time = time.time()
     training_cum_time = 0
@@ -309,11 +308,13 @@ def main(cfg: DictConfig):
 
             # Always use the student action during evaluation
             # Otherwise, use the teacher action with probability beta
+            is_student_action = torch.full(
+                (cfg.num_envs, 1), eval_mode, device=device, dtype=torch.bool
+            ) | (torch.rand(cfg.num_envs, 1, device=device) > beta)
+            is_action_from_student[step] = is_student_action.view(-1)
+
             action = torch.where(
-                torch.full(
-                    (cfg.num_envs, 1), eval_mode, device=device, dtype=torch.bool
-                )
-                | (torch.rand(cfg.num_envs, 1, device=device) > beta),
+                is_student_action,
                 student_action,
                 teacher_action,
             )
@@ -395,19 +396,43 @@ def main(cfg: DictConfig):
                 success_obs, success_actions, success_rewards, success_dones
             )
 
+            # For logging purposes, calculate the share of actions being taken by the student in the successful,
+            # unsuccessful, and all trajectories
+            student_action_share = (
+                is_action_from_student.sum().item() / is_action_from_student.numel()
+            )
+            student_action_share_success = (
+                is_action_from_student[success_idxs].sum().item()
+                / is_action_from_student[success_idxs].numel()
+            )
+            student_action_share_failure = (
+                is_action_from_student[~success_idxs].sum().item()
+                / is_action_from_student[~success_idxs].numel()
+            )
+
+            wandb.log(
+                {
+                    "charts/student_action_share": student_action_share,
+                    "charts/student_action_share_success": student_action_share_success,
+                    "charts/student_action_share_failure": student_action_share_failure,
+                },
+                step=global_step,
+                commit=False,
+            )
+
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
 
             # Save the model if the evaluation success rate improves
             if success_rate > best_eval_success_rate:
                 best_eval_success_rate = success_rate
-                model_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
+                model_path = str(model_save_dir / f"student_chkpt_best_success_rate.pt")
                 torch.save(
                     {
                         # Save the weights of the residual policy (base + residual)
                         "model_state_dict": student.state_dict(),
-                        "optimizer_actor_state_dict": optimizer_actor.state_dict(),
-                        "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
+                        "optimizer_student_state_dict": optimizer_student.state_dict(),
+                        "scheduler_student_state_dict": lr_scheduler_student.state_dict(),
                         "config": OmegaConf.to_container(cfg, resolve=True),
                         "success_rate": success_rate,
                         "success_timesteps_share": success_timesteps_share,
@@ -437,7 +462,7 @@ def main(cfg: DictConfig):
 
         wandb.log(
             {
-                "charts/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
+                "charts/learning_rate_student": optimizer_student.param_groups[0]["lr"],
                 "charts/SPS": sps,
                 "charts/rewards": rewards.sum().item(),
                 "charts/success_rate": success_rate,
@@ -447,17 +472,14 @@ def main(cfg: DictConfig):
             step=global_step,
         )
 
-        # Step the learning rate scheduler
-        lr_scheduler_actor.step()
-
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
-            model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
+            model_path = str(model_save_dir / f"student_chkpt_{iteration}.pt")
             torch.save(
                 {
                     "model_state_dict": student.state_dict(),
-                    "optimizer_actor_state_dict": optimizer_actor.state_dict(),
-                    "scheduler_actor_state_dict": lr_scheduler_actor.state_dict(),
+                    "optimizer_student_state_dict": optimizer_student.state_dict(),
+                    "scheduler_student_state_dict": lr_scheduler_student.state_dict(),
                     "config": OmegaConf.to_container(cfg, resolve=True),
                     "success_rate": success_rate,
                     "iteration": iteration,
@@ -472,7 +494,7 @@ def main(cfg: DictConfig):
         buffer.rebuild_seq_indices()
         trainloader = DataLoader(
             buffer,
-            batch_size=cfg.base_bc.batch_size,
+            batch_size=cfg.batch_size,
             # num_workers=cfg.data.dataloader_workers,
             num_workers=0,
             shuffle=True,
@@ -497,7 +519,7 @@ def main(cfg: DictConfig):
             for batch in tepoch:
 
                 # Zero the gradients in all optimizers
-                optimizer_actor.zero_grad()
+                optimizer_student.zero_grad()
 
                 # Make predictions with agent
                 batch = dict_to_device(batch, device)
@@ -507,13 +529,13 @@ def main(cfg: DictConfig):
                 # Clip to a big value if we don't want to clip the gradients
                 # so that we can still log the gradient norms
                 grad_norm = nn.utils.clip_grad_norm_(
-                    student.base_actor_parameters,
-                    1 if cfg.base_bc.clip_grad_norm else 1000,
+                    student.parameters(),
+                    1 if cfg.clip_grad_norm else 1000,
                 ).item()
                 grad_norms.append(grad_norm)
 
-                # Step the optimizers and schedulers
-                optimizer_actor.step()
+                # Step the optimizers
+                optimizer_student.step()
                 gradient_steps += 1
 
                 # Log losses
@@ -531,9 +553,13 @@ def main(cfg: DictConfig):
                 "iteration": iteration,
                 "gradient_steps": gradient_steps,
                 "n_timesteps_in_buffer": buffer.size,
+                "learning_rate_student": optimizer_student.param_groups[0]["lr"],
             },
             step=global_step,
         )
+
+        # Step the learning rate scheduler
+        # lr_scheduler_student.step()
         student.eval()
 
         # Print some stats at the end of the iteration
