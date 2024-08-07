@@ -8,6 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
+#SBATCH --requeue
 #SBATCH --job-name=ol_darppo_low_2
 
 # wandb.project=ol-rppo-dr-low-1 \
@@ -21,4 +22,5 @@ python -m src.train.residual_ppo_w_bc +experiment=rl/residual_ppo_w_bc \
     sample_perturbations=false \
     num_envs=1024 \
     base_bc.improvement_threshold=0.05 \
+    wandb.continue_run_id=ua2tl9gi \
     debug=false

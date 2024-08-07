@@ -183,7 +183,7 @@ def main(cfg: DictConfig):
 
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
-        resume=None if cfg.wandb.continue_run_id is None else "must",
+        resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         config=OmegaConf.to_container(cfg, resolve=True),
@@ -192,41 +192,36 @@ def main(cfg: DictConfig):
         mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
 
-    if cfg.wandb.continue_run_id is not None:
-        raise NotImplementedError("Continuing runs is not supported yet")
-        # print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+    if cfg.wandb.continue_run_id is not None and run.step > 0:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        # run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
 
-        # # Load the weights from the run
-        # _, wts = get_model_from_api_or_cached(
-        #     run_id, "latest", wandb_mode=cfg.wandb.mode
-        # )
+        # Load the weights from the run
+        _, wts = get_model_from_api_or_cached(
+            run_id, "latest", wandb_mode=cfg.wandb.mode
+        )
 
-        # print(f"Loading weights from {wts}")
+        print(f"Loading weights from {wts}")
 
-        # run_state_dict = torch.load(wts)
+        run_state_dict = torch.load(wts)
+        student.load_state_dict(run_state_dict["model_state_dict"])
 
-        # if "student_logstd" in run_state_dict["model_state_dict"]:
-        #     agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-        # else:
-        #     agent.load_state_dict(run_state_dict["model_state_dict"])
+        optimizer_student.load_state_dict(
+            run_state_dict["optimizer_student_state_dict"]
+        )
+        lr_scheduler_student.load_state_dict(
+            run_state_dict["scheduler_student_state_dict"]
+        )
 
-        # optimizer_student.load_state_dict(run_state_dict["optimizer_student_state_dict"])
-        # optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        # lr_scheduler_student.load_state_dict(run_state_dict["scheduler_student_state_dict"])
-        # lr_scheduler_critic.load_state_dict(
-        #     run_state_dict["scheduler_critic_state_dict"]
-        # )
+        # Set the best test loss and success rate to the one from the run
+        try:
+            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
+        except KeyError:
+            best_eval_success_rate = run.summary["eval/success_rate"]
 
-        # # Set the best test loss and success rate to the one from the run
-        # try:
-        #     best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
-        # except KeyError:
-        #     best_eval_success_rate = run.summary["eval/success_rate"]
-
-        # iteration = run.summary["iteration"]
-        # global_step = run.step
+        iteration = run.summary["iteration"]
+        global_step = run.step
 
     else:
         global_step = 0
