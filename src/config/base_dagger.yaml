@@ -36,7 +36,7 @@ env:
 learning_rate_student: 1e-5
 lr_scheduler:
   name: cosine
-  warmup_steps: 5
+  warmup_steps: 1
 
 control:
   controller: diffik  # diffik

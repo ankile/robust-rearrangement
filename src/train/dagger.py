@@ -554,7 +554,7 @@ def main(cfg: DictConfig):
         )
 
         # Step the learning rate scheduler
-        # lr_scheduler_student.step()
+        lr_scheduler_student.step()
         student.eval()
 
         # Print some stats at the end of the iteration
