@@ -8,7 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=4_mr_tran_lg_low
+#SBATCH --job-name=4_fph_tran_lg_low
 
 python -m src.train.bc +experiment=state/diff_tran \
     actor/diffusion_model=transformer_big \
