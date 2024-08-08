@@ -9,7 +9,7 @@
 #SBATCH --time=1-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
-#SBATCH --job-name=ol_state_unet_low
+#SBATCH --job-name=ol_state_unet_low_ema
 
 python -m src.train.bc +experiment=state/diff_unet \
     furniture=one_leg \
