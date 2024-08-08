@@ -8,6 +8,7 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
+#SBATCH --requeue
 #SBATCH --job-name=ol_darppo_low_2
 
 # wandb.project=ol-rppo-dr-low-1 \

@@ -10,7 +10,7 @@ from src.behavior.base import Actor
 from src.models import get_diffusion_backbone
 
 from ipdb import set_trace as bp  # noqa
-from typing import Union
+from typing import Tuple, Union
 
 
 class DiffusionPolicy(Actor):
@@ -98,7 +98,7 @@ class DiffusionPolicy(Actor):
         return naction
 
     # === Training ===
-    def compute_loss(self, batch):
+    def compute_loss(self, batch) -> Tuple[torch.Tensor, dict]:
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch, flatten=self.flatten_obs)
 

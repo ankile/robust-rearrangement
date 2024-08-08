@@ -12,4 +12,5 @@
 
 python -m src.train.bc +experiment=state/scaling_100k \
     wandb.continue_run_id=heib4og4 \
+    training.num_epochs=5000 \
     dryrun=false
