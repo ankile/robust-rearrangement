@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
-from src.eval.eval_utils import get_model_from_api_or_cached, load_model_weights
+from src.eval.eval_utils import get_model_from_api_or_cached
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.train.residual_ppo_w_bc import to_native
 
@@ -20,7 +20,7 @@ from src.dataset.dataset import (
     FurnitureStateDataset,
 )
 from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_env, get_rl_env
+from src.gym import get_rl_env
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp
 from src.behavior import get_actor
@@ -35,6 +35,9 @@ from gym import logger
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
+
+# Import the wandb Run type for type hinting
+from wandb.apis.public.runs import Run
 
 from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 
@@ -102,6 +105,57 @@ def main(cfg: DictConfig):
     device = torch.device(
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
+
+    state_dict = None
+
+    # Check if we are continuing a run
+    run_exists = cfg.wandb.continue_run_id is not None
+    if run_exists:
+        try:
+            run: Run = wandb.Api().run(
+                f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+            )
+        except ValueError:
+            run_exists = False
+
+    if run_exists:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+
+        cfg.training.start_epoch = run.summary.get("epoch", 0)
+
+        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+
+        # Load the weights from the run and override the config with the one from the run
+        try:
+            cfg, wts = get_model_from_api_or_cached(
+                run_id, "last", wandb_mode=cfg.wandb.mode
+            )
+        except:
+            cfg, wts = get_model_from_api_or_cached(
+                run_id, "latest", wandb_mode=cfg.wandb.mode
+            )
+
+        state_dict = torch.load(wts)
+
+        # Set the best test loss and success rate to the one from the run
+        best_test_loss = state_dict.get(
+            "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
+        )
+        test_loss_mean = best_test_loss
+        best_success_rate = state_dict.get(
+            "best_success_rate", run.summary.get("best_success_rate", 0)
+        )
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        global_step = state_dict.get("global_step", run.lastHistoryStep)
+
+        prev_best_success_rate = best_success_rate
+    else:
+        # Train loop
+        best_test_loss = float("inf")
+        test_loss_mean = float("inf")
+        best_success_rate = 0
+        prev_best_success_rate = 0
+        global_step = 0
 
     if cfg.data.data_paths_override is None:
         data_path = get_processed_paths(
@@ -261,6 +315,18 @@ def main(cfg: DictConfig):
         optimizers.append(("encoder", opt_encoder))
         lr_schedulers.append(lr_scheduler_encoder)
 
+    if state_dict is not None:
+        if "model_state_dict" in state_dict:
+            actor.load_state_dict(state_dict["model_state_dict"])
+            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+                opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
+                scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
+
+        else:
+            actor.load_state_dict(state_dict)
+
+        print(f"Loaded weights from run {run_id}")
+
     if cfg.training.ema.use:
         ema = SwitchEMA(actor, cfg.training.ema.decay)
         ema.register()
@@ -284,56 +350,6 @@ def main(cfg: DictConfig):
 
     if cfg.wandb.watch_model:
         run.watch(actor, log="all", log_freq=1000)
-
-    if cfg.wandb.continue_run_id is not None and run.step > 0:
-        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-
-        cfg.training.start_epoch = run.summary.get("epoch", 0)
-
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
-
-        # Load the weights from the run
-        try:
-            _, wts = get_model_from_api_or_cached(
-                run_id, "last", wandb_mode=cfg.wandb.mode
-            )
-        except:
-            _, wts = get_model_from_api_or_cached(
-                run_id, "latest", wandb_mode=cfg.wandb.mode
-            )
-
-        state_dict = torch.load(wts)
-
-        if "model_state_dict" in state_dict:
-            actor.load_state_dict(state_dict["model_state_dict"])
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                opt.load_state_dict(state_dict[f"{name}_optimizer_state_dict"])
-                scheduler.load_state_dict(state_dict[f"{name}_scheduler_state_dict"])
-
-        else:
-            actor.load_state_dict(state_dict)
-
-        print(f"Loaded weights from run {run_id}")
-
-        # Set the best test loss and success rate to the one from the run
-        best_test_loss = state_dict.get(
-            "best_test_loss", run.summary.get("test_epoch_loss", float("inf"))
-        )
-        test_loss_mean = best_test_loss
-        best_success_rate = state_dict.get(
-            "best_success_rate", run.summary.get("best_success_rate", 0)
-        )
-        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
-        global_step = state_dict.get("global_step", run.step)
-
-        prev_best_success_rate = best_success_rate
-    else:
-        # Train loop
-        best_test_loss = float("inf")
-        test_loss_mean = float("inf")
-        best_success_rate = 0
-        prev_best_success_rate = 0
-        global_step = 0
 
     # Print the run name and storage location
     print(f"Run name: {run.name}")

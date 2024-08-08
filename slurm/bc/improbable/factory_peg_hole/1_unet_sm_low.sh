@@ -17,6 +17,6 @@ python -m src.train.bc +experiment=state/diff_unet \
     rollout.randomness=low \
     rollout.max_steps=200 \
     furniture=factory_peg_hole \
-    wandb.name=unet-sm-1 \
+    wandb.name=unet-sm-2 \
     wandb.project=fph-state-dr-low-1 \
     dryrun=false
