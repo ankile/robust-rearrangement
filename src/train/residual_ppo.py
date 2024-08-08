@@ -12,6 +12,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
 from src.behavior.residual_diffusion import ResidualDiffusionPolicy
+from src.behavior.residual_mlp import ResidualMlpPolicy
 from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
@@ -82,8 +83,6 @@ def main(cfg: DictConfig):
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
 
-    run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
-
     random.seed(cfg.seed)
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
@@ -123,8 +122,15 @@ def main(cfg: DictConfig):
 
     merge_base_bc_config_with_root_config(cfg, base_cfg)
     cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
+    run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
 
-    agent = ResidualDiffusionPolicy(device, base_cfg)
+    if cfg.base_policy.actor.name == "diffusion":
+        agent = ResidualDiffusionPolicy(device, base_cfg)
+    elif cfg.base_policy.actor.name == "mlp":
+        agent = ResidualMlpPolicy(device, base_cfg)
+    else:
+        raise ValueError(f"Unknown actor type: {cfg.base_policy.actor}")
+
     agent.load_base_state_dict(base_wts)
     agent.to(device)
     agent.eval()

@@ -1,8 +1,4 @@
 # @package _global_
-actor:
-  residual_policy:
-    pretrained_wts: null
-
 base_policy:
   wandb_id: ???
   wt_type: best_success_rate
