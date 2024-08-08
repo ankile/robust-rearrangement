@@ -15,6 +15,6 @@ python -m src.train.dagger \
     student_policy.wandb_id=ol-state-dr-low-1/6i7hupje \
     teacher_policy.wandb_id=ol-rppo-dr-low-1/k8tg86rc \
     env.randomness=low \
-    beta=0.25 \
-    wandb.continue_run_id=67b35eba \
+    beta=0.0 \
+    wandb.continue_run_id=a41fac8e \
     debug=false

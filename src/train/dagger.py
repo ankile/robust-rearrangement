@@ -25,7 +25,7 @@ from torch.utils.data import DataLoader
 # from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_to_device
 from src.eval.eval_utils import get_model_from_api_or_cached
-from diffusers.optimization import get_scheduler
+from src.common.cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 
 from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
@@ -37,16 +37,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tqdm import trange
-
-from typing import Dict, List
 
 import wandb
 
 from src.gym import turn_off_april_tags
 
 from src.dataset.rollout_buffer import RolloutBuffer
-
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
@@ -168,11 +164,14 @@ def main(cfg: DictConfig):
         weight_decay=1e-6,
     )
 
-    lr_scheduler_student = get_scheduler(
-        name=cfg.lr_scheduler.name,
+    assert cfg.lr_scheduler.name == "cosine"
+    lr_scheduler_student = CosineAnnealingWarmupRestarts(
         optimizer=optimizer_student,
-        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
-        num_training_steps=cfg.num_iterations,
+        first_cycle_steps=cfg.num_iterations,
+        cycle_mult=1.0,
+        max_lr=cfg.learning_rate_student,
+        warmup_steps=cfg.lr_scheduler.warmup_steps,
+        min_lr=cfg.lr_scheduler.min_lr,
     )
 
     steps_per_iteration = cfg.num_env_steps
@@ -457,8 +456,10 @@ def main(cfg: DictConfig):
 
         wandb.log(
             {
-                "charts/learning_rate_student": optimizer_student.param_groups[0]["lr"],
-                "charts/SPS": sps,
+                "run_stats/learning_rate_student": optimizer_student.param_groups[0][
+                    "lr"
+                ],
+                "run_stats/SPS": sps,
                 "charts/rewards": rewards.sum().item(),
                 "charts/success_rate": success_rate,
                 "charts/success_timesteps_share": success_timesteps_share,
@@ -509,9 +510,12 @@ def main(cfg: DictConfig):
         student.train()
         for epoch in range(cfg.num_epochs):
 
-            tepoch = tqdm(trainloader, desc=f"Epoch {epoch}/{cfg.num_epochs}")
+            tepoch = tqdm(
+                zip(trainloader, range(cfg.max_steps_per_epoch)),
+                desc=f"Epoch {epoch}/{cfg.num_epochs}",
+            )
             # Train the base policy with BC for a few iterations
-            for batch in tepoch:
+            for batch, _ in tepoch:
 
                 # Zero the gradients in all optimizers
                 optimizer_student.zero_grad()
