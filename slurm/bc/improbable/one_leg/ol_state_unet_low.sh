@@ -21,5 +21,5 @@ python -m src.train.bc +experiment=state/diff_unet \
     training.steps_per_epoch=1000 \
     wandb.project=ol-state-dr-1 \
     training.ema.use=true \
-    wandb.continue_run_id=a36bcbf5 \
+    wandb.continue_run_id=b7e4ed3a \
     dryrun=false

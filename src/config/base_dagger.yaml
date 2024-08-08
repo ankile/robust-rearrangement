@@ -23,7 +23,7 @@ num_env_steps: 600
 num_epochs: 1
 batch_size: 1024
 num_iterations: 100
-max_steps_per_epoch: 100
+max_steps_per_epoch: 10
 replay_buffer_size: 1000000
 clip_grad_norm: true
 
@@ -34,11 +34,11 @@ env:
   task: one_leg
 
 # Learning rates
-learning_rate_student: 1e-5
+learning_rate_student: 1e-6
 lr_scheduler:
   name: cosine
   warmup_steps: 5
-  min_lr: 1e-6
+  min_lr: 1e-7
 
 control:
   controller: diffik  # diffik
