@@ -79,7 +79,9 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         }
         self.normalizer.load_state_dict(base_normalizer_state_dict)
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor], base_only: bool=True) -> torch.Tensor:
+    def compute_loss(
+        self, batch: Dict[str, torch.Tensor], base_only: bool = True
+    ) -> torch.Tensor:
         # Cut off the unused observations before passing to the bc loss
         bc_loss, losses = super().compute_loss(batch)
         if base_only:
@@ -152,7 +154,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         return self.normalizer(naction + residual, "action", forward=False)
 
     @torch.no_grad()
-    def base_action_normalized(self, obs: Dict[str, torch.Tensor]):
+    def base_action_normalized(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         action = super().action(obs)
         return self.normalizer(action, "action", forward=True)
 

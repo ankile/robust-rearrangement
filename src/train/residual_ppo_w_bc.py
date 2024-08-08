@@ -1,38 +1,34 @@
-import os
+# import os
 from pathlib import Path
 import furniture_bench  # noqa
 
 from ipdb import set_trace as bp
 
 
+from src.common.hydra import to_native
+from src.dataset.dataloader import EndlessDataloader, FixedStepsDataloader
 from tqdm import tqdm, trange
 import random
 import time
-from dataclasses import dataclass
+
+# from dataclasses import dataclass
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
-from src.behavior.residual_diffusion import (
-    ResidualDiffusionPolicy,
-    ResidualTrainingValues,
-)
-from src.dataset.dataset import (
-    FurnitureStateDataset,
-)
+from src.behavior.residual_diffusion import ResidualDiffusionPolicy
+from src.dataset.dataset import FurnitureStateDataset
 from torch.utils.data import DataLoader
-from src.dataset.dataloader import FixedStepsDataloader
+
+# from src.dataset.dataloader import FixedStepsDataloader
 from src.common.pytorch_util import dict_to_device
-from src.common.files import get_processed_paths, path_override
 from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
 from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
-from src.models.ema import SwitchEMA
-
 
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
@@ -51,13 +47,6 @@ from src.gym import turn_off_april_tags
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
-
-
-def to_native(obj):
-    try:
-        return OmegaConf.to_object(obj)
-    except ValueError:
-        return obj
 
 
 @torch.no_grad()
@@ -90,7 +79,7 @@ def calculate_advantage(
 
 
 class TorchReplayBuffer:
-# class TorchReplayBuffer(torch.utils.data.Dataset):
+    # class TorchReplayBuffer(torch.utils.data.Dataset):
     def __init__(
         self,
         max_size: int,
@@ -99,32 +88,42 @@ class TorchReplayBuffer:
         pred_horizon: int = 8,
         obs_horizon: int = 1,
         action_horizon: int = 32,
-        device: str="cuda:0"
+        device: str = "cuda:0",
+        predict_past_actions: bool = False,
+        include_future_obs: bool = False,
     ):
-        
+
         self.device = device
 
         self.pred_horizon = pred_horizon
         self.action_horizon = action_horizon
         self.obs_horizon = obs_horizon
 
-        self.sequence_length = obs_horizon + pred_horizon - 1
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
+
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
+        self.final_action_idx = self.first_action_idx + self.pred_horizon
+        self.last_obs = (
+            self.obs_horizon if not include_future_obs else self.sequence_length
+        )
 
         self.state_dim = state_dim
         self.action_dim = action_dim
 
-        self.states = torch.empty(
-            (max_size, state_dim), dtype=torch.float32)
-        self.actions = torch.empty(
-            (max_size, action_dim), dtype=torch.float32)
+        self.states = torch.empty((max_size, state_dim), dtype=torch.float32)
+        self.actions = torch.empty((max_size, action_dim), dtype=torch.float32)
         self.rewards = torch.empty(max_size, dtype=torch.float32)
         self.dones = torch.zeros(max_size, dtype=torch.bool)
 
         self.train_data = {
             "obs": self.states,
             "action": self.actions,
-            "rewards": self.rewards,
-            "dones": self.dones,
+            # "rewards": self.rewards,
+            # "dones": self.dones,
         }
 
         self.max_size = max_size
@@ -160,7 +159,13 @@ class TorchReplayBuffer:
                 sample_start_idx = 0 + start_offset
                 sample_end_idx = sequence_length - end_offset
                 indices.append(
-                    [buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx, i]
+                    [
+                        buffer_start_idx,
+                        buffer_end_idx,
+                        sample_start_idx,
+                        sample_end_idx,
+                        i,
+                    ]
                 )
         indices = np.array(indices)
         return indices
@@ -192,46 +197,59 @@ class TorchReplayBuffer:
             result[key] = data
         return result
 
-    def add_trajectory(self, states: torch.Tensor, actions: torch.Tensor, rewards: torch.Tensor, dones: torch.Tensor):
-        # Get the indices corresponding to the end of each episode
-        episode_ends = torch.where(dones)[0]
+    def add_trajectory(
+        self,
+        states: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        dones: torch.Tensor,
+    ):
+        # Get the indices corresponding to the end of each episode with end index inclusive
+        episode_ends = torch.where(dones)[0] + 1
         episode_idxs = torch.where(dones)[1]
 
         # Only add the timesteps that are part of the episode
-        for ep_idx, end_idx in zip(episode_idxs, episode_ends):
+        for ep_idx, ep_len in zip(episode_idxs, episode_ends):
             # print(f'Index: {ep_idx}, End: {end_idx}')
-
             # Decide what slice of the buffer to use - if the episode is too long, just cut it off
             restart = False
-            if self.ptr + end_idx + 1 > self.max_size:
-                end_idx = self.max_size - self.ptr - 1
+            if self.ptr + ep_len > self.max_size:
+                # If the episode is too long, cut it off
+                ep_len = self.max_size - self.ptr
                 restart = True
-            
+
             # Add the data to the buffer
-            self.states[self.ptr : self.ptr + end_idx + 1] = states[:end_idx + 1, ep_idx] 
-            self.actions[self.ptr : self.ptr + end_idx + 1] = actions[:end_idx + 1, ep_idx]    
-            self.rewards[self.ptr : self.ptr + end_idx + 1] = rewards[:end_idx + 1, ep_idx]
-            self.dones[self.ptr : self.ptr + end_idx + 1] = dones[:end_idx + 1, ep_idx]
+            self.states[self.ptr : self.ptr + ep_len] = states[:ep_len, ep_idx]
+            self.actions[self.ptr : self.ptr + ep_len] = actions[:ep_len, ep_idx]
+            self.rewards[self.ptr : self.ptr + ep_len] = rewards[:ep_len, ep_idx]
+            self.dones[self.ptr : self.ptr + ep_len] = dones[:ep_len, ep_idx]
 
             # Increment the start_idx (go to the next full episode)
-            self.ptr = self.ptr + end_idx + 1 if not restart else 0
-            self.size = min(self.size + end_idx + 1, self.max_size)
-    
-    def form_batch(self, nsample_list: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+            self.ptr = self.ptr + ep_len if not restart else 0
+            self.size = min(self.size + ep_len, self.max_size)
+
+    def form_batch(
+        self, nsample_list: List[Dict[str, torch.Tensor]]
+    ) -> Dict[str, torch.Tensor]:
         out_batch = dict()
         for key in nsample_list[0].keys():
-            out_batch[key] = torch.stack([nsample[key] for nsample in nsample_list], dim=0)
+            out_batch[key] = torch.stack(
+                [nsample[key] for nsample in nsample_list], dim=0
+            )
         return out_batch
-    
+
     def rebuild_seq_indices(self):
         # First, get the valid indices depending on our episode ends and sequence length
-        episode_ends = torch.where(self.dones[:self.size])[0].cpu().numpy()
+        # episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
+        # This expects the episode_ends to be the last index of the episode, not inclusive
+        episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
         self.indices = self.create_sample_indices(
-            episode_ends, 
-            sequence_length=self.sequence_length, 
+            episode_ends,
+            sequence_length=self.sequence_length,
             pad_before=self.obs_horizon - 1,
-            pad_after=self.action_horizon - 1)
-    
+            pad_after=self.action_horizon - 1,
+        )
+
     def __getitem__(self, idx):
         # get the start/end indices for this datapoint
         (
@@ -252,26 +270,18 @@ class TorchReplayBuffer:
             sample_end_idx=sample_end_idx,
         )
 
+        # Discard unused actions
+        nsample["action"] = nsample["action"][
+            self.first_action_idx : self.final_action_idx, :
+        ]
+
+        # Discard unused observations
+        nsample["obs"] = nsample["obs"][: self.last_obs, :]
+
         return nsample
-    
+
     def __len__(self):
         return len(self.indices)
-
-    def sample_batch(self, batch_size: int):
-        from IPython import embed; embed()
-
-        # Loop over the batch size and sample sequences
-        nsample_list = list()
-        for _ in range(batch_size):
-
-            idx = np.random.randint(0, len(self.indices))
-            nsample = self[idx]
-            nsample_list.append(nsample)
-
-        # Collate into a batch 
-        out_batch = self.form_batch(nsample_list)
-    
-        return out_batch
 
 
 @hydra.main(
@@ -289,8 +299,6 @@ def main(cfg: DictConfig):
 
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
-
-    # assert not (cfg.anneal_lr and cfg.adaptive_lr)
 
     run_name = f"{int(time.time())}__residual_ppo__{cfg.actor.residual_policy._target_.split('.')[-1]}__{cfg.seed}"
 
@@ -391,35 +399,11 @@ def main(cfg: DictConfig):
         agent.base_actor_parameters,
         lr=cfg.base_bc.learning_rate,
         eps=1e-5,
-        weight_decay=1e-6
+        weight_decay=1e-6,
     )
 
-    lr_scheduler_base = get_scheduler(
-        name=cfg.base_bc.lr_scheduler.name,
-        optimizer=optimizer_base,
-        num_warmup_steps=cfg.base_bc.lr_scheduler.warmup_steps,
-        num_training_steps=cfg.base_bc.num_iterations
-    )
-
-    if cfg.base_bc.ema.use:
-        base_ema = SwitchEMA(agent.model, cfg.base_bc.ema.decay)
-        base_ema.register()
-
-    if cfg.data.data_paths_override is None:
-        data_path = get_processed_paths(
-            controller=to_native(cfg.control.controller),
-            domain=to_native(cfg.data.environment),
-            task=to_native(cfg.data.furniture),
-            demo_source=to_native(cfg.data.demo_source),
-            randomness=to_native(cfg.data.randomness),
-            demo_outcome=to_native(cfg.data.demo_outcome),
-            suffix=to_native(cfg.data.suffix),
-        )
-    else:
-        data_path = path_override(cfg.data.data_paths_override)
-
-    base_bc_dataset = FurnitureStateDataset(
-        dataset_paths=data_path,
+    demo_dataset = FurnitureStateDataset(
+        dataset_paths=[Path(p) for p in to_native(base_cfg.data_path)],
         pred_horizon=cfg.data.pred_horizon,
         obs_horizon=cfg.data.obs_horizon,
         action_horizon=cfg.data.action_horizon,
@@ -432,8 +416,8 @@ def main(cfg: DictConfig):
     )
 
     # Create dataloaders
-    base_bc_trainload_kwargs = dict(
-        dataset=base_bc_dataset,
+    demo_trainloader = FixedStepsDataloader(
+        dataset=demo_dataset,
         batch_size=cfg.base_bc.batch_size,
         num_workers=0,
         # num_workers=cfg.data.dataloader_workers,
@@ -441,33 +425,8 @@ def main(cfg: DictConfig):
         pin_memory=True,
         drop_last=False,
         persistent_workers=False,
+        n_batches=cfg.base_bc.max_updates_per_epoch,
     )
-    # base_bc_trainloader = (
-    #     FixedStepsDataloader(**base_bc_trainload_kwargs, n_batches=cfg.training.steps_per_epoch)
-    #     if cfg.training.steps_per_epoch != -1
-    #     else DataLoader(**base_bc_trainload_kwargs)
-    # )
-    base_bc_trainloader = DataLoader(**base_bc_trainload_kwargs)
-
-    if (
-        "pretrained_wts" in cfg.actor.residual_policy
-        and cfg.actor.residual_policy.pretrained_wts
-    ):
-        print(
-            f"Loading pretrained weights from {cfg.actor.residual_policy.pretrained_wts}"
-        )
-        run_state_dict = torch.load(cfg.actor.residual_policy.pretrained_wts)
-
-        if "actor_logstd" in run_state_dict["model_state_dict"]:
-            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-        else:
-            agent.load_state_dict(run_state_dict["model_state_dict"])
-        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        lr_scheduler_critic.load_state_dict(
-            run_state_dict["scheduler_critic_state_dict"]
-        )
 
     steps_per_iteration = cfg.data_collection_steps
 
@@ -548,6 +507,7 @@ def main(cfg: DictConfig):
     start_time = time.time()
     training_cum_time = 0
     running_mean_success_rate = 0.0
+    nominal_eval_performance = None
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -566,6 +526,8 @@ def main(cfg: DictConfig):
         obs_horizon=agent.obs_horizon,
         action_horizon=agent.action_horizon,
         device=device,
+        predict_past_actions=cfg.data.predict_past_actions,
+        include_future_obs=cfg.data.include_future_obs,
     )
 
     while global_step < cfg.total_timesteps:
@@ -625,26 +587,6 @@ def main(cfg: DictConfig):
                     f"env_step={env_step}, global_step={global_step}, mean_reward={rewards[:step+1].sum(dim=0).mean().item()} fps={env_step * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
                 )
 
-        # Find which environments are successful, and fetch these trajectories
-        success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
-        success_obs = obs[:, success_idxs, :-10]
-        success_actions = full_nactions[:, success_idxs]
-        success_rewards = rewards[:, success_idxs]
-
-        # This has all timesteps including and after episode is done
-        success_dones = rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
-
-        # Let's mask out the ones that come after the first "done" was received 
-        first_done_mask = success_dones.cumsum(dim=0) > 1
-        success_dones[first_done_mask] = False  
-
-        # Add the successful trajectories to the replay buffer
-        buffer.add_trajectory(
-            success_obs, success_actions, success_rewards, success_dones
-        )
-
-        # replay_batch = buffer.sample(batch_size=4)
-
         # Calculate the success rate
         # Find the rewards that are not zero
         # Env is successful if it received a reward more than or equal to n_parts_to_assemble
@@ -669,6 +611,34 @@ def main(cfg: DictConfig):
         print(
             f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
         )
+
+        # We only want to store successful trajectories collected during evaluation
+        # to not train on exploration noise
+        if (
+            eval_mode
+            and nominal_eval_performance is not None
+            and (success_rate - nominal_eval_performance)
+            >= cfg.base_bc.improvement_threshold
+        ):
+            # Find which environments are successful, and fetch these trajectories
+            success_idxs = rewards.sum(dim=0) >= n_parts_to_assemble
+            success_obs = obs[:, success_idxs, :-10]
+            success_actions = full_nactions[:, success_idxs]
+            success_rewards = rewards[:, success_idxs]
+
+            # This has all timesteps including and after episode is done
+            success_dones = (
+                rewards.cumsum(dim=0)[:, success_idxs] >= n_parts_to_assemble
+            )
+
+            # Let's mask out the ones that come after the first "done" was received
+            first_done_mask = success_dones.cumsum(dim=0) > 1
+            success_dones[first_done_mask] = False
+
+            # Add the successful trajectories to the replay buffer
+            buffer.add_trajectory(
+                success_obs, success_actions, success_rewards, success_dones
+            )
 
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
@@ -911,66 +881,105 @@ def main(cfg: DictConfig):
             f"Iteration {iteration}/{cfg.num_iterations}, global step {global_step}, SPS {sps}"
         )
 
-        # Prepare the replay buffer and data loader for this epoch
-        buffer.rebuild_seq_indices()
-        buffer_trainloader = DataLoader(
-            buffer,
-            batch_size=cfg.base_bc.batch_size,
-            # num_workers=cfg.data.dataloader_workers,
-            num_workers=0,
-            shuffle=True,
-            pin_memory=True,
-            drop_last=False,
-            persistent_workers=False,
+        # Calculate how many training iterations we've done
+        training_iterations = iteration - cfg.eval_first
+        training_iterations -= (iteration - cfg.eval_first) // cfg.eval_interval
+
+        print(
+            f"At iteration {iteration}, we've done {training_iterations} training iterations "
+            f"and {iteration - training_iterations} evaluation iterations"
         )
-        
-        if cfg.base_bc.train_bc and iteration % cfg.base_bc.train_with_bc_every == 0:
 
-            base_bc_epoch_loss = list()
+        if (
+            cfg.base_bc.train_bc
+            and buffer.size > 0
+            and training_iterations % cfg.base_bc.train_with_bc_every == 0
+        ):
+
+            # Prepare the replay buffer and data loader for this epoch
+            buffer.rebuild_seq_indices()
+            buffer_trainloader = DataLoader(
+                buffer,
+                batch_size=cfg.base_bc.batch_size,
+                # num_workers=cfg.data.dataloader_workers,
+                num_workers=0,
+                shuffle=True,
+                pin_memory=True,
+                drop_last=False,
+                persistent_workers=False,
+            )
+
+            demo_epoch_loss = list()
             buffer_epoch_loss = list()
-            tepoch = tqdm(
-                zip(base_bc_trainloader, buffer_trainloader), 
-                desc="Training", 
-                leave=False, 
-                total=min(len(base_bc_trainloader), len(buffer_trainloader)))
+            grad_norms = list()
+            gradient_steps = 0
 
-            # Train the base policy with BC for a few iterations
-            for base_batch, buffer_batch in tepoch:
+            agent.train()
 
-                # Zero the gradients in all optimizers
-                optimizer_base.zero_grad()
+            for epoch in range(cfg.base_bc.num_epochs):
 
-                # Make predictions with agent
-                base_batch = dict_to_device(base_batch, device)
-                base_bc_loss, base_bc_losses_log = agent.compute_loss(base_batch)
-                base_bc_loss.backward()
+                tepoch = tqdm(
+                    zip(demo_trainloader, buffer_trainloader),
+                    desc="Training",
+                    leave=True,
+                    total=min(len(demo_trainloader), len(buffer_trainloader)),
+                )
+                # Train the base policy with BC for a few iterations
+                for demo_batch, buffer_batch in tepoch:
 
-                # Make predictions with agent
-                buffer_batch = dict_to_device(buffer_batch, device)
-                buffer_loss, buffer_losses_log = agent.compute_loss(buffer_batch)
-                buffer_loss.backward()
+                    # Zero the gradients in all optimizers
+                    optimizer_base.zero_grad()
 
-                # Step the optimizers and schedulers
-                optimizer_base.step()
-                lr_scheduler_base.step()
+                    # Make predictions with agent
+                    demo_batch = dict_to_device(demo_batch, device)
+                    demo_loss, _ = agent.compute_loss(demo_batch, base_only=True)
+                    (demo_loss / 2).backward()
 
-                if cfg.base_bc.ema.use:
-                    base_ema.update()
+                    # Make predictions with agent
+                    buffer_batch = dict_to_device(buffer_batch, device)
+                    buffer_loss, _ = agent.compute_loss(buffer_batch, base_only=True)
+                    (buffer_loss / 2).backward()
 
-                # Log losses
-                base_bc_loss_cpu = base_bc_loss.item()
-                buffer_loss_cpu = buffer_loss.item()
-                base_bc_epoch_loss.append(base_bc_loss_cpu)
-                buffer_epoch_loss.append(buffer_loss_cpu)
-                bc_step_log = {
-                    "base_batch_loss": base_bc_loss_cpu,
-                    "buffer_batch_loss": buffer_loss_cpu,
-                    **base_bc_losses_log,
-                    **buffer_losses_log,
-                }
+                    # Clip to a big value if we don't want to clip the gradients
+                    # so that we can still log the gradient norms
+                    grad_norm = nn.utils.clip_grad_norm_(
+                        agent.base_actor_parameters,
+                        1 if cfg.base_bc.clip_grad_norm else 1000,
+                    ).item()
+                    grad_norms.append(grad_norm)
 
-                wandb.log(bc_step_log)
-                tepoch.set_postfix(base_loss=base_bc_loss_cpu, buffer_loss=buffer_loss_cpu)
+                    # Step the optimizers and schedulers
+                    optimizer_base.step()
+                    gradient_steps += 1
+
+                    # Log losses
+                    demo_loss_cpu = demo_loss.item()
+                    buffer_loss_cpu = buffer_loss.item()
+
+                    demo_epoch_loss.append(demo_loss_cpu)
+                    buffer_epoch_loss.append(buffer_loss_cpu)
+
+                    tepoch.set_postfix(
+                        base_loss=demo_loss_cpu, buffer_loss=buffer_loss_cpu
+                    )
+
+            mean_demo_loss = np.mean(demo_epoch_loss)
+            mean_buffer_loss = np.mean(buffer_epoch_loss)
+            mean_loss = (mean_demo_loss + mean_buffer_loss) / 2
+
+            wandb.log(
+                {
+                    "base_bc/demo_loss": mean_demo_loss,
+                    "base_bc/buffer_loss": mean_buffer_loss,
+                    "base_bc/loss": mean_loss,
+                    "base_bc/grad_norm": np.mean(grad_norms),
+                    "base_bc/epoch": training_iterations,
+                    "base_bc/iteration": iteration,
+                    "base_bc/gradient_steps": gradient_steps,
+                },
+                step=global_step,
+            )
+            agent.eval()
 
     print(f"Training finished in {(time.time() - start_time):.2f}s")
 
