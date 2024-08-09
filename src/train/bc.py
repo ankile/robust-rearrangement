@@ -2,6 +2,7 @@ from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
+from typing import Optional
 from src.behavior.base import Actor
 from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached
@@ -38,6 +39,7 @@ from omegaconf import DictConfig, OmegaConf
 
 # Import the wandb Run type for type hinting
 from wandb.apis.public.runs import Run
+from wandb.errors.util import CommError
 
 from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 
@@ -101,7 +103,7 @@ def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
     print(OmegaConf.to_yaml(cfg))
-    env = None
+    env: Optional[FurnitureRLSimEnv] = None
     device = torch.device(
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
@@ -109,13 +111,13 @@ def main(cfg: DictConfig):
     state_dict = None
 
     # Check if we are continuing a run
-    run_exists = cfg.wandb.continue_run_id is not None
-    if run_exists:
+    if cfg.wandb.continue_run_id is not None:
         try:
             run: Run = wandb.Api().run(
                 f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
             )
-        except ValueError:
+            run_exists = True
+        except (ValueError, CommError):
             run_exists = False
 
     if run_exists:
@@ -511,7 +513,7 @@ def main(cfg: DictConfig):
             ):
                 # Do not load the environment until we successfuly made it this far
                 if env is None:
-                    env: FurnitureRLSimEnv = get_rl_env(
+                    env = get_rl_env(
                         cfg.training.gpu_id,
                         furniture=cfg.rollout.furniture,
                         num_envs=cfg.rollout.num_envs,
@@ -537,9 +539,8 @@ def main(cfg: DictConfig):
                 )
 
             # Prepare the save dict once and we can reuse below
-            actor_state = ema.shadow if cfg.training.ema.use else actor.state_dict()
             save_dict = {
-                "model_state_dict": actor_state,
+                "model_state_dict": actor.state_dict(),
                 "best_test_loss": best_test_loss,
                 "best_success_rate": best_success_rate,
                 "epoch": epoch_idx,
