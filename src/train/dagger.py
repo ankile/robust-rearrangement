@@ -125,9 +125,6 @@ def main(cfg: DictConfig):
         teacher_wts = teacher_wts["model_state_dict"]
 
     teacher.load_state_dict(teacher_wts)
-    teacher_normalizer = teacher.normalizer
-    teacher: ResidualPolicy = teacher.residual_policy
-    teacher.set_normalizer(teacher_normalizer)
     teacher.to(device)
     teacher.eval()
 
@@ -140,20 +137,23 @@ def main(cfg: DictConfig):
 
     # Update the student_policy config with the one from the run
     cfg.student_policy.merge_with(student_cfg)
-
     student = DiffusionPolicy(device, student_cfg)
-    student_wts = torch.load(student_wts_path)
-    if "model_state_dict" in student_wts:
-        student_wts = student_wts["model_state_dict"]
+    if student_wts_path is not None:
+        student_wts = torch.load(student_wts_path)
+        if "model_state_dict" in student_wts:
+            student_wts = student_wts["model_state_dict"]
 
-    student.load_state_dict(student_wts)
+        student.load_state_dict(student_wts)
+
+    else:
+        student.normalizer.load_state_dict(teacher.normalizer.state_dict())
+
+    normalizer = LinearNormalizer()
 
     # We'll use this normalizer to normalize the observations and actions
     # before putting them in the training dataset
-    normalizer = LinearNormalizer()
     normalizer.load_state_dict(student.normalizer.state_dict())
     normalizer.cpu()
-
     student.to(device)
     student.eval()
 
@@ -248,7 +248,6 @@ def main(cfg: DictConfig):
 
     start_time = time.time()
     training_cum_time = 0
-    running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -283,6 +282,7 @@ def main(cfg: DictConfig):
         eval_mode = (iteration - int(cfg.eval_first)) % cfg.eval_interval == 0
         next_obs = env.reset()
         student.reset()
+        teacher.reset()
 
         print(f"Eval mode: {eval_mode}")
 
@@ -298,7 +298,10 @@ def main(cfg: DictConfig):
             with torch.no_grad():
                 # Get the actions from the student and the teacher
                 student_action = student.action(next_obs)
-                teacher_action = teacher.correct_action(next_obs, student_action)
+                if cfg.correct_student_action_only:
+                    teacher_action = teacher.correct_action(next_obs, student_action)
+                else:
+                    teacher_action = teacher.action(next_obs)
 
             # Always use the student action during evaluation
             # Otherwise, use the teacher action with probability beta
@@ -346,10 +349,8 @@ def main(cfg: DictConfig):
         # Calculate the share of successful timesteps
         success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
-        running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
-
         print(
-            f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
         )
 
         # Evaluation use only student actions so we don't want to store those
@@ -513,6 +514,7 @@ def main(cfg: DictConfig):
             tepoch = tqdm(
                 zip(trainloader, range(cfg.max_steps_per_epoch)),
                 desc=f"Epoch {epoch}/{cfg.num_epochs}",
+                total=min(len(trainloader), cfg.max_steps_per_epoch),
             )
             # Train the base policy with BC for a few iterations
             for batch, _ in tepoch:

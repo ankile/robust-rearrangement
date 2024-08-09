@@ -28,6 +28,7 @@ replay_buffer_size: 1000000
 clip_grad_norm: true
 
 beta: 0.5
+correct_student_action_only: false
 
 env:
   randomness: low

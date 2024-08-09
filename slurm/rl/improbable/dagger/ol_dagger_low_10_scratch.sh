@@ -9,12 +9,13 @@
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
-#SBATCH --job-name=ol_dagger_low_10
+#SBATCH --job-name=ol_dag_low_10_scratch
 
 python -m src.train.dagger \
     student_policy.wandb_id=ol-state-dr-low-1/6i7hupje \
     teacher_policy.wandb_id=ol-rppo-dr-low-1/k8tg86rc \
     env.randomness=low \
+    student_policy.wt_type=null \
     beta=1.0 \
     correct_student_action_only=false \
     debug=false
