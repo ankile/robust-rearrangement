@@ -8,7 +8,9 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=7_rl_50050_low_state
+#SBATCH --requeue
+#SBATCH --job-name=6_rl_10050_low_state
 
 python -m src.train.bc +experiment=state/scaling_10k \
+    wandb.continue_run_id=a875d48a \
     dryrun=false

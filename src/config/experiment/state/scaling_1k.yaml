@@ -1,28 +1,7 @@
 # @package _global_
 defaults:
-  - image/base
-  - override /actor: diffusion
-  - override /actor/diffusion_model: unet
-  - override /rollout: rollout
-
-rollout:
-  num_envs: 1024
-  every: 50
-  furniture: one_leg
-  randomness: low
-
-observation_type: state
-
-randomness: low
-furniture: one_leg
-
-training:
-  batch_size: 1024
-  num_epochs: 20000
-
-wandb:
-  project: ol-vision-scaling-low-1
-
+  - state/scaling_base
+  
 data:
   data_paths_override:
     - diffik/sim/one_leg/teleop/low/success.zarr

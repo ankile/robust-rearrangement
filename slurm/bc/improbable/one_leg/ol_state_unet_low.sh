@@ -17,7 +17,7 @@ python -m src.train.bc +experiment=state/diff_unet \
     rollout.randomness=low \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     demo_source=teleop randomness='[low,low_perturb]' \
-    training.batch_size=1024 training.actor_lr=1e-4 training.num_epochs=10000 \
+    training.batch_size=256 training.actor_lr=1e-4 training.num_epochs=10000 \
     training.steps_per_epoch=1000 \
     wandb.project=ol-state-dr-1 \
     training.ema.use=true \

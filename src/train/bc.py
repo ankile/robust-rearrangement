@@ -406,6 +406,8 @@ def main(cfg: DictConfig):
             "epoch": epoch_idx,
         }
 
+        train_losses_log = defaultdict(list)
+
         # batch loop
         actor.train()
         tepoch = tqdm(trainloader, desc="Training", leave=False, total=len(trainloader))
@@ -420,21 +422,10 @@ def main(cfg: DictConfig):
             loss.backward()
 
             # Gradient clipping
-            if cfg.training.clip_grad_norm:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    actor.parameters(), max_norm=1.0
-                )
-            else:
-                grad_norm = torch.norm(
-                    torch.stack(
-                        [
-                            torch.norm(p.grad.detach(), 2)
-                            for p in actor.parameters()
-                            if p.grad is not None
-                        ]
-                    ),
-                    2,
-                )
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                actor.parameters(),
+                max_norm=1.0 + 1e3 * (1 - cfg.training.clip_grad_norm),
+            )
 
             # Step the optimizers and schedulers
             for (_, opt), scheduler in zip(optimizers, lr_schedulers):
@@ -446,18 +437,13 @@ def main(cfg: DictConfig):
 
             # Log the loss and gradients
             loss_cpu = loss.item()
-            step_log = {
-                "batch_loss": loss_cpu,
-                "grad_norm": grad_norm,
-                **losses_log,
-            }
+
+            train_losses_log["grad_norm"] = grad_norm.item()
+
+            for k, v in losses_log.items():
+                train_losses_log[k].append(v)
+
             epoch_loss.append(loss_cpu)
-
-            # Add the learning rates to the log
-            for name, opt in optimizers:
-                step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
-
-            wandb.log(step_log, step=global_step)
 
             # Update the global step
             global_step += 1
@@ -467,6 +453,27 @@ def main(cfg: DictConfig):
         tepoch.close()
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
+
+        for k, v in train_losses_log.items():
+            epoch_log[f"train_{k}"] = np.mean(v)
+
+        # Add the learning rates to the log
+        for name, opt in optimizers:
+            epoch_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
+
+        # Prepare the save dict once and we can reuse below
+        save_dict = {
+            "model_state_dict": actor.state_dict(),
+            "best_test_loss": best_test_loss,
+            "best_success_rate": best_success_rate,
+            "epoch": epoch_idx,
+            "global_step": global_step,
+        }
+
+        # Add the optimizer and scheduler states to the save dict
+        for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+            save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+            save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
 
         if (
             cfg.training.eval_every > 0
@@ -538,20 +545,6 @@ def main(cfg: DictConfig):
                     epoch_idx=epoch_idx,
                 )
 
-            # Prepare the save dict once and we can reuse below
-            save_dict = {
-                "model_state_dict": actor.state_dict(),
-                "best_test_loss": best_test_loss,
-                "best_success_rate": best_success_rate,
-                "epoch": epoch_idx,
-                "global_step": global_step,
-            }
-
-            # Add the optimizer and scheduler states to the save dict
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
             # Save the model if the test loss is the best so far
             if (
                 cfg.training.store_best_test_loss_model
@@ -569,11 +562,6 @@ def main(cfg: DictConfig):
             ):
                 prev_best_success_rate = best_success_rate
                 save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
-                torch.save(save_dict, save_path)
-                wandb.save(save_path)
-
-            if cfg.training.store_last_model:
-                save_path = str(model_save_dir / f"actor_chkpt_last.pt")
                 torch.save(save_dict, save_path)
                 wandb.save(save_path)
 
@@ -618,6 +606,12 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/counter"] = early_stopper.counter
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
+        # We store the last model at the end of each epoch for better checkpointing
+        if cfg.training.store_last_model:
+            save_path = str(model_save_dir / f"actor_chkpt_last.pt")
+            torch.save(save_dict, save_path)
+            wandb.save(save_path)
 
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:

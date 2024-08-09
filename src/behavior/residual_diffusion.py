@@ -228,6 +228,23 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
         raise NotImplementedError
 
+    def correct_action(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """
+        Predict the correction to the action given the observation and the action
+        """
+        nobs = self.process_obs(obs)
+        naction = self.normalizer(action, "action", forward=True)
+
+        residual_nobs = torch.cat([nobs, naction], dim=-1)
+
+        naction_corrected = (
+            naction
+            + self.residual_policy.actor_mean(residual_nobs)
+            * self.residual_policy.action_scale
+        )
+
+        return self.normalizer(naction_corrected, "action", forward=False)
+
     def reset(self):
         """
         Reset the actor
