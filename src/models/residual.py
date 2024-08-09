@@ -182,22 +182,6 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         self.normalizer = LinearNormalizer()
         self.normalizer.load_state_dict(normalizer.state_dict())
 
-    def correct_action(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        """
-        Predict the correction to the action given the observation and the action
-        """
-        assert self.normalizer is not None
-        robot_state = proprioceptive_quat_to_6d_rotation(obs["robot_state"])
-        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
-        nparts_poses = self.normalizer(obs["parts_poses"], "parts_poses", forward=True)
-        naction = self.normalizer(action, "action", forward=True)
-
-        nobs = torch.cat([nrobot_state, nparts_poses, naction], dim=-1)
-
-        naction_corrected = naction + self.actor_mean(nobs) * self.action_scale
-
-        return self.normalizer(naction_corrected, "action", forward=False)
-
 
 class BiggerResidualPolicy(ResidualPolicy):
 
