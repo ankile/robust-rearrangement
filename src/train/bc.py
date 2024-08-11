@@ -111,6 +111,7 @@ def main(cfg: DictConfig):
     state_dict = None
 
     # Check if we are continuing a run
+    run_exists = False
     if cfg.wandb.continue_run_id is not None:
         try:
             run: Run = wandb.Api().run(
@@ -118,7 +119,7 @@ def main(cfg: DictConfig):
             )
             run_exists = True
         except (ValueError, CommError):
-            run_exists = False
+            pass
 
     if run_exists:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")

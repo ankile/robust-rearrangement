@@ -15,7 +15,7 @@ from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
 from src.eval.eval_utils import load_model_weights
 
-from typing import List
+from typing import List, Optional
 from ipdb import set_trace as bp  # noqa
 import wandb
 from wandb import Api
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     print(
         f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env: FurnitureSimEnv = None
+    env: Optional[FurnitureSimEnv] = None
 
     f: str = args.furniture
 
@@ -299,7 +299,7 @@ if __name__ == "__main__":
 
                 # Only actually load the environment after we know we've got at least one run to evaluate
                 if env is None:
-                    env: FurnitureRLSimEnv = get_rl_env(
+                    env = get_rl_env(
                         gpu_id=args.gpu,
                         furniture=args.furniture,
                         num_envs=args.n_envs,
@@ -348,7 +348,9 @@ if __name__ == "__main__":
                 if isinstance(actor, DiffusionPolicy):
                     actor.inference_steps = 4
 
-                actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+                actor: Optional[Actor] = load_model_weights(
+                    run=run, actor=actor, wt_type=args.wt_type
+                )
 
                 if actor is None:
                     print(

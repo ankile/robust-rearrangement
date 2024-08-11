@@ -334,16 +334,12 @@ if __name__ == "__main__":
         type=str,
         choices=["sim", "real"],
         required=True,
-        # default=None,
-        # nargs="+",
     )
     parser.add_argument(
         "--furniture",
         "-f",
         type=str,
         required=True,
-        # default=None,
-        # nargs="+",
     )
     parser.add_argument(
         "--source",
@@ -351,8 +347,6 @@ if __name__ == "__main__":
         type=str,
         choices=["scripted", "rollout", "teleop", "augmentation"],
         required=True,
-        # default=None,
-        # nargs="+",
     )
     parser.add_argument(
         "--randomness",
@@ -360,8 +354,6 @@ if __name__ == "__main__":
         type=str,
         choices=["low", "low_perturb", "med", "med_perturb", "high", "high_perturb"],
         required=True,
-        # default=None,
-        # nargs="+",
     )
     parser.add_argument(
         "--demo-outcome",
@@ -369,8 +361,6 @@ if __name__ == "__main__":
         type=str,
         choices=["success", "failure", "partial_success"],
         required=True,
-        # default=None,
-        # nargs="+",
     )
     parser.add_argument(
         "--suffix",

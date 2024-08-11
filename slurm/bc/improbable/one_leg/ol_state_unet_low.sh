@@ -9,7 +9,7 @@
 #SBATCH --time=1-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
-#SBATCH --job-name=ol_state_unet_low_ema
+#SBATCH --job-name=ol_state_unet_low
 
 python -m src.train.bc +experiment=state/diff_unet \
     furniture=one_leg \
@@ -17,9 +17,8 @@ python -m src.train.bc +experiment=state/diff_unet \
     rollout.randomness=low \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     demo_source=teleop randomness='[low,low_perturb]' \
-    training.batch_size=256 training.actor_lr=1e-4 training.num_epochs=10000 \
+    training.batch_size=128 training.actor_lr=1e-4 training.num_epochs=10000 \
     training.steps_per_epoch=1000 \
     wandb.project=ol-state-dr-1 \
-    training.ema.use=true \
-    wandb.continue_run_id=b7e4ed3a \
+    training.ema.use=false \
     dryrun=false

@@ -276,7 +276,6 @@ def main(cfg: DictConfig):
     values = torch.zeros((steps_per_iteration, cfg.num_envs))
 
     start_time = time.time()
-    running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -353,18 +352,25 @@ def main(cfg: DictConfig):
         timesteps_in_success = rewards[:, env_success]
 
         # Find index of last reward in each trajectory
-        last_reward_idx = torch.argmax(timesteps_in_success, dim=0)
+        # This has all timesteps including and after episode is done
+        success_dones = timesteps_in_success.cumsum(dim=0) >= n_parts_to_assemble
+        last_reward_idx = success_dones.int().argmax(dim=0)
 
         # Calculate the total number of timesteps in successful trajectories
-        total_timesteps_in_success = last_reward_idx.sum().item()
+        total_timesteps_in_success = (last_reward_idx + 1).sum().item()
 
         # Calculate the share of successful timesteps
         success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
-        running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
+        # Mean successful episode length
+        mean_success_episode_length = (
+            total_timesteps_in_success / env_success.sum().item()
+        )
+        max_success_episode_length = last_reward_idx.max().item()
 
         print(
-            f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f", STS: {success_timesteps_share:.4%}, MSEL: {mean_success_episode_length:.2f}"
         )
 
         if eval_mode:
@@ -549,12 +555,14 @@ def main(cfg: DictConfig):
 
         wandb.log(
             {
-                "charts/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
-                "charts/learning_rate_critic": optimizer_critic.param_groups[0]["lr"],
-                "charts/SPS": sps,
+                "training/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
+                "training/learning_rate_critic": optimizer_critic.param_groups[0]["lr"],
+                "training/SPS": sps,
                 "charts/rewards": rewards.sum().item(),
                 "charts/success_rate": success_rate,
                 "charts/success_timesteps_share": success_timesteps_share,
+                "charts/mean_success_episode_length": mean_success_episode_length,
+                "charts/max_success_episode_length": max_success_episode_length,
                 "charts/action_norm_mean": action_norms.mean(),
                 "charts/action_norm_std": action_norms.std(),
                 "values/advantages": b_advantages.mean().item(),
