@@ -81,6 +81,7 @@ def set_dryrun_params(cfg: DictConfig):
         cfg.data.data_subset = 5
         cfg.data.dataloader_workers = 0
         cfg.training.sample_every = 1
+        cfg.training.eval_every = 1
 
         if cfg.rollout.rollouts:
             cfg.rollout.every = 1
@@ -126,17 +127,21 @@ def main(cfg: DictConfig):
 
         cfg.training.start_epoch = run.summary.get("epoch", 0)
 
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        run_id = cfg.wandb.continue_run_id
+        run_path = f"{cfg.wandb.project}/{run_id}"
 
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "last", wandb_mode=cfg.wandb.mode
+                run_path, "last", wandb_mode=cfg.wandb.mode
             )
         except:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "latest", wandb_mode=cfg.wandb.mode
+                run_path, "latest", wandb_mode=cfg.wandb.mode
             )
+
+        # Ensure we set the `continue_run_id` to the run_id
+        cfg.wandb.continue_run_id = run_id
 
         state_dict = torch.load(wts)
 
@@ -339,6 +344,7 @@ def main(cfg: DictConfig):
         smooth_factor=cfg.early_stopper.smooth_factor,
     )
     config_dict = OmegaConf.to_container(cfg, resolve=True)
+
     # Init wandb
     run = wandb.init(
         id=cfg.wandb.continue_run_id,

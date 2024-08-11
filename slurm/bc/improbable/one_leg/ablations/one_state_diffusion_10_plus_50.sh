@@ -21,4 +21,5 @@ python -m src.train.bc +experiment=state/diff_unet furniture=one_leg \
     +data.max_episode_count.one_leg.teleop.low.success=10 \
     wandb.project=ol-state-dr-1 \
     wandb.name=ol-10-plus-50-demos-23 \
+    wandb.continue_run_id=0hbqcf96 \
     dryrun=false
