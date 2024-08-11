@@ -31,6 +31,8 @@ import torch.optim as optim
 from tqdm import trange
 
 import wandb
+from wandb.apis.public.runs import Run
+from wandb.errors.util import CommError
 
 from src.gym import turn_off_april_tags
 
@@ -76,6 +78,68 @@ def main(cfg: DictConfig):
 
     OmegaConf.set_struct(cfg, False)
 
+    run_state_dict = None
+
+    # Check if we are continuing a run
+    run_exists = False
+    if cfg.wandb.continue_run_id is not None:
+        try:
+            run: Run = wandb.Api().run(
+                f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+            )
+            run_exists = True
+        except (ValueError, CommError):
+            pass
+
+    if run_exists:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+
+        run_id = cfg.wandb.continue_run_id
+        run_path = f"{cfg.wandb.project}/{run_id}"
+
+        # Load the weights from the run
+        cfg, wts = get_model_from_api_or_cached(
+            run_path, "latest", wandb_mode=cfg.wandb.mode
+        )
+
+        # Update the cfg.continue_run_id to the run_id
+        cfg.wandb.continue_run_id = run_id
+
+        base_cfg = cfg.base_policy
+        merge_base_bc_config_with_root_config(cfg, base_cfg)
+
+        print(f"Loading weights from {wts}")
+
+        run_state_dict = torch.load(wts)
+
+        # Set the best test loss and success rate to the one from the run
+        try:
+            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
+        except KeyError:
+            best_eval_success_rate = run.summary["eval/success_rate"]
+
+        iteration = run.summary["iteration"]
+        global_step = run.lastHistoryStep
+        training_cum_time = run.summary["charts/SPS"] * global_step
+        run_name = run.name
+
+    else:
+        global_step = 0
+        iteration = 0
+        best_eval_success_rate = 0.0
+        training_cum_time = 0
+
+        # Load the behavior cloning actor
+        base_cfg, base_wts = get_model_from_api_or_cached(
+            cfg.base_policy.wandb_id,
+            wt_type=cfg.base_policy.wt_type,
+            wandb_mode=cfg.wandb.mode,
+        )
+
+        merge_base_bc_config_with_root_config(cfg, base_cfg)
+        cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
+        run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
+
     # TRY NOT TO MODIFY: seeding
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
@@ -113,17 +177,6 @@ def main(cfg: DictConfig):
 
     n_parts_to_assemble = len(env.pairs_to_assemble)
 
-    # Load the behavior cloning actor
-    base_cfg, base_wts = get_model_from_api_or_cached(
-        cfg.base_policy.wandb_id,
-        wt_type=cfg.base_policy.wt_type,
-        wandb_mode=cfg.wandb.mode,
-    )
-
-    merge_base_bc_config_with_root_config(cfg, base_cfg)
-    cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
-    run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
-
     if cfg.base_policy.actor.name == "diffusion":
         agent = ResidualDiffusionPolicy(device, base_cfg)
     elif cfg.base_policy.actor.name == "mlp":
@@ -131,11 +184,8 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f"Unknown actor type: {cfg.base_policy.actor}")
 
-    agent.load_base_state_dict(base_wts)
     agent.to(device)
     agent.eval()
-
-    residual_policy = agent.residual_policy
 
     # Set the inference steps of the actor
     if isinstance(agent, DiffusionPolicy):
@@ -180,6 +230,23 @@ def main(cfg: DictConfig):
         num_training_steps=cfg.num_iterations,
     )
 
+    if run_state_dict is not None:
+        if "actor_logstd" in run_state_dict["model_state_dict"]:
+            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        else:
+            agent.load_state_dict(run_state_dict["model_state_dict"])
+
+        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        lr_scheduler_critic.load_state_dict(
+            run_state_dict["scheduler_critic_state_dict"]
+        )
+    else:
+        agent.load_base_state_dict(base_wts)
+
+    residual_policy = agent.residual_policy
+
     if (
         "pretrained_wts" in cfg.actor.residual_policy
         and cfg.actor.residual_policy.pretrained_wts
@@ -219,48 +286,6 @@ def main(cfg: DictConfig):
         save_code=True,
         mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
-
-    if cfg.wandb.continue_run_id is not None:
-        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
-
-        # Load the weights from the run
-        _, wts = get_model_from_api_or_cached(
-            run_id, "latest", wandb_mode=cfg.wandb.mode
-        )
-
-        print(f"Loading weights from {wts}")
-
-        run_state_dict = torch.load(wts)
-
-        if "actor_logstd" in run_state_dict["model_state_dict"]:
-            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-        else:
-            agent.load_state_dict(run_state_dict["model_state_dict"])
-
-        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        lr_scheduler_critic.load_state_dict(
-            run_state_dict["scheduler_critic_state_dict"]
-        )
-
-        # Set the best test loss and success rate to the one from the run
-        try:
-            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
-        except KeyError:
-            best_eval_success_rate = run.summary["eval/success_rate"]
-
-        iteration = run.summary["iteration"]
-        global_step = run.step
-        training_cum_time = run.summary["charts/SPS"] * global_step
-
-    else:
-        global_step = 0
-        iteration = 0
-        best_eval_success_rate = 0.0
-        training_cum_time = 0
 
     obs: torch.Tensor = torch.zeros(
         (

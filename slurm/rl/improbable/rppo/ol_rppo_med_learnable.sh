@@ -22,4 +22,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     ent_coef=0.001 \
     total_timesteps=1000000000 \
     sample_perturbations=false \
+    wandb.continue_run_id=oipdyimz \
     debug=false

@@ -85,9 +85,9 @@ def set_dryrun_params(cfg: DictConfig):
 
         if cfg.rollout.rollouts:
             cfg.rollout.every = 1
-            cfg.rollout.num_rollouts = 1
+            # cfg.rollout.num_rollouts = 1
             cfg.rollout.loss_threshold = float("inf")
-            cfg.rollout.max_steps = 10
+            # cfg.rollout.max_steps = 10
 
         cfg.wandb.mode = "disabled"
 
@@ -216,6 +216,9 @@ def main(cfg: DictConfig):
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     OmegaConf.set_struct(cfg, False)
+    if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
+        cfg.slurm_job_id = job_id
+
     cfg.robot_state_dim = dataset.robot_state_dim
 
     if cfg.observation_type == "state":

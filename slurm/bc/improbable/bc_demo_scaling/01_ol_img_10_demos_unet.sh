@@ -5,11 +5,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
-#SBATCH --mem=32GB
+#SBATCH --mem=96GB
 #SBATCH --time=1-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
 #SBATCH --job-name=01_ol_img_10_demos_unet
+
+export HOME=/data/scratch/ankile
 
 python -m src.train.bc +experiment=image/diff_unet \
     furniture=one_leg \
@@ -19,6 +21,7 @@ python -m src.train.bc +experiment=image/diff_unet \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     demo_source=teleop randomness=low \
     training.encoder_lr=1e-5 \
+    training.eval_every=5 training.sample_every=-1 \
     lr_scheduler.encoder_warmup_steps=50000 \
     data.suffix=demo_scaling \
     data.data_subset=10 \
@@ -26,4 +29,5 @@ python -m src.train.bc +experiment=image/diff_unet \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
     wandb.continue_run_id=10cbcb0e \
+    wandb.name=ol-10-demos-unet-5 \
     dryrun=false
