@@ -343,7 +343,8 @@ def main(cfg: DictConfig):
         success_rate = env_success.float().mean().item()
         if iteration == 1:
             reference_success_rate = success_rate
-        last_success_rate = success_rate
+        else:
+            last_success_rate = success_rate
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
