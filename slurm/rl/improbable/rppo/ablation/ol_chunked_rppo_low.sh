@@ -11,8 +11,9 @@
 #SBATCH --requeue
 #SBATCH --job-name=ol_rppo_low_gamma_1
 
+# base_policy.wandb_id=ol-state-dr-1/e3d4a367 \
 python -m src.train.chunked_residual_ppo +experiment=rl/chunked_residual_ppo \
-    base_policy.wandb_id=ol-state-dr-1/e3d4a367 \
+    base_policy.wandb_id=ol-state-dr-low-1/6i7hupje \
     base_policy.wt_type=best_success_rate \
     env.randomness=low \
     actor.residual_policy.init_logstd=-1.0 \
@@ -20,4 +21,4 @@ python -m src.train.chunked_residual_ppo +experiment=rl/chunked_residual_ppo \
     ent_coef=0.0 \
     sample_perturbations=false \
     wandb.continue_run_id=null \
-    debug=true
+    debug=false

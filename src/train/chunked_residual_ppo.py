@@ -364,9 +364,9 @@ def main(cfg: DictConfig):
             rewards[step] = reward.view(-1).cpu()
             next_done = next_done.view(-1).cpu()
 
-            if step > 0 and (policy_step := step) % (100 // agent.action_horizon) == 0:
+            if step > 0 and (step % (100 // agent.action_horizon)) == 0:
                 print(
-                    f"env_step={step}, policy_step={policy_step}, global_step={global_step}, "
+                    f"env_step={step * agent.action_horizon}, policy_step={step}, global_step={global_step}, "
                     f"mean_reward={rewards[:step+1].sum(dim=0).mean().item()}"
                 )
 
@@ -403,7 +403,7 @@ def main(cfg: DictConfig):
             max_success_episode_length = 0
 
         print(
-            f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs * agent.action_horizon / (time.time() - iteration_start_time):.2f}"
             f", STS: {success_timesteps_share:.4%}, MSEL: {mean_success_episode_length:.2f}"
         )
 
