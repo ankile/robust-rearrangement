@@ -6,7 +6,7 @@
 #SBATCH -c 40
 #SBATCH --job-name=2_ol_40_demos
 
-OMP_NUM_THREADS=20
+export OMP_NUM_THREADS=20
 
 torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/real_ol_cotrain \
     demo_source=teleop \
