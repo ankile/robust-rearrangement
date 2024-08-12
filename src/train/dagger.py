@@ -271,6 +271,8 @@ def main(cfg: DictConfig):
     )
 
     beta = cfg.beta
+    last_success_rate = 0.0
+    reference_success_rate = None
 
     while iteration < cfg.num_iterations:
         iteration += 1
@@ -305,9 +307,13 @@ def main(cfg: DictConfig):
 
             # Always use the student action during evaluation
             # Otherwise, use the teacher action with probability beta
+            if reference_success_rate is not None and last_success_rate > (cfg.beta_decay_ref_sr_ratio * reference_success_rate):
+                beta = 0.1 * beta
+                print(f'Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}')
+            beta_to_use = beta if iteration > cfg.beta_start else 1.0
             is_student_action = torch.full(
                 (cfg.num_envs, 1), eval_mode, device=device, dtype=torch.bool
-            ) | (torch.rand(cfg.num_envs, 1, device=device) > beta)
+            ) | (torch.rand(cfg.num_envs, 1, device=device) > beta_to_use)
             is_action_from_student[step] = is_student_action.view(-1)
 
             action = torch.where(
@@ -335,6 +341,9 @@ def main(cfg: DictConfig):
         # Env is successful if it received a reward more than or equal to n_parts_to_assemble
         env_success = (rewards > 0).sum(dim=0) >= n_parts_to_assemble
         success_rate = env_success.float().mean().item()
+        if iteration == 1:
+            reference_success_rate = success_rate
+        last_success_rate = success_rate
 
         # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
         # Count total timesteps in successful trajectories
@@ -507,6 +516,9 @@ def main(cfg: DictConfig):
         # Calculate how many training iterations we've done
         training_iterations = iteration - cfg.eval_first
         training_iterations -= (iteration - cfg.eval_first) // cfg.eval_interval
+
+        # print(f'Here to debug the dataloader')
+        # bp()
 
         student.train()
         for epoch in range(cfg.num_epochs):
