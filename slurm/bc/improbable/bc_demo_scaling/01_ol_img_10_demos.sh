@@ -29,4 +29,5 @@ python -m src.train.bc +experiment=image/diff_transformer \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
     wandb.name=ol-10-demos-1 \
+    wandb.continue_run_id=wih6dlzw \
     dryrun=false

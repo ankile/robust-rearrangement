@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import furniture_bench  # noqa
 
@@ -77,6 +78,9 @@ def calculate_advantage(
 def main(cfg: DictConfig):
 
     OmegaConf.set_struct(cfg, False)
+
+    if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
+        cfg.slurm_job_id = job_id
 
     run_state_dict = None
 
@@ -373,30 +377,31 @@ def main(cfg: DictConfig):
         env_success = (rewards > 0).sum(dim=0) >= n_parts_to_assemble
         success_rate = env_success.float().mean().item()
 
-        # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
-        # Count total timesteps in successful trajectories
-        timesteps_in_success = rewards[:, env_success]
+        if success_rate > 0:
+            # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
+            # Count total timesteps in successful trajectories
+            timesteps_in_success = rewards[:, env_success]
 
-        # Find index of last reward in each trajectory
-        # This has all timesteps including and after episode is done
-        success_dones = timesteps_in_success.cumsum(dim=0) >= n_parts_to_assemble
-        last_reward_idx = success_dones.int().argmax(dim=0)
+            # Find index of last reward in each trajectory
+            # This has all timesteps including and after episode is done
+            success_dones = timesteps_in_success.cumsum(dim=0) >= n_parts_to_assemble
+            last_reward_idx = success_dones.int().argmax(dim=0)
 
-        # Calculate the total number of timesteps in successful trajectories
-        total_timesteps_in_success = (last_reward_idx + 1).sum().item()
+            # Calculate the total number of timesteps in successful trajectories
+            total_timesteps_in_success = (last_reward_idx + 1).sum().item()
 
-        # Calculate the share of successful timesteps
-        success_timesteps_share = (
-            total_timesteps_in_success / rewards.numel() if rewards.numel() > 0 else 0
-        )
+            # Calculate the share of successful timesteps
+            success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
-        # Mean successful episode length
-        mean_success_episode_length = (
-            total_timesteps_in_success / env_success.sum().item()
-            if env_success.sum().item() > 0
-            else 0
-        )
-        max_success_episode_length = last_reward_idx.max().item()
+            # Mean successful episode length
+            mean_success_episode_length = (
+                total_timesteps_in_success / env_success.sum().item()
+            )
+            max_success_episode_length = last_reward_idx.max().item()
+        else:
+            success_timesteps_share = 0
+            mean_success_episode_length = 0
+            max_success_episode_length = 0
 
         print(
             f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"

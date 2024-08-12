@@ -13,7 +13,7 @@
 
 export HOME=/data/scratch/ankile
 
-python -m src.train.bc +experiment=image/diff_transformer \
+python -m src.train.bc +experiment=image/diff_unet \
     furniture=one_leg \
     rollout=rollout rollout.every=25 rollout.max_steps=700 \
     rollout.num_envs=64 rollout.count=256 \
@@ -28,6 +28,6 @@ python -m src.train.bc +experiment=image/diff_transformer \
     training.batch_size=256 training.actor_lr=1e-4 training.num_epochs=400 \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
-    wandb.name=ol-90-demos-8 \
-    wandb.continue_run_id=4e27c20c \
+    wandb.name=ol-90-demos-unet-8 \
+    wandb.continue_run_id=6f6cab8d \
     dryrun=false

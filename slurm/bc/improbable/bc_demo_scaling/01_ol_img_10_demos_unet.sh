@@ -28,6 +28,6 @@ python -m src.train.bc +experiment=image/diff_unet \
     training.batch_size=256 training.actor_lr=1e-4 training.num_epochs=400 \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
-    wandb.continue_run_id=0c92c0f4 \
     wandb.name=ol-10-demos-unet-5 \
+    wandb.continue_run_id=0c92c0f4 \
     dryrun=false

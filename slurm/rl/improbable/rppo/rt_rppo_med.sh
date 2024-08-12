@@ -23,4 +23,4 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     ent_coef=0.0 \
     wandb.project=rt-rppo-dr-med-1 \
     wandb.continue_run_id=1glc7xtp \
-    debug=false
+    debug=true

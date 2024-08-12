@@ -124,8 +124,6 @@ def main(cfg: DictConfig):
 
     if run_exists:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
-        cfg.training.start_epoch = epoch_idx
 
         run_id = cfg.wandb.continue_run_id
         run_path = f"{cfg.wandb.project}/{run_id}"
@@ -144,6 +142,9 @@ def main(cfg: DictConfig):
         cfg.wandb.continue_run_id = run_id
 
         state_dict = torch.load(wts)
+
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        cfg.training.start_epoch = epoch_idx
 
         # Set the best test loss and success rate to the one from the run
         best_test_loss = state_dict.get(
@@ -408,6 +409,7 @@ def main(cfg: DictConfig):
         total=cfg.training.num_epochs,
         desc=pbar_desc,
     )
+
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
