@@ -193,6 +193,7 @@ def main(cfg: DictConfig):
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
             minority_class_power=cfg.data.get("minority_class_power", False),
+            load_into_memory=cfg.data.get("load_into_memory", True),
         )
     elif cfg.observation_type == "state":
         dataset = FurnitureStateDataset(

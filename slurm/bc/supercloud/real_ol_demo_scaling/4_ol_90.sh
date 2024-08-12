@@ -15,7 +15,7 @@ torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/r
     environment=real \
     training.batch_size=128 \
     data.dataloader_workers=20 \
-    data.data_paths_override'[diffik/real/one_leg_full_new/teleop/low/success.zarr,diffik/real/one_leg_full/teleop/low/success.zarr]' \
+    data.data_paths_override='[diffik/real/one_leg_full_new/teleop/low/success.zarr,diffik/real/one_leg_full/teleop/low/success.zarr]' \
     training.clip_grad_norm=true \
     +data.max_episode_count.one_leg_full_new.teleop.low.success=40 \
     +data.max_episode_count.one_leg_full.teleop.low.success=50 \
