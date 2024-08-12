@@ -81,12 +81,13 @@ def set_dryrun_params(cfg: DictConfig):
         cfg.data.data_subset = 5
         cfg.data.dataloader_workers = 0
         cfg.training.sample_every = 1
+        cfg.training.eval_every = 1
 
         if cfg.rollout.rollouts:
             cfg.rollout.every = 1
-            cfg.rollout.num_rollouts = 1
+            # cfg.rollout.num_rollouts = 1
             cfg.rollout.loss_threshold = float("inf")
-            cfg.rollout.max_steps = 10
+            # cfg.rollout.max_steps = 10
 
         cfg.wandb.mode = "disabled"
 
@@ -111,6 +112,7 @@ def main(cfg: DictConfig):
     state_dict = None
 
     # Check if we are continuing a run
+    run_exists = False
     if cfg.wandb.continue_run_id is not None:
         try:
             run: Run = wandb.Api().run(
@@ -118,26 +120,31 @@ def main(cfg: DictConfig):
             )
             run_exists = True
         except (ValueError, CommError):
-            run_exists = False
+            pass
 
     if run_exists:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        cfg.training.start_epoch = run.summary.get("epoch", 0)
-
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        run_id = cfg.wandb.continue_run_id
+        run_path = f"{cfg.wandb.project}/{run_id}"
 
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "last", wandb_mode=cfg.wandb.mode
+                run_path, "last", wandb_mode=cfg.wandb.mode
             )
         except:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "latest", wandb_mode=cfg.wandb.mode
+                run_path, "latest", wandb_mode=cfg.wandb.mode
             )
 
+        # Ensure we set the `continue_run_id` to the run_id
+        cfg.wandb.continue_run_id = run_id
+
         state_dict = torch.load(wts)
+
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        cfg.training.start_epoch = epoch_idx
 
         # Set the best test loss and success rate to the one from the run
         best_test_loss = state_dict.get(
@@ -210,6 +217,9 @@ def main(cfg: DictConfig):
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     OmegaConf.set_struct(cfg, False)
+    if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
+        cfg.slurm_job_id = job_id
+
     cfg.robot_state_dim = dataset.robot_state_dim
 
     if cfg.observation_type == "state":
@@ -338,6 +348,7 @@ def main(cfg: DictConfig):
         smooth_factor=cfg.early_stopper.smooth_factor,
     )
     config_dict = OmegaConf.to_container(cfg, resolve=True)
+
     # Init wandb
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
@@ -398,6 +409,7 @@ def main(cfg: DictConfig):
         total=cfg.training.num_epochs,
         desc=pbar_desc,
     )
+
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
@@ -405,6 +417,8 @@ def main(cfg: DictConfig):
         epoch_log = {
             "epoch": epoch_idx,
         }
+
+        train_losses_log = defaultdict(list)
 
         # batch loop
         actor.train()
@@ -420,21 +434,10 @@ def main(cfg: DictConfig):
             loss.backward()
 
             # Gradient clipping
-            if cfg.training.clip_grad_norm:
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    actor.parameters(), max_norm=1.0
-                )
-            else:
-                grad_norm = torch.norm(
-                    torch.stack(
-                        [
-                            torch.norm(p.grad.detach(), 2)
-                            for p in actor.parameters()
-                            if p.grad is not None
-                        ]
-                    ),
-                    2,
-                )
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                actor.parameters(),
+                max_norm=1.0 + 1e3 * (1 - cfg.training.clip_grad_norm),
+            )
 
             # Step the optimizers and schedulers
             for (_, opt), scheduler in zip(optimizers, lr_schedulers):
@@ -446,18 +449,13 @@ def main(cfg: DictConfig):
 
             # Log the loss and gradients
             loss_cpu = loss.item()
-            step_log = {
-                "batch_loss": loss_cpu,
-                "grad_norm": grad_norm,
-                **losses_log,
-            }
+
+            train_losses_log["grad_norm"] = grad_norm.item()
+
+            for k, v in losses_log.items():
+                train_losses_log[k].append(v)
+
             epoch_loss.append(loss_cpu)
-
-            # Add the learning rates to the log
-            for name, opt in optimizers:
-                step_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
-
-            wandb.log(step_log, step=global_step)
 
             # Update the global step
             global_step += 1
@@ -467,6 +465,27 @@ def main(cfg: DictConfig):
         tepoch.close()
 
         epoch_log["epoch_loss"] = np.mean(epoch_loss)
+
+        for k, v in train_losses_log.items():
+            epoch_log[f"train_{k}"] = np.mean(v)
+
+        # Add the learning rates to the log
+        for name, opt in optimizers:
+            epoch_log[f"{name}_lr"] = opt.param_groups[0]["lr"]
+
+        # Prepare the save dict once and we can reuse below
+        save_dict = {
+            "model_state_dict": actor.state_dict(),
+            "best_test_loss": best_test_loss,
+            "best_success_rate": best_success_rate,
+            "epoch": epoch_idx,
+            "global_step": global_step,
+        }
+
+        # Add the optimizer and scheduler states to the save dict
+        for (name, opt), scheduler in zip(optimizers, lr_schedulers):
+            save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
+            save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
 
         if (
             cfg.training.eval_every > 0
@@ -538,20 +557,6 @@ def main(cfg: DictConfig):
                     epoch_idx=epoch_idx,
                 )
 
-            # Prepare the save dict once and we can reuse below
-            save_dict = {
-                "model_state_dict": actor.state_dict(),
-                "best_test_loss": best_test_loss,
-                "best_success_rate": best_success_rate,
-                "epoch": epoch_idx,
-                "global_step": global_step,
-            }
-
-            # Add the optimizer and scheduler states to the save dict
-            for (name, opt), scheduler in zip(optimizers, lr_schedulers):
-                save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
-                save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
-
             # Save the model if the test loss is the best so far
             if (
                 cfg.training.store_best_test_loss_model
@@ -569,11 +574,6 @@ def main(cfg: DictConfig):
             ):
                 prev_best_success_rate = best_success_rate
                 save_path = str(model_save_dir / f"actor_chkpt_best_success_rate.pt")
-                torch.save(save_dict, save_path)
-                wandb.save(save_path)
-
-            if cfg.training.store_last_model:
-                save_path = str(model_save_dir / f"actor_chkpt_last.pt")
                 torch.save(save_dict, save_path)
                 wandb.save(save_path)
 
@@ -618,6 +618,12 @@ def main(cfg: DictConfig):
             epoch_log["early_stopper/counter"] = early_stopper.counter
             epoch_log["early_stopper/best_loss"] = early_stopper.best_loss
             epoch_log["early_stopper/ema_loss"] = early_stopper.ema_loss
+
+        # We store the last model at the end of each epoch for better checkpointing
+        if cfg.training.store_last_model:
+            save_path = str(model_save_dir / f"actor_chkpt_last.pt")
+            torch.save(save_dict, save_path)
+            wandb.save(save_path)
 
         # If switch is enabled, copy the the shadow to the model at the end of each epoch
         if cfg.training.ema.use and cfg.training.ema.switch:

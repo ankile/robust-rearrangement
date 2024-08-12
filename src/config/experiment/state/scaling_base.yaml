@@ -19,6 +19,7 @@ training:
   steps_per_epoch: 1000
   checkpoint_interval: 100
   eval_every: 10
+  store_last_model: true
 
 randomness: low
 furniture: one_leg

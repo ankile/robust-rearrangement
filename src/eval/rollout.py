@@ -10,7 +10,7 @@ from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 from pathlib import Path
 
 from src.behavior.base import Actor
@@ -38,6 +38,18 @@ RolloutStats = collections.namedtuple(
         "rollout_max_steps",
         "total_return",
         "total_reward",
+    ],
+)
+
+RolloutSaveValues = collections.namedtuple(
+    "RolloutSaveValues",
+    [
+        "robot_states",
+        "imgs1",
+        "imgs2",
+        "actions",
+        "rewards",
+        "parts_poses",
     ],
 )
 
@@ -135,16 +147,12 @@ def rollout(
     pbar: SuccessTqdm = None,
     resize_video: bool = True,
     n_parts_assemble: int = 1,
-):
+    save_rollouts: bool = False,
+) -> Optional[RolloutSaveValues]:
     # get first observation
     with suppress_all_output(False):
         obs = env.reset()
         actor.reset()
-
-    # if env.furniture_name == "lamp":
-    #     # Before we start, let the environment settle by doing nothing for 5 second
-    #     for _ in range(50):
-    #         obs = env.noop()
 
     video_obs = deepcopy(obs)
 
@@ -190,16 +198,19 @@ def rollout(
             resize_crop_image(video_obs, "color_image2")
 
         # Store the results for visualization and logging
-        robot_states.append(
-            TensorDict(video_obs["robot_state"], batch_size=env.num_envs)
-        )
-        if "color_image1" in video_obs:
-            imgs1.append(video_obs["color_image1"].cpu())
-        if "color_image2" in video_obs:
-            imgs2.append(video_obs["color_image2"].cpu())
-        actions.append(action_pred.cpu())
+        if save_rollouts:
+            robot_states.append(
+                TensorDict(video_obs["robot_state"], batch_size=env.num_envs)
+            )
+            if "color_image1" in video_obs:
+                imgs1.append(video_obs["color_image1"].cpu())
+            if "color_image2" in video_obs:
+                imgs2.append(video_obs["color_image2"].cpu())
+            actions.append(action_pred.cpu())
+            parts_poses.append(video_obs["parts_poses"].cpu())
+
+        # Always store rewards as they are used to calculate success
         rewards[:, step_idx] = reward.squeeze().cpu()
-        parts_poses.append(video_obs["parts_poses"].cpu())
 
         # update progress bar
         step_idx += 1
@@ -215,13 +226,13 @@ def rollout(
         if done.all():
             break
 
-    return (
-        torch.stack(robot_states, dim=1),
+    return RolloutSaveValues(
+        torch.stack(robot_states, dim=1) if robot_states else [],
         torch.stack(imgs1, dim=1) if imgs1 else [],
         torch.stack(imgs2, dim=1) if imgs2 else [],
-        torch.stack(actions, dim=1),
+        torch.stack(actions, dim=1) if actions else [],
         rewards,
-        torch.stack(parts_poses, dim=1),
+        torch.stack(parts_poses, dim=1) if parts_poses else [],
     )
 
 
@@ -233,10 +244,10 @@ def calculate_success_rate(
     rollout_max_steps: int,
     epoch_idx: int,
     discount: float = 0.99,
-    rollout_save_dir: Union[Path, None] = None,
+    rollout_save_dir: Optional[Path] = None,
     save_rollouts_to_wandb: bool = False,
     save_failures: bool = False,
-    n_parts_assemble: Union[int, None] = None,
+    n_parts_assemble: Optional[int] = None,
     compress_pickles: bool = False,
     resize_video: bool = True,
     n_steps_padding: int = 30,
@@ -280,27 +291,30 @@ def calculate_success_rate(
         pbar.before_round(n_success)
 
         # Perform a rollout with the current model
-        robot_states, imgs1, imgs2, actions, rewards, parts_poses = rollout(
+        rollout_data: RolloutSaveValues = rollout(
             env,
             actor,
             rollout_max_steps,
             pbar=pbar,
             resize_video=resize_video,
             n_parts_assemble=n_parts_assemble,
+            save_rollouts=save_rollouts,
         )
 
         # Calculate the success rate
-        success = rewards.sum(dim=1) == n_parts_assemble
+        success = rollout_data.rewards.sum(dim=1) == n_parts_assemble
         n_success += success.sum().item()
 
         # Save the results from the rollout
         if save_rollouts:
-            all_robot_states.extend([robot_states[i] for i in range(env.num_envs)])
-            all_imgs1.extend(imgs1)
-            all_imgs2.extend(imgs2)
-            all_actions.extend(actions)
-            all_rewards.extend(rewards)
-            all_parts_poses.extend(parts_poses)
+            all_robot_states.extend(
+                [rollout_data.robot_states[i] for i in range(env.num_envs)]
+            )
+            all_imgs1.extend(rollout_data.imgs1)
+            all_imgs2.extend(rollout_data.imgs2)
+            all_actions.extend(rollout_data.actions)
+            all_rewards.extend(rollout_data.rewards)
+            all_parts_poses.extend(rollout_data.parts_poses)
             all_success.extend(success)
 
         if break_on_n_success and n_success >= stop_after_n_success:

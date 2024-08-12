@@ -22,7 +22,6 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     checkpoint_interval=100 \
     actor.residual_policy.learn_std=false \
     total_timesteps=1_000_000_000 \
-    wandb.name=fixed-default-std-1 \
     wandb.project=fph-rppo-dr-low-1 \
     debug=false 
 
