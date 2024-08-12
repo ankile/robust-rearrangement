@@ -4,7 +4,7 @@
 #SBATCH -t 1-12:00
 #SBATCH --gres=gpu:volta:2
 #SBATCH -c 40
-#SBATCH --job-name=5_ol_cotrain
+#SBATCH --job-name=7_ol_cotrain
 
 export OMP_NUM_THREADS=20
 

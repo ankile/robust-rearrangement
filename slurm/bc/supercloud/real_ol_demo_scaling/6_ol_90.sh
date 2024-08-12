@@ -4,7 +4,7 @@
 #SBATCH -t 1-12:00
 #SBATCH --gres=gpu:volta:2
 #SBATCH -c 40
-#SBATCH --job-name=4_ol_90_demos
+#SBATCH --job-name=6_ol_90_demos
 
 export OMP_NUM_THREADS=20
 
@@ -19,7 +19,6 @@ torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/r
     training.clip_grad_norm=true \
     +data.max_episode_count.one_leg_full_new.teleop.low.success=40 \
     +data.max_episode_count.one_leg_full.teleop.low.success=50 \
-    data.load_into_memory=false \
     wandb.mode=offline \
     wandb.project=real-ol-demo-scaling-1 \
     wandb.name=ol-90-demos-1 \
