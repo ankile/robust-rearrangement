@@ -23,7 +23,7 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 1000
+  checkpoint_interval: 250
   num_epochs: 5000
   steps_per_epoch: 100
   encoder_lr: 1e-5
