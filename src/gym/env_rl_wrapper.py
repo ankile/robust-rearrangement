@@ -33,7 +33,6 @@ class FurnitureEnvRLWrapper:
         self.device = device
         self.normalizer = LinearNormalizer()
 
-        # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
 
         # Define a new observation space of dim 16 + 35 for 6D proprioception
@@ -90,19 +89,6 @@ class FurnitureEnvRLWrapper:
         obs = self.env.reset()
         return self.process_obs(obs)
 
-    def jerkinesss_penalty(self, action: torch.Tensor):
-        # Get the current end-effector velocity
-        ee_velocity = self.env.rb_states[self.env.ee_idxs, 7:10]
-
-        # Calculate the dot product between the action and the end-effector velocity
-        dot_product = torch.sum(action[..., :3] * ee_velocity, dim=1, keepdim=True)
-
-        # Calculate the velocity-based penalty
-        velocity_penalty = torch.where(dot_product < 0, -0.01, 0.0)
-
-        # Add the velocity-based penalty to the rewards
-        return velocity_penalty
-
     def _inner_step(self, action_chunk: torch.Tensor):
         total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
         dones = torch.zeros(
@@ -123,10 +109,7 @@ class FurnitureEnvRLWrapper:
         action_chunk = self.normalizer(naction_chunk, "action", forward=False)
 
         # Move the robot
-        obs, reward, done, info = self._inner_step(action_chunk)
-
-        # Episodes that received reward are terminated
-        terminated = reward > 0
+        obs, reward, terminated, info = self._inner_step(action_chunk)
 
         # Check if any envs have reached the max number of steps
         truncated = self.env.env_steps >= self.max_env_steps
@@ -135,11 +118,6 @@ class FurnitureEnvRLWrapper:
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
-
-        # NOTE: We take this out to be safe as it's not currently compatible with the lamp task
-        # Reset the envs that have reached the max number of steps or got reward
-        # if self.reset_on_success and torch.any(done):
-        #     obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 

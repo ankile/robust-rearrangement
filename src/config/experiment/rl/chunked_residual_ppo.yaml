@@ -1,7 +1,6 @@
 # @package _global_
-actor:
-  residual_policy:
-    pretrained_wts: null
+defaults:
+- override /actor: chunked_residual_diffusion
 
 base_policy:
   wandb_id: ???
@@ -25,10 +24,11 @@ env:
 
 normalize_reward: false
 residual_l2: 0.0
+data_collection_steps: ${eval:'${num_env_steps} // ${actor.action_horizon}'}
 
 wandb:
   entity: robust-assembly
-  project: ol-rppo-dr-${env.randomness}-1
+  project: ol-chunked-rppo-dr-${env.randomness}-1
   # project: tmp-bc-in-the-loop-rl-test
   mode: online
 

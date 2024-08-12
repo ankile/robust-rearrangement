@@ -372,6 +372,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         start = self.obs_horizon - 1 if self.predict_past_actions else 0
         end = start + self.action_horizon
         actions = deque()
+        
         for i in range(start, end):
             actions.append(action_pred[:, i, :])
 

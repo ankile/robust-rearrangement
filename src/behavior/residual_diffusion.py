@@ -274,3 +274,82 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
             for n, p in self.model.named_parameters()
             if not (n.startswith("encoder1.") or n.startswith("encoder2."))
         ]
+
+
+class ChunkedResidualDiffusionPolicy(ResidualDiffusionPolicy):
+    def __init__(
+        self,
+        device: Union[str, torch.device],
+        cfg: DictConfig,
+    ) -> None:
+        super().__init__(device, cfg)
+
+        self.actions = deque(maxlen=self.action_horizon)
+        self.base_nactions = None
+
+        self.chunk_size = cfg.action_horizon
+
+        # We overwrite the residual to predict whole chunks of actions
+        self.residual_policy: ResidualPolicy = hydra.utils.instantiate(
+            cfg.actor.residual_policy,
+            obs_shape=(self.timestep_obs_dim,),
+            action_shape=(self.action_dim * self.chunk_size,),
+        )
+
+    @torch.no_grad()
+    def action_pred(self, batch):
+        raise NotImplementedError
+
+    @torch.no_grad()
+    def action(self, obs: Dict[str, torch.Tensor]):
+        """
+        Predict the action given the batch of observations
+        """
+        self.observations.append(obs)
+
+        # Normalize observations
+        nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
+
+        if not self.actions:
+            start = self.obs_horizon - 1 if self.predict_past_actions else 0
+            end = start + self.action_horizon
+
+            # If there are no base actions, predict the action
+            base_nactioon_pred = self._normalized_action(nobs)[:, start:end, :].flatten(
+                start_dim=1
+            )
+
+            # Predict the residual
+            residual_nobs = torch.cat([nobs, base_nactioon_pred], dim=-1)
+            residual = self.residual_policy.get_action(residual_nobs)
+
+            # Add the residual to the base action
+            naction = (base_nactioon_pred + residual).view(
+                -1, self.chunk_size, self.action_dim
+            )
+            action = self.normalizer(naction, "action", forward=False)
+
+            for i in range(start, end):
+                self.actions.append(action[:, i, :])
+
+        # Return the action
+        return self.actions.popleft()
+
+    @torch.no_grad()
+    def base_action_normalized(self, nobs: torch.Tensor) -> torch.Tensor:
+        """
+        This function will now predict the action for the next chunk of actions
+        """
+        naction = self._normalized_action(nobs)
+
+        start = self.obs_horizon - 1 if self.predict_past_actions else 0
+        end = start + self.action_horizon
+
+        return naction[:, start:end, :].flatten(start_dim=1)
+
+    def reset(self):
+        """
+        Reset the actor
+        """
+        self.observations.clear()
+        self.actions.clear()
