@@ -134,6 +134,7 @@ if __name__ == "__main__":
             "square_table",
             "cabinet",
             "mug_rack",
+            "factory_peg_hole"
         ],
         required=True,
     )
