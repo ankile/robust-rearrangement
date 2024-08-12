@@ -9,7 +9,7 @@
 #SBATCH --time=1-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
-#SBATCH --job-name=01_ol_img_10_demos_unet
+#SBATCH --job-name=02_ol_img_40_demos_unet
 
 export HOME=/data/scratch/ankile
 
@@ -24,10 +24,10 @@ python -m src.train.bc +experiment=image/diff_unet \
     training.eval_every=5 training.sample_every=-1 \
     lr_scheduler.encoder_warmup_steps=50000 \
     data.suffix=demo_scaling \
-    data.data_subset=10 \
+    data.data_subset=40 \
     training.batch_size=256 training.actor_lr=1e-4 training.num_epochs=400 \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
-    wandb.continue_run_id=0c92c0f4 \
-    wandb.name=ol-10-demos-unet-5 \
+    wandb.continue_run_id=531a184b \
+    wandb.name=ol-40-demos-unet-6 \
     dryrun=false

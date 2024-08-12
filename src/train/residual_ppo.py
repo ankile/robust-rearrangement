@@ -120,7 +120,8 @@ def main(cfg: DictConfig):
 
         iteration = run.summary["iteration"]
         global_step = run.lastHistoryStep
-        training_cum_time = run.summary["charts/SPS"] * global_step
+        sps = run.summary.get("charts/SPS", run.summary.get("training/SPS", 0))
+        training_cum_time = sps * global_step
         run_name = run.name
 
     else:
@@ -278,7 +279,7 @@ def main(cfg: DictConfig):
 
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
-        resume=None if cfg.wandb.continue_run_id is None else "must",
+        resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         config=OmegaConf.to_container(cfg, resolve=True),
@@ -385,11 +386,15 @@ def main(cfg: DictConfig):
         total_timesteps_in_success = (last_reward_idx + 1).sum().item()
 
         # Calculate the share of successful timesteps
-        success_timesteps_share = total_timesteps_in_success / rewards.numel()
+        success_timesteps_share = (
+            total_timesteps_in_success / rewards.numel() if rewards.numel() > 0 else 0
+        )
 
         # Mean successful episode length
         mean_success_episode_length = (
             total_timesteps_in_success / env_success.sum().item()
+            if env_success.sum().item() > 0
+            else 0
         )
         max_success_episode_length = last_reward_idx.max().item()
 

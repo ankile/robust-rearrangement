@@ -124,8 +124,8 @@ def main(cfg: DictConfig):
 
     if run_exists:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-
-        cfg.training.start_epoch = run.summary.get("epoch", 0)
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        cfg.training.start_epoch = epoch_idx
 
         run_id = cfg.wandb.continue_run_id
         run_path = f"{cfg.wandb.project}/{run_id}"

@@ -207,8 +207,10 @@ def rollout(
             if "color_image2" in video_obs:
                 imgs2.append(video_obs["color_image2"].cpu())
             actions.append(action_pred.cpu())
-            rewards[:, step_idx] = reward.squeeze().cpu()
             parts_poses.append(video_obs["parts_poses"].cpu())
+
+        # Always store rewards as they are used to calculate success
+        rewards[:, step_idx] = reward.squeeze().cpu()
 
         # update progress bar
         step_idx += 1
