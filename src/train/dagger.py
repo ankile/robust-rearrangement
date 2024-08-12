@@ -287,6 +287,9 @@ def main(cfg: DictConfig):
         teacher.reset()
 
         print(f"Eval mode: {eval_mode}")
+        if reference_success_rate is not None and last_success_rate > (cfg.beta_decay_ref_sr_ratio * reference_success_rate):
+            beta = max(0.5, beta - cfg.beta_linear_decay)
+            print(f'Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}')
 
         for step in range(0, steps_per_iteration):
             if not eval_mode:
@@ -307,9 +310,6 @@ def main(cfg: DictConfig):
 
             # Always use the student action during evaluation
             # Otherwise, use the teacher action with probability beta
-            if reference_success_rate is not None and last_success_rate > (cfg.beta_decay_ref_sr_ratio * reference_success_rate):
-                beta = max(0.5, beta - cfg.beta_linear_decay)
-                print(f'Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}')
             beta_to_use = beta if iteration > cfg.beta_start else 1.0
             is_student_action = torch.full(
                 (cfg.num_envs, 1), eval_mode, device=device, dtype=torch.bool
