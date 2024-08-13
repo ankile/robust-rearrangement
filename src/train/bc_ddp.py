@@ -542,6 +542,14 @@ def main(cfg: DictConfig):
                 torch.save(save_dict, save_path)
                 wandb.save(save_path)
 
+            if (
+                cfg.training.checkpoint_interval > 0
+                and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
+            ):
+                save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
+                torch.save(save_dict, save_path)
+                wandb.save(save_path)
+
             if cfg.training.store_last_model:
                 save_path = str(model_save_dir / f"actor_chkpt_last.pt")
 
@@ -552,14 +560,6 @@ def main(cfg: DictConfig):
                     save_dict[f"{name}_optimizer_state_dict"] = opt.state_dict()
                     save_dict[f"{name}_scheduler_state_dict"] = scheduler.state_dict()
 
-                torch.save(save_dict, save_path)
-                wandb.save(save_path)
-
-            if (
-                cfg.training.checkpoint_interval > 0
-                and (epoch_idx + 1) % cfg.training.checkpoint_interval == 0
-            ):
-                save_path = str(model_save_dir / f"actor_chkpt_{epoch_idx}.pt")
                 torch.save(save_dict, save_path)
                 wandb.save(save_path)
 

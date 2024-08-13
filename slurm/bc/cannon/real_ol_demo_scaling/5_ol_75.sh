@@ -19,7 +19,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     training.clip_grad_norm=true \
     +data.max_episode_count.one_leg_full_new.teleop.low.success=40 \
     +data.max_episode_count.one_leg_full.teleop.low.success=35 \
-    wandb.mode=offline \
     wandb.project=real-ol-demo-scaling-1 \
     wandb.name=ol-75-demos-1 \
     dryrun=false

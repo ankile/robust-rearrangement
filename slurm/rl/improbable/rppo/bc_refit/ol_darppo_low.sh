@@ -22,5 +22,4 @@ python -m src.train.residual_ppo_w_bc +experiment=rl/residual_ppo_w_bc \
     sample_perturbations=false \
     num_envs=1024 \
     base_bc.improvement_threshold=0.1 \
-    wandb.continue_run_id=932c4ac9 \
     debug=false
