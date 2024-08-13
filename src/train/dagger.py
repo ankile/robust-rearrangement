@@ -273,6 +273,8 @@ def main(cfg: DictConfig):
     beta = cfg.beta
     last_success_rate = 0.0
     reference_success_rate = None
+    gradient_steps = 0
+    training_samples = 0
 
     while iteration < cfg.num_iterations:
         iteration += 1
@@ -287,9 +289,13 @@ def main(cfg: DictConfig):
         teacher.reset()
 
         print(f"Eval mode: {eval_mode}")
-        if reference_success_rate is not None and last_success_rate > (cfg.beta_decay_ref_sr_ratio * reference_success_rate):
+        if reference_success_rate is not None and last_success_rate > (
+            cfg.beta_decay_ref_sr_ratio * reference_success_rate
+        ):
             beta = max(0.5, beta - cfg.beta_linear_decay)
-            print(f'Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}')
+            print(
+                f"Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}"
+            )
 
         for step in range(0, steps_per_iteration):
             if not eval_mode:
@@ -512,7 +518,6 @@ def main(cfg: DictConfig):
 
         demo_epoch_loss = list()
         grad_norms = list()
-        gradient_steps = 0
 
         # Calculate how many training iterations we've done
         training_iterations = iteration - cfg.eval_first
@@ -551,6 +556,7 @@ def main(cfg: DictConfig):
                 # Step the optimizers
                 optimizer_student.step()
                 gradient_steps += 1
+                training_samples += cfg.batch_size
 
                 # Log losses
                 loss_cpu = loss.item()
@@ -566,6 +572,7 @@ def main(cfg: DictConfig):
                 "epoch": training_iterations,
                 "iteration": iteration,
                 "gradient_steps": gradient_steps,
+                "training_samples": training_samples,
                 "n_timesteps_in_buffer": buffer.size,
                 "learning_rate_student": optimizer_student.param_groups[0]["lr"],
             },
