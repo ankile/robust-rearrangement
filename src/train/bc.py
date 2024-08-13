@@ -127,19 +127,21 @@ def main(cfg: DictConfig):
 
         run_id = cfg.wandb.continue_run_id
         run_path = f"{cfg.wandb.project}/{run_id}"
+        wandb_mode = cfg.wandb.mode
 
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
-                run_path, "last", wandb_mode=cfg.wandb.mode
+                run_path, "last", wandb_mode=wandb_mode
             )
         except:
             cfg, wts = get_model_from_api_or_cached(
-                run_path, "latest", wandb_mode=cfg.wandb.mode
+                run_path, "latest", wandb_mode=wandb_mode
             )
 
         # Ensure we set the `continue_run_id` to the run_id
         cfg.wandb.continue_run_id = run_id
+        cfg.wandb.mode = wandb_mode
 
         state_dict = torch.load(wts)
 
