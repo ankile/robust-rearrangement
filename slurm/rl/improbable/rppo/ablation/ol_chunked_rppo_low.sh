@@ -20,5 +20,5 @@ python -m src.train.chunked_residual_ppo +experiment=rl/chunked_residual_ppo \
     actor.residual_policy.learn_std=false \
     ent_coef=0.0 \
     sample_perturbations=false \
-    wandb.continue_run_id=null \
+    wandb.continue_run_id=ntrzi1za \
     debug=false
