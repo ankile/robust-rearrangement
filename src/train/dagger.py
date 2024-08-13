@@ -292,7 +292,8 @@ def main(cfg: DictConfig):
         if reference_success_rate is not None and last_success_rate > (
             cfg.beta_decay_ref_sr_ratio * reference_success_rate
         ):
-            beta = max(0.5, beta - cfg.beta_linear_decay)
+            # beta = max(0.5, beta - cfg.beta_linear_decay)
+            beta = max(cfg.beta_min, beta - cfg.beta_linear_decay)
             print(
                 f"Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}"
             )
