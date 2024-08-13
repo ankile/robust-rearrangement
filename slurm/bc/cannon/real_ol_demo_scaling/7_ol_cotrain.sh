@@ -16,7 +16,6 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     training.batch_size=256 \
     data.dataloader_workers=16 \
     environment='[real,sim]' \
-    wandb.mode=offline \
     wandb.project=real-ol-demo-scaling-1 \
     wandb.name=ol-40-cotrain-1 \
     dryrun=false
