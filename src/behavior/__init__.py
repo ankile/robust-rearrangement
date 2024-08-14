@@ -34,4 +34,11 @@ def get_actor(cfg: DictConfig, device) -> Actor:
             cfg=cfg,
             device=device,
         )
+    elif actor_name == "chunked_residual_diffusion":
+        from src.behavior.residual_diffusion import ChunkedResidualDiffusionPolicy
+
+        return ChunkedResidualDiffusionPolicy(
+            cfg=cfg,
+            device=device,
+        )
     raise ValueError(f"Unknown actor type: {cfg.actor}")

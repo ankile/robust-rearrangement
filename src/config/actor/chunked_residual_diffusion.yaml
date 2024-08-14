@@ -1,2 +1,4 @@
 defaults:
   - residual_diffusion
+
+name: chunked_residual_diffusion
