@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=96GB
-#SBATCH --time=1-00:00
+#SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
 #SBATCH --job-name=04_ol_img_90_demos
@@ -29,5 +29,5 @@ python -m src.train.bc +experiment=image/diff_transformer \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
     wandb.name=ol-90-demos-4 \
-    wandb.continue_run_id=3tvakdy7 \
+    wandb.continue_run_id=825e97f5 \
     dryrun=false

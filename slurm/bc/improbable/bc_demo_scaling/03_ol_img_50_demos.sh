@@ -1,12 +1,12 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a100
-#SBATCH -q vision-pulkitag-main
+#SBATCH -p vision-pulkitag-a100,vision-pulkitag-v100,vision-pulkitag-3090,vision-pulkitag-a6000
+#SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=96GB
-#SBATCH --time=1-00:00
+#SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
 #SBATCH --job-name=03_ol_img_50_demos
@@ -29,5 +29,5 @@ python -m src.train.bc +experiment=image/diff_transformer \
     training.steps_per_epoch=1000 \
     wandb.project=ol-vision-sim-demo-scaling-low-1 \
     wandb.name=ol-50-demos-3 \
-    wandb.continue_run_id=7010m2p6 \
+    wandb.continue_run_id=9a738d50 \
     dryrun=false
