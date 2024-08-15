@@ -217,7 +217,7 @@ def main(cfg: DictConfig):
     lr_scheduler_actor = get_scheduler(
         name=cfg.lr_scheduler.name,
         optimizer=optimizer_actor,
-        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_warmup_steps=cfg.lr_scheduler.actor_warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
 
@@ -231,7 +231,7 @@ def main(cfg: DictConfig):
     lr_scheduler_critic = get_scheduler(
         name=cfg.lr_scheduler.name,
         optimizer=optimizer_critic,
-        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_warmup_steps=cfg.lr_scheduler.critic_warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
 

@@ -39,7 +39,8 @@ learning_rate_actor: 3e-4
 learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 5
+  actor_warmup_steps: 5
+  critic_warmup_steps: 0
 
 # Residual specific arguments
 residual_l1: 0.0
