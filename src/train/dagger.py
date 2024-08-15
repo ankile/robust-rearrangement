@@ -267,14 +267,16 @@ def main(cfg: DictConfig):
             steps_per_iteration,
             cfg.num_envs,
             240, 320, 3
-        )
+        ), 
+        dtype=torch.uint8
     )
     color_images2: torch.Tensor = torch.zeros(
         (
             steps_per_iteration,
             cfg.num_envs,
             240, 320, 3
-        )
+        ),
+        dtype=torch.uint8
     )
     is_action_from_student = torch.zeros((steps_per_iteration, cfg.num_envs))
 

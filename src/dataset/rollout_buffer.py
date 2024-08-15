@@ -1,7 +1,7 @@
 from typing import Dict, List
 import numpy as np
 import torch
-
+import gc
 
 class RolloutBuffer:
     def __init__(
@@ -39,9 +39,9 @@ class RolloutBuffer:
         self.state_dim = state_dim
         self.action_dim = action_dim
 
-        self.states = torch.empty((max_size, state_dim), dtype=torch.float32)
-        self.actions = torch.empty((max_size, action_dim), dtype=torch.float32)
-        self.rewards = torch.empty(max_size, dtype=torch.float32)
+        self.states = torch.zeros((max_size, state_dim), dtype=torch.float32)
+        self.actions = torch.zeros((max_size, action_dim), dtype=torch.float32)
+        self.rewards = torch.zeros(max_size, dtype=torch.float32)
         self.dones = torch.zeros(max_size, dtype=torch.bool)
 
         self.train_data = {
@@ -53,9 +53,9 @@ class RolloutBuffer:
 
         self.include_images = include_images
         if self.include_images:
-            self.robot_states = torch.empty((max_size, 16), dtype=torch.float32)
-            self.color_image1 = torch.empty((max_size, 240, 320, 3), dtype=torch.float32)
-            self.color_image2 = torch.empty((max_size, 240, 320, 3), dtype=torch.float32)
+            self.robot_states = torch.zeros((max_size, 16), dtype=torch.float32)
+            self.color_image1 = torch.zeros((max_size, 240, 320, 3), dtype=torch.uint8)
+            self.color_image2 = torch.zeros((max_size, 240, 320, 3), dtype=torch.uint8)
             self.train_data["robot_state"] = self.robot_states
             self.train_data["color_image1"] = self.color_image1
             self.train_data["color_image2"] = self.color_image2
