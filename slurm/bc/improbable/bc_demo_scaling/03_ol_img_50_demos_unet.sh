@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=96GB
-#SBATCH --time=1-00:00
+#SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --requeue
 #SBATCH --job-name=03_ol_img_50_demos_unet

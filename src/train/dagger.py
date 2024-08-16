@@ -32,7 +32,11 @@ from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
 
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
-from furniture_bench.envs.observation import DEFAULT_STATE_OBS, DEFAULT_VISUAL_OBS, FULL_OBS
+from furniture_bench.envs.observation import (
+    DEFAULT_STATE_OBS,
+    DEFAULT_VISUAL_OBS,
+    FULL_OBS,
+)
 from src.data_processing.utils import resize, resize_crop
 import numpy as np
 import torch
@@ -101,17 +105,21 @@ def main(cfg: DictConfig):
         april_tags=False,
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
-        obs_keys=(DEFAULT_VISUAL_OBS + ["parts_poses"]) if cfg.observation_type == "image" else DEFAULT_STATE_OBS,
+        obs_keys=(
+            (DEFAULT_VISUAL_OBS + ["parts_poses"])
+            if cfg.observation_type == "image"
+            else DEFAULT_STATE_OBS
+        ),
         furniture=cfg.env.task,
         # gpu_id=1,
         compute_device_id=gpu_id,
         graphics_device_id=gpu_id,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
-        observation_space=cfg.observation_type, #"state",
+        observation_space=cfg.observation_type,  # "state",
         randomness=cfg.env.randomness,
         max_env_steps=100_000_000,
-        resize_img=False
+        resize_img=False,
     )
     n_parts_to_assemble = len(env.pairs_to_assemble)
 
@@ -248,7 +256,7 @@ def main(cfg: DictConfig):
             steps_per_iteration,
             cfg.num_envs,
             # env.env.observation_space.spaces["robot_state"].shape[0],
-            14
+            14,
         )
     )
     parts_poses: torch.Tensor = torch.zeros(
@@ -256,27 +264,17 @@ def main(cfg: DictConfig):
             steps_per_iteration,
             cfg.num_envs,
             # env.env.observation_space.spaces["parts_poses"].shape[0],
-            42
+            42,
         )
     )
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
     rewards = torch.zeros((steps_per_iteration, cfg.num_envs))
     dones = torch.zeros((steps_per_iteration, cfg.num_envs))
     color_images1: torch.Tensor = torch.zeros(
-        (
-            steps_per_iteration,
-            cfg.num_envs,
-            240, 320, 3
-        ), 
-        dtype=torch.uint8
+        (steps_per_iteration, cfg.num_envs, 240, 320, 3), dtype=torch.uint8
     )
     color_images2: torch.Tensor = torch.zeros(
-        (
-            steps_per_iteration,
-            cfg.num_envs,
-            240, 320, 3
-        ),
-        dtype=torch.uint8
+        (steps_per_iteration, cfg.num_envs, 240, 320, 3), dtype=torch.uint8
     )
     is_action_from_student = torch.zeros((steps_per_iteration, cfg.num_envs))
 
@@ -294,7 +292,7 @@ def main(cfg: DictConfig):
     # create replay buffer
     buffer = RolloutBuffer(
         max_size=cfg.replay_buffer_size,
-        state_dim=58, # student.obs_dim, # size of robot state + parts poses
+        state_dim=58,  # student.obs_dim, # size of robot state + parts poses
         action_dim=student.action_dim,
         pred_horizon=student.pred_horizon,
         obs_horizon=student.obs_horizon,
@@ -302,7 +300,7 @@ def main(cfg: DictConfig):
         device=device,
         predict_past_actions=cfg.student_policy.data.predict_past_actions,
         include_future_obs=cfg.student_policy.data.include_future_obs,
-        include_images=(cfg.observation_type == "image")
+        include_images=(cfg.observation_type == "image"),
     )
 
     beta = cfg.beta
@@ -339,7 +337,7 @@ def main(cfg: DictConfig):
                 global_step += cfg.num_envs
 
             dones[step] = next_done
-            robot_states[step] = next_obs["robot_state"] 
+            robot_states[step] = next_obs["robot_state"]
             parts_poses[step] = next_obs["parts_poses"]
 
             if buffer.include_images:
@@ -453,17 +451,19 @@ def main(cfg: DictConfig):
                 )
             else:
                 # Add the successful trajectories to the replay buffer
-                success_robot_states = normalizer(success_robot_states, "robot_state", forward=True)
+                success_robot_states = normalizer(
+                    success_robot_states, "robot_state", forward=True
+                )
                 success_color_images1 = color_images1[:, success_idxs]
                 success_color_images2 = color_images2[:, success_idxs]
                 buffer.add_trajectory(
-                    success_obs, 
-                    success_actions, 
-                    success_rewards, 
-                    success_dones, 
-                    robot_states=success_robot_states, 
-                    color_images1=success_color_images1, 
-                    color_images2=success_color_images2
+                    success_obs,
+                    success_actions,
+                    success_rewards,
+                    success_dones,
+                    robot_states=success_robot_states,
+                    color_images1=success_color_images1,
+                    color_images2=success_color_images2,
                 )
 
             # # For logging purposes, calculate the share of actions being taken by the student in the successful,

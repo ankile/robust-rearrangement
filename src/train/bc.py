@@ -127,19 +127,21 @@ def main(cfg: DictConfig):
 
         run_id = cfg.wandb.continue_run_id
         run_path = f"{cfg.wandb.project}/{run_id}"
+        wandb_mode = cfg.wandb.mode
 
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
-                run_path, "last", wandb_mode=cfg.wandb.mode
+                run_path, "last", wandb_mode=wandb_mode
             )
         except:
             cfg, wts = get_model_from_api_or_cached(
-                run_path, "latest", wandb_mode=cfg.wandb.mode
+                run_path, "latest", wandb_mode=wandb_mode
             )
 
         # Ensure we set the `continue_run_id` to the run_id
         cfg.wandb.continue_run_id = run_id
+        cfg.wandb.mode = wandb_mode
 
         state_dict = torch.load(wts)
 
@@ -193,6 +195,7 @@ def main(cfg: DictConfig):
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
             minority_class_power=cfg.data.get("minority_class_power", False),
+            load_into_memory=cfg.data.get("load_into_memory", True),
         )
     elif cfg.observation_type == "state":
         dataset = FurnitureStateDataset(
