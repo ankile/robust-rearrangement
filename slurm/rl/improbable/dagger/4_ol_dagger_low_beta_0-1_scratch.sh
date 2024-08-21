@@ -17,7 +17,7 @@ python -m src.train.dagger \
     env.randomness=low \
     student_policy.wt_type=null \
     beta=0.9 \
-    beta_start=1 \
+    teacher_only_iters=1 \
     correct_student_action_only=false \
     num_envs=64 \
     num_epochs=50 \

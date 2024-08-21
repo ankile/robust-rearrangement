@@ -16,7 +16,7 @@ python -m src.train.dagger \
     env.randomness=low \
     student_policy.wt_type=null \
     beta=1.0 \
-    beta_start=4 \
+    teacher_only_iters=4 \
     beta_linear_decay=0.025 \
     beta_min=0.1 \
     correct_student_action_only=false \

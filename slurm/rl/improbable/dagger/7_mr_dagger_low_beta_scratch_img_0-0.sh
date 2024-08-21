@@ -19,11 +19,11 @@ python -m src.train.dagger \
     num_env_steps=400 \
     student_policy.wt_type=null \
     beta=0.9 \
-    beta_start=3 \
+    teacher_only_iters=3 \
     correct_student_action_only=false \
     num_envs=16 \
     num_epochs=50 \
-    eval_first=false \
+    eval_first=true \
     max_steps_per_epoch=10 \
     learning_rate_student=1e-4 \
     replay_buffer_size=150000 \

@@ -35,7 +35,6 @@ from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import (
     DEFAULT_STATE_OBS,
     DEFAULT_VISUAL_OBS,
-    FULL_OBS,
 )
 from src.data_processing.utils import resize, resize_crop
 import numpy as np
@@ -48,6 +47,7 @@ import wandb
 from src.gym import turn_off_april_tags
 
 from src.dataset.rollout_buffer import RolloutBuffer
+from src.common.config_util import merge_student_config_with_root_config
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
@@ -160,7 +160,8 @@ def main(cfg: DictConfig):
     )
 
     # Update the student_policy config with the one from the run
-    cfg.student_policy.merge_with(student_cfg)
+    # cfg.student_policy.merge_with(student_cfg)
+    merge_student_config_with_root_config(cfg, student_cfg)
     student = DiffusionPolicy(device, student_cfg)
     if student_wts_path is not None:
         student_wts = torch.load(student_wts_path)
@@ -255,16 +256,14 @@ def main(cfg: DictConfig):
         (
             steps_per_iteration,
             cfg.num_envs,
-            # env.env.observation_space.spaces["robot_state"].shape[0],
-            14,
+            env.env.observation_space.spaces["robot_state"].shape[0],
         )
     )
     parts_poses: torch.Tensor = torch.zeros(
         (
             steps_per_iteration,
             cfg.num_envs,
-            # env.env.observation_space.spaces["parts_poses"].shape[0],
-            42,
+            env.env.observation_space.spaces["parts_poses"].shape[0],
         )
     )
     actions = torch.zeros((steps_per_iteration, cfg.num_envs) + env.action_space.shape)
@@ -290,9 +289,11 @@ def main(cfg: DictConfig):
     model_save_dir.mkdir(parents=True, exist_ok=True)
 
     # create replay buffer
+    robot_state_dim_6d = env.env.observation_space["robot_state"].shape[0] + 2
+    parts_poses_dim = env.env.observation_space["parts_poses"].shape[0]
     buffer = RolloutBuffer(
         max_size=cfg.replay_buffer_size,
-        state_dim=58,  # student.obs_dim, # size of robot state + parts poses
+        state_dim=robot_state_dim_6d + parts_poses_dim,
         action_dim=student.action_dim,
         pred_horizon=student.pred_horizon,
         obs_horizon=student.obs_horizon,
@@ -325,10 +326,9 @@ def main(cfg: DictConfig):
         if reference_success_rate is not None and last_success_rate > (
             cfg.beta_decay_ref_sr_ratio * reference_success_rate
         ):
-            # beta = max(0.5, beta - cfg.beta_linear_decay)
             beta = max(cfg.beta_min, beta - cfg.beta_linear_decay)
             print(
-                f"Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, beta: {beta}"
+                f"Reference success rate: {reference_success_rate}, last success rate: {last_success_rate}, new beta: {beta}"
             )
 
         for step in range(0, steps_per_iteration):
@@ -343,8 +343,6 @@ def main(cfg: DictConfig):
             if buffer.include_images:
                 next_obs["color_image1"] = resize(next_obs["color_image1"])
                 next_obs["color_image2"] = resize_crop(next_obs["color_image2"])
-                # color_images1[step] = resize(next_obs["color_image1"])
-                # color_images2[step] = resize_crop(next_obs["color_image2"])
                 color_images1[step] = next_obs["color_image1"]
                 color_images2[step] = next_obs["color_image2"]
 
@@ -358,7 +356,7 @@ def main(cfg: DictConfig):
 
             # Always use the student action during evaluation
             # Otherwise, use the teacher action with probability beta
-            beta_to_use = beta if iteration > cfg.beta_start else 1.0
+            beta_to_use = beta if iteration > cfg.teacher_only_iters else 1.0
             is_student_action = torch.full(
                 (cfg.num_envs, 1), eval_mode, device=device, dtype=torch.bool
             ) | (torch.rand(cfg.num_envs, 1, device=device) > beta_to_use)
@@ -446,7 +444,7 @@ def main(cfg: DictConfig):
 
             if not buffer.include_images:
                 # Add the successful trajectories to the replay buffer
-                buffer.add_trajectory(
+                buffer.add_trajectories(
                     success_obs, success_actions, success_rewards, success_dones
                 )
             else:
@@ -456,7 +454,7 @@ def main(cfg: DictConfig):
                 )
                 success_color_images1 = color_images1[:, success_idxs]
                 success_color_images2 = color_images2[:, success_idxs]
-                buffer.add_trajectory(
+                buffer.add_trajectories(
                     success_obs,
                     success_actions,
                     success_rewards,
@@ -494,7 +492,7 @@ def main(cfg: DictConfig):
             # If we are in eval mode, we don't need to do any training, so log the result and continue
 
             # Save the model if the evaluation success rate improves
-            if success_rate > best_eval_success_rate:
+            if success_rate >= best_eval_success_rate:
                 best_eval_success_rate = success_rate
                 model_path = str(model_save_dir / f"student_chkpt_best_success_rate.pt")
                 torch.save(
@@ -567,7 +565,6 @@ def main(cfg: DictConfig):
         trainloader = DataLoader(
             buffer,
             batch_size=cfg.batch_size,
-            # num_workers=cfg.data.dataloader_workers,
             num_workers=0,
             shuffle=True,
             pin_memory=True,
@@ -581,9 +578,6 @@ def main(cfg: DictConfig):
         # Calculate how many training iterations we've done
         training_iterations = iteration - cfg.eval_first
         training_iterations -= (iteration - cfg.eval_first) // cfg.eval_interval
-
-        # print(f'Here to debug the dataloader')
-        # bp()
 
         student.train()
         for epoch in range(cfg.num_epochs):
@@ -633,6 +627,8 @@ def main(cfg: DictConfig):
                 "gradient_steps": gradient_steps,
                 "training_samples": training_samples,
                 "n_timesteps_in_buffer": buffer.size,
+                "n_trajectories_in_buffer": buffer.n_trajectories,
+                "beta": beta_to_use,
                 "learning_rate_student": optimizer_student.param_groups[0]["lr"],
             },
             step=global_step,
