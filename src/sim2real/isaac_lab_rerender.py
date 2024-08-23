@@ -12,18 +12,21 @@ from dataclasses import dataclass
 from datetime import datetime
 from scipy.spatial.transform import Rotation as R
 
-from omni.isaac.kit import SimulationApp
+# import isaacsim
+# from omni.isaac.kit import SimulationApp
+from omni.isaac.lab.app import AppLauncher
+
 
 # from furniture_bench.utils.pose import get_mat, rot_mat
 
 # add argparse arguments
-parser = argparse.ArgumentParser("Welcome to Orbit: Omniverse Robotics Environments!")
-parser.add_argument(
-    "--headless",
-    action="store_true",
-    default=False,
-    help="Force display off at all times.",
-)
+parser = argparse.ArgumentParser()
+# parser.add_argument(
+#     "--headless",
+#     action="store_true",
+#     default=False,
+#     help="Force display off at all times.",
+# )
 parser.add_argument("-i", "--demo-index", type=int, default=0)
 parser.add_argument("-sub", "--sub-steps", type=int, default=0)
 parser.add_argument("--load-dir", type=str, required=True)
@@ -34,6 +37,9 @@ parser.add_argument("--furniture", type=str, required=True)
 parser.add_argument("--render-viewer", action="store_true")
 parser.add_argument("-fw", "--flipped-wrist-camera", action="store_true")
 parser.add_argument("-dr", "--domain-rand", action="store_true")
+
+print(f"Here")
+AppLauncher.add_app_launcher_args(parser)
 
 # Create a subparser for randomization arguments
 subparsers = parser.add_subparsers(dest="subcommand")
@@ -53,33 +59,49 @@ rand_parser.add_argument(
     "--random-frame-freq", type=int, default=1, help="Randomize every X frames"
 )
 
+# AppLauncher.add_app_launcher_args(parser)
+# parse the arguments
 args_cli = parser.parse_args()
 
 # launch omniverse app
-simulation_app = SimulationApp(
-    {
-        "headless": args_cli.headless,
-        "width": 640,
-        "height": 480,
-    }
-)
-"""Rest everything follows."""
+app_launcher = AppLauncher(args_cli)
+simulation_app = app_launcher.app
+
+# args_cli = parser.parse_args()
+
+# # launch omniverse app
+# simulation_app = SimulationApp(
+#     {
+#         "headless": args_cli.headless,
+#         "width": 640,
+#         "height": 480,
+#     }
+# )
+# """Rest everything follows."""
 
 import numpy as np
 import torch
 from torchvision.transforms import functional as F, InterpolationMode
 from pxr import Gf
 import omni.isaac.core.utils.prims as prim_utils
+from omni.isaac.core.prims import RigidPrimView, XFormPrimView
 from omni.isaac.core.simulation_context import SimulationContext
+
+from omni.isaac.core.utils.extensions import enable_extension
+
+enable_extension("omni.replicator.isaac")
+enable_extension("omni.kit.window.viewport")
+import omni.replicator.core as rep
 from omni.isaac.core.utils.viewports import set_camera_view
 
-import omni.isaac.orbit.utils.kit as kit_utils
-from omni.isaac.orbit.robots.config.franka import FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
-from omni.isaac.orbit.robots.single_arm import SingleArmManipulator
-from omni.isaac.core.prims import RigidPrimView, XFormPrimView
-from omni.isaac.orbit.sensors.camera import Camera, PinholeCameraCfg
-import omni.replicator.core as rep
-from omni.isaac.orbit.utils import convert_dict_to_backend
+import omni.isaac.lab.sim as sim_utils
+from omni.isaac.lab.sensors.camera import Camera, CameraCfg
+from omni.isaac.lab.utils import convert_dict_to_backend
+from omni.isaac.lab_assets import FRANKA_PANDA_CFG
+from omni.isaac.lab.assets import Articulation
+
+# from omni.isaac.orbit.robots.config.franka import FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
+# from omni.isaac.orbit.robots.single_arm import SingleArmManipulator
 
 import furniture_bench.utils.transform as T
 from furniture_bench.config import config
@@ -402,13 +424,15 @@ class RandomizationHelper:
     def set_global_cams(self, global_cams):
         self.global_cams = global_cams
         self.global_cam_poses = [
-            cam._sensor_xform.get_world_pose() for cam in self.global_cams
+            # cam._sensor_xform.get_world_pose() for cam in self.global_cams
+            cam._view.get_world_poses()[0]
+            for cam in self.global_cams
         ]
 
     def set_local_cams(self, local_cams):
         self.local_cams = local_cams
         self.local_cam_poses = [
-            cam._sensor_xform.get_local_pose() for cam in self.local_cams
+            cam._view.get_local_poses()[0] for cam in self.local_cams
         ]
 
     def random_table_colors(self):
@@ -545,6 +569,7 @@ class RandomizationHelper:
 
 
 def main():
+
     s = time.time()
     with open(FILE, "rb") as f:
         data = pickle.load(f)
@@ -558,14 +583,14 @@ def main():
     cam_params = build_camera_params()
 
     # Setup camera sensor (front)
-    camera_cfg = PinholeCameraCfg(
-        sensor_tick=0,
+    camera_cfg = CameraCfg(
         height=480,
         width=640,
         # width=1440,
         # height=1080,
+        prim_path="/World/CameraSensor",
         data_types=["rgb"],
-        usd_params=PinholeCameraCfg.UsdCameraCfg(
+        spawn=sim_utils.PinholeCameraCfg(
             focal_length=cam_params["front"]["focal_length"],
             horizontal_aperture=cam_params["front"]["horizontal_aperture"],
             clipping_range=(0.1, 1.0e5),
@@ -573,37 +598,14 @@ def main():
             focus_distance=cam_params["front"]["focus_distance"],
         ),
     )
-    camera = Camera(cfg=camera_cfg, device="cpu")
-
-    # Spawn camera
-    camera.spawn("/World/CameraSensor")
-
-    # Setup camera sensor (wrist)
-    wrist_camera_cfg = PinholeCameraCfg(
-        sensor_tick=0,
-        height=480,
-        width=640,
-        # width=1440,
-        # height=1080,
-        data_types=["rgb"],
-        usd_params=PinholeCameraCfg.UsdCameraCfg(
-            focal_length=cam_params["wrist"]["focal_length"],
-            horizontal_aperture=cam_params["wrist"]["horizontal_aperture"],
-            clipping_range=(1.0e-5, 1.0e5),
-            f_stop=cam_params["wrist"]["f_stop"],
-            focus_distance=cam_params["wrist"]["focus_distance"],
-        ),
-    )
-    wrist_camera = Camera(cfg=wrist_camera_cfg, device="cpu")
+    camera = Camera(cfg=camera_cfg)
 
     # Table
     usd_base_path = Path(
         f"{os.getenv('RARL_SOURCE_DIR')}/sim2real/assets/furniture/mesh/usd"
     )
-    # usd_base_path = Path(f"assets/furniture/mesh/usd")
     table_z_offset = 0.415
 
-    # prim_utils.create_prim("/World/Table", usd_path=str(usd_base_path / "table.usda"))
     prim_utils.create_prim(
         "/World/Table", usd_path=str(usd_base_path / "table_room.usda")
     )
@@ -663,12 +665,7 @@ def main():
         view = gen_prim(usd_path, prim_path, pos, ori)
         views.append(view)
 
-    # Robots
-    # -- Resolve robot config from command-line arguments
-    robot_cfg = FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
-
-    # -- Spawn robot
-    robot = SingleArmManipulator(cfg=robot_cfg)
+    # Robot
     franka_from_origin_mat = np.array(
         [
             [1.0, 0.0, 0.0, -0.3],
@@ -678,58 +675,57 @@ def main():
         ]
     )
     pos, ori = T.mat2pose(franka_from_origin_mat)
-    robot.spawn("/World/Robot_2", translation=pos)
+    robot_cfg = FRANKA_PANDA_CFG.replace(prim_path="/World/Robot_2")
+    robot_cfg.init_state.pos = pos
+    robot = Articulation(cfg=robot_cfg)
 
-    # ORIGINAL
-    # Spawn wrist camera (has to come after spawning the robot)
-    wrist_camera.spawn(
-        "/World/Robot_2/panda_hand",
-        translation=np.array([-0.05, 0.0, 0.04]),
-        orientation=T.convert_quat(
-            R.from_euler("XYZ", np.deg2rad([180, -16.5, 90])).as_quat(), to="wxyz"
+    # Setup camera sensor (wrist)
+    wrist_camera_cfg = CameraCfg(
+        height=480,
+        width=640,
+        # width=1440,
+        # height=1080,
+        prim_path="/World/Robot_2/panda_hand/camera",
+        data_types=["rgb"],
+        spawn=sim_utils.PinholeCameraCfg(
+            focal_length=cam_params["wrist"]["focal_length"],
+            horizontal_aperture=cam_params["wrist"]["horizontal_aperture"],
+            clipping_range=(1.0e-5, 1.0e5),
+            f_stop=cam_params["wrist"]["f_stop"],
+            focus_distance=cam_params["wrist"]["focus_distance"],
         ),
     )
+    # wrist_camera_cfg.offset.pos = torch.from_numpy(np.array([-0.05, 0.0, 0.04]))
+    # wrist_camera_cfg.offset.rot = torch.from_numpy(
+    #     T.convert_quat(
+    #         R.from_euler("xyz", np.deg2rad([0, 200, -90])).as_quat(),
+    #         to="wxyz",
+    #     )
+    # )
+    # wrist_camera_cfg.offset.convention = "world"
 
-    # # PROTOTYPING
-    # if args_cli.flipped_wrist_camera:
-    #     wrist_camera.spawn(
-    #         "/World/Robot_2/panda_hand",
-    #         translation=np.array([0.05, 0.0, 0.04]),
-    #         orientation=T.convert_quat(
-    #             # R.from_euler("XYZ", np.deg2rad([190, 16.5, 90])).as_quat(), to="wxyz"
-    #             R.from_euler("XYZ", np.deg2rad([180, 16.5, 90])).as_quat(),
-    #             to="wxyz",
-    #         ),
-    #     )
-    # else:
-    #     wrist_camera.spawn(
-    #         "/World/Robot_2/panda_hand",
-    #         translation=np.array([-0.05, 0.0, 0.04]),
-    #         orientation=T.convert_quat(
-    #             # R.from_euler("XYZ", np.deg2rad([190, -16.5, 90])).as_quat(), to="wxyz"
-    #             R.from_euler("XYZ", np.deg2rad([180, -16.5, 90])).as_quat(),
-    #             to="wxyz",
-    #         ),
-    #     )
+    wrist_camera = Camera(cfg=wrist_camera_cfg)
 
     # Play the simulator
     sim.reset()
-    # Acquire handles
-    # Initialize handles
-    robot.initialize("/World/Robot.*")
-    # Reset states
-    robot.reset_buffers()
 
-    # Initialize camera
-    camera.initialize()
-
-    cam_pos = (0.82, -0.065, 0.8)
-    cam_quat = T.convert_quat(
-        R.from_euler("XYZ", np.deg2rad([0.0, 68.5, 90])).as_quat(), to="wxyz"
+    cam_pos = torch.from_numpy(np.array([0.82, -0.065, 0.8]).reshape(1, 3))
+    cam_quat = torch.from_numpy(
+        T.convert_quat(
+            R.from_euler("XYZ", np.deg2rad([0.0, 68.5, 90])).as_quat(), to="wxyz"
+        ).reshape(1, 4)
     )
-    camera._sensor_xform.set_world_pose(cam_pos, cam_quat)
+    camera._view.set_world_poses(cam_pos, cam_quat)
+    # camera._sensor_xform.set_world_pose(cam_pos, cam_quat)
 
-    wrist_camera.initialize()
+    local_wrist_pos = torch.from_numpy(np.array([-0.05, 0.0, 0.04])).reshape(1, 3)
+    local_wrist_rot = torch.from_numpy(
+        T.convert_quat(
+            R.from_euler("XYZ", np.deg2rad([0, 200, -90])).as_quat(),
+            to="wxyz",
+        )
+    ).reshape(1, 4)
+    wrist_camera._view.set_local_poses(local_wrist_pos, local_wrist_rot)
 
     # Create replicator writer
     demo_date = FILE.split("/")[-1].replace(".pkl", "")
@@ -790,7 +786,7 @@ def main():
     fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
 
     # Initialize robot state
-    robot.set_dof_state(
+    robot.write_joint_state_to_sim(
         torch.concat(
             [
                 torch.tensor(data["observations"][0]["robot_state"]["joint_positions"]),
@@ -861,7 +857,8 @@ def main():
         time.sleep(0.01)
 
     # setup re-saving
-    if args_cli.save:
+    if True:
+        # if args_cli.save:
         assert args_cli.save_dir is not None, f"Must set --save-dir if --save is True!"
         demo_save_dir = Path(args_cli.save_dir)
         demo_save_dir.mkdir(exist_ok=True, parents=True)
@@ -917,14 +914,16 @@ def main():
 
     for obs_idx, obs in enumerate(data["observations"]):
 
-        if args_cli.domain_rand:
-            if obs_idx % dr_config.random_frame_freq == 0:
+        # if args_cli.domain_rand:
+        if True:
+            # if obs_idx % dr_config.random_frame_freq == 0:
+            if True:
                 dr_helper.toggle_lights()
-                dr_helper.random_light_colors()
+                # dr_helper.random_light_colors()
                 dr_helper.random_light_intensity()
                 # dr_helper.random_part_colors()
                 dr_helper.random_table_colors()
-                dr_helper.random_camera_pose()
+                # dr_helper.random_camera_pose()
 
         goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         dx = (goal_pos - prev_goal_pos) / sim_steps
@@ -936,12 +935,15 @@ def main():
         )
 
         # # if obs_idx == 150:
-        # if obs_idx == int(len(data["observations"]) * 0.83):
+        # if obs_idx == int(len(data["observations"]) * 0.5):
         #     print(f"Stopping")
         #     run_until_quit(simulation_app=simulation_app, world=sim)
-        #     from IPython import embed
+        #     from pdb import set_trace
 
-        #     embed()
+        #     set_trace()
+        #     # from IPython import embed
+
+        #     # embed()
         #     assert False
 
         for i in range(int(sim_steps)):
@@ -957,12 +959,53 @@ def main():
             wrist_camera.update(dt=0.0)
 
             if not args_cli.save:
-                rep_writer.write(
-                    convert_dict_to_backend(camera.data.output, backend="numpy")
+                # "trigger_outputs"] = {"on_time": camera.frame[camera_index]}
+                # front_to_write = convert_dict_to_backend(
+                #     camera.data.output, backend="numpy"
+                # )
+                front_cam_data = convert_dict_to_backend(
+                    camera.data.output, backend="numpy"
                 )
-                wrist_rep_writer.write(
-                    convert_dict_to_backend(wrist_camera.data.output, backend="numpy")
+                front_cam_data["rgb"] = front_cam_data["rgb"][:, :, :3]
+                front_cam_info = camera.data.info[0]
+                front_rep_output = {"annotators": {}}
+                for key, cam_data, info in zip(
+                    front_cam_data.keys(),
+                    front_cam_data.values(),
+                    front_cam_info.values(),
+                ):
+                    if info is not None:
+                        front_rep_output["annotators"][key] = {
+                            "render_product": {"data": cam_data, **info}
+                        }
+                    else:
+                        front_rep_output["annotators"][key] = {
+                            "render_product": {"data": cam_data}
+                        }
+                front_rep_output["trigger_outputs"] = {"on_time": 0}
+                # rep_writer.write(front_rep_output)
+
+                wrist_cam_data = convert_dict_to_backend(
+                    wrist_camera.data.output, backend="numpy"
                 )
+                wrist_cam_data["rgb"] = wrist_cam_data["rgb"][:, :, :3]
+                wrist_cam_info = wrist_camera.data.info[0]
+                wrist_rep_output = {"annotators": {}}
+                for key, cam_data, info in zip(
+                    wrist_cam_data.keys(),
+                    wrist_cam_data.values(),
+                    wrist_cam_info.values(),
+                ):
+                    if info is not None:
+                        wrist_rep_output["annotators"][key] = {
+                            "render_product": {"data": cam_data, **info}
+                        }
+                    else:
+                        wrist_rep_output["annotators"][key] = {
+                            "render_product": {"data": cam_data}
+                        }
+                wrist_rep_output["trigger_outputs"] = {"on_time": 0}
+                # wrist_rep_writer.write(wrist_rep_output)
 
                 if args_cli.render_viewer:
                     viewer_rep_writer.write(
@@ -979,7 +1022,8 @@ def main():
                 print(f"Frames per second: {fps_avg}")
             last_time = time.time()
 
-            robot.set_dof_state(
+            # robot.set_dof_state(
+            robot.write_joint_state_to_sim(
                 torch.concat(
                     [
                         interp_goal,
@@ -1039,7 +1083,8 @@ def main():
             # note: to deal with timeline events such as stopping, we need to check if the simulation is playing
             if sim.is_playing():
                 # update buffers
-                robot.update_buffers(sim_dt)
+                # robot.update_buffers(sim_dt)
+                pass
 
         prev_goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         fj1 = obs["robot_state"]["gripper_finger_1_pos"]
@@ -1052,13 +1097,16 @@ def main():
             parts_prev_goal_pos.append(pos)
             parts_prev_goal_ori.append(ori)
 
-        if args_cli.save:
+        # if args_cli.save:
+        if True:
             # log the new observation
             # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3].copy())
             # front_image = resize(camera.data.output["rgb"][:, :, :3].copy())
 
-            wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3])
-            front_image = resize(camera.data.output["rgb"][:, :, :3])
+            wrist_image = (
+                resize(wrist_camera.data.output["rgb"][0, :, :, :3]).cpu().numpy()
+            )
+            front_image = resize(camera.data.output["rgb"][0, :, :, :3]).cpu().numpy()
 
             # wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
             # front_image = camera.data.output["rgb"][:, :, :3]
@@ -1072,7 +1120,8 @@ def main():
     e = time.time()
     print(f"Time taken: {e-s}")
 
-    if args_cli.save:
+    # if args_cli.save:
+    if True:
         print(f"Saving new pickle to: {pkl_path}")
         with open(pkl_path, "wb") as f:
             pickle.dump(episode_data, f)
