@@ -315,6 +315,9 @@ def rnd_isaac_pose_about_nominal(
     new_quat = T.quat_multiply(nom_quat, rnd_quat)
     new_quat = T.convert_quat(new_quat, to="wxyz")
 
+    if isinstance(new_quat, np.ndarray):
+        new_quat = torch.from_numpy(new_quat)
+
     return new_pos, new_quat
 
 
@@ -423,17 +426,29 @@ class RandomizationHelper:
 
     def set_global_cams(self, global_cams):
         self.global_cams = global_cams
-        self.global_cam_poses = [
-            # cam._sensor_xform.get_world_pose() for cam in self.global_cams
-            cam._view.get_world_poses()[0]
-            for cam in self.global_cams
-        ]
+
+        self.global_cam_poses = []
+        for cam in self.global_cams:
+            pos, ori = cam._view.get_world_poses()
+            self.global_cam_poses.append((pos[0], ori[0]))
+        # self.global_cam_poses = [
+        #     # cam._sensor_xform.get_world_pose() for cam in self.global_cams
+        #     cam._view.get_world_poses()
+        #     for cam in self.global_cams
+        # ]
 
     def set_local_cams(self, local_cams):
         self.local_cams = local_cams
-        self.local_cam_poses = [
-            cam._view.get_local_poses()[0] for cam in self.local_cams
-        ]
+        self.local_cam_poses = []
+        for cam in self.local_cams:
+            pos, ori = cam._view.get_local_poses()
+            self.local_cam_poses.append((pos[0], ori[0]))
+
+        # self.local_cam_poses = [
+        #     # cam._view.get_local_poses()[0] for cam in self.local_cams
+        #     cam._view.get_local_poses()
+        #     for cam in self.local_cams
+        # ]
 
     def random_table_colors(self):
         # set table color rand function
@@ -460,6 +475,10 @@ class RandomizationHelper:
         high = np.array([1.0, 1.0, 1.0])
         low = np.array([0.789, 0.715, 0.622])
         for lpp in light_prim_paths:
+            if "03" in lpp:
+                continue
+                # from pdb import set_trace
+                # set_trace()
             # print(f"Light prim: {light_prim} at path: {lpp}")
             light_prim = prim_utils.get_prim_at_path(lpp)
             assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
@@ -552,7 +571,11 @@ class RandomizationHelper:
                 variance_rpyaw=std_rpyaw**2,
             )
             new_pos, new_quat = new_world_pose
-            cam._sensor_xform.set_world_pose(new_pos, new_quat)
+            # cam._sensor_xform.set_world_pose(new_pos, new_quat)
+            cam._view.set_world_poses(
+                new_pos.reshape(1, 3),
+                new_quat.reshape(1, 4),
+            )
 
         std_xyz = 0.00075
         std_rpyaw = np.deg2rad(0.25)
@@ -565,7 +588,11 @@ class RandomizationHelper:
                 variance_rpyaw=std_rpyaw**2,
             )
             new_pos, new_quat = new_local_pose
-            cam._sensor_xform.set_local_pose(new_pos, new_quat)
+            # cam._sensor_xform.set_local_pose(new_pos, new_quat)
+            cam._view.set_local_poses(
+                new_pos.reshape(1, 3),
+                new_quat.reshape(1, 4),
+            )
 
 
 def main():
@@ -857,8 +884,7 @@ def main():
         time.sleep(0.01)
 
     # setup re-saving
-    if True:
-        # if args_cli.save:
+    if args_cli.save:
         assert args_cli.save_dir is not None, f"Must set --save-dir if --save is True!"
         demo_save_dir = Path(args_cli.save_dir)
         demo_save_dir.mkdir(exist_ok=True, parents=True)
@@ -914,16 +940,16 @@ def main():
 
     for obs_idx, obs in enumerate(data["observations"]):
 
-        # if args_cli.domain_rand:
         if True:
-            # if obs_idx % dr_config.random_frame_freq == 0:
             if True:
+                # if args_cli.domain_rand:
+                # if obs_idx % dr_config.random_frame_freq == 0:
                 dr_helper.toggle_lights()
-                # dr_helper.random_light_colors()
+                dr_helper.random_light_colors()
                 dr_helper.random_light_intensity()
-                # dr_helper.random_part_colors()
+                dr_helper.random_part_colors()
                 dr_helper.random_table_colors()
-                # dr_helper.random_camera_pose()
+                dr_helper.random_camera_pose()
 
         goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         dx = (goal_pos - prev_goal_pos) / sim_steps
@@ -1080,11 +1106,6 @@ def main():
             # update sim-time
             sim_time += sim_dt
             ep_step_count += 1
-            # note: to deal with timeline events such as stopping, we need to check if the simulation is playing
-            if sim.is_playing():
-                # update buffers
-                # robot.update_buffers(sim_dt)
-                pass
 
         prev_goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         fj1 = obs["robot_state"]["gripper_finger_1_pos"]
@@ -1097,19 +1118,13 @@ def main():
             parts_prev_goal_pos.append(pos)
             parts_prev_goal_ori.append(ori)
 
-        # if args_cli.save:
-        if True:
+        if args_cli.save:
             # log the new observation
-            # wrist_image = resize(wrist_camera.data.output["rgb"][:, :, :3].copy())
-            # front_image = resize(camera.data.output["rgb"][:, :, :3].copy())
-
             wrist_image = (
                 resize(wrist_camera.data.output["rgb"][0, :, :, :3]).cpu().numpy()
             )
             front_image = resize(camera.data.output["rgb"][0, :, :, :3]).cpu().numpy()
 
-            # wrist_image = wrist_camera.data.output["rgb"][:, :, :3]
-            # front_image = camera.data.output["rgb"][:, :, :3]
             new_obs = dict(
                 color_image1=wrist_image,
                 color_image2=front_image,
@@ -1120,8 +1135,7 @@ def main():
     e = time.time()
     print(f"Time taken: {e-s}")
 
-    # if args_cli.save:
-    if True:
+    if args_cli.save:
         print(f"Saving new pickle to: {pkl_path}")
         with open(pkl_path, "wb") as f:
             pickle.dump(episode_data, f)
