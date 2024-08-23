@@ -22,10 +22,12 @@ python -m src.train.dagger \
     correct_student_action_only=false \
     num_envs=16 \
     num_epochs=100 \
+    num_iterations=2000 \
     eval_first=false \
     max_steps_per_epoch=10 \
     learning_rate_student=1e-4 \
-    replay_buffer_size=500000 \
+    replay_buffer_size=5000 \
     observation_type=image \
     batch_size=128 \
+    wandb.continue_run_id=chj8cg3a \
     debug=false

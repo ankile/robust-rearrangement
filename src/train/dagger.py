@@ -466,30 +466,6 @@ def main(cfg: DictConfig):
                     color_images2=success_color_images2,
                 )
 
-            # # For logging purposes, calculate the share of actions being taken by the student in the successful,
-            # # unsuccessful, and all trajectories
-            # student_action_share = (
-            #     is_action_from_student.sum().item() / is_action_from_student.numel()
-            # )
-            # student_action_share_success = (
-            #     is_action_from_student[success_idxs].sum().item()
-            #     / is_action_from_student[success_idxs].numel()
-            # )
-            # student_action_share_failure = (
-            #     is_action_from_student[~success_idxs].sum().item()
-            #     / is_action_from_student[~success_idxs].numel()
-            # )
-
-            # wandb.log(
-            #     {
-            #         "charts/student_action_share": student_action_share,
-            #         "charts/student_action_share_success": student_action_share_success,
-            #         "charts/student_action_share_failure": student_action_share_failure,
-            #     },
-            #     step=global_step,
-            #     commit=False,
-            # )
-
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
 
