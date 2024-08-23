@@ -65,6 +65,14 @@ class RolloutBuffer:
         self.size = 0
 
         self.indices = None
+    
+    @property
+    def episode_end_idxs(self):
+        return torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
+
+    @property
+    def n_trajectories(self):
+        return len(self.episode_end_idxs)
 
     def create_sample_indices(
         self,
@@ -131,7 +139,7 @@ class RolloutBuffer:
             result[key] = data
         return result
 
-    def add_trajectory(
+    def add_trajectories(
         self,
         states: torch.Tensor,
         actions: torch.Tensor,
@@ -187,9 +195,8 @@ class RolloutBuffer:
         # First, get the valid indices depending on our episode ends and sequence length
         # episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy()
         # This expects the episode_ends to be the last index of the episode, not inclusive
-        episode_ends = torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
         self.indices = self.create_sample_indices(
-            episode_ends,
+            self.episode_end_idxs,
             sequence_length=self.sequence_length,
             pad_before=self.obs_horizon - 1,
             pad_after=self.action_horizon - 1,

@@ -28,7 +28,7 @@ replay_buffer_size: 1000000
 clip_grad_norm: true
 
 beta: 0.5
-beta_start: 0
+teacher_only_iters: 0
 beta_decay_ref_sr_ratio: 0.8
 beta_linear_decay: 0.1
 beta_min: 0.5

@@ -16,7 +16,7 @@ python -m src.train.dagger \
     env.randomness=low \
     student_policy.wt_type=null \
     beta=1.0 \
-    beta_start=4 \
+    teacher_only_iters=4 \
     beta_linear_decay=0.025 \
     beta_min=0.1 \
     correct_student_action_only=false \
@@ -26,8 +26,9 @@ python -m src.train.dagger \
     eval_first=false \
     max_steps_per_epoch=10 \
     learning_rate_student=1e-4 \
-    replay_buffer_size=5000 \
+    replay_buffer_size=150000 \
     observation_type=image \
     batch_size=128 \
-    wandb.continue_run_id=chj8cg3a \
+    num_iterations=1000 \
     debug=false
+
