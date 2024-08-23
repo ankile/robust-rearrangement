@@ -38,7 +38,6 @@ parser.add_argument("--render-viewer", action="store_true")
 parser.add_argument("-fw", "--flipped-wrist-camera", action="store_true")
 parser.add_argument("-dr", "--domain-rand", action="store_true")
 
-print(f"Here")
 AppLauncher.add_app_launcher_args(parser)
 
 # Create a subparser for randomization arguments
@@ -99,9 +98,6 @@ from omni.isaac.lab.sensors.camera import Camera, CameraCfg
 from omni.isaac.lab.utils import convert_dict_to_backend
 from omni.isaac.lab_assets import FRANKA_PANDA_CFG
 from omni.isaac.lab.assets import Articulation
-
-# from omni.isaac.orbit.robots.config.franka import FRANKA_PANDA_ARM_WITH_PANDA_HAND_CFG
-# from omni.isaac.orbit.robots.single_arm import SingleArmManipulator
 
 import furniture_bench.utils.transform as T
 from furniture_bench.config import config
@@ -431,11 +427,6 @@ class RandomizationHelper:
         for cam in self.global_cams:
             pos, ori = cam._view.get_world_poses()
             self.global_cam_poses.append((pos[0], ori[0]))
-        # self.global_cam_poses = [
-        #     # cam._sensor_xform.get_world_pose() for cam in self.global_cams
-        #     cam._view.get_world_poses()
-        #     for cam in self.global_cams
-        # ]
 
     def set_local_cams(self, local_cams):
         self.local_cams = local_cams
@@ -443,12 +434,6 @@ class RandomizationHelper:
         for cam in self.local_cams:
             pos, ori = cam._view.get_local_poses()
             self.local_cam_poses.append((pos[0], ori[0]))
-
-        # self.local_cam_poses = [
-        #     # cam._view.get_local_poses()[0] for cam in self.local_cams
-        #     cam._view.get_local_poses()
-        #     for cam in self.local_cams
-        # ]
 
     def random_table_colors(self):
         # set table color rand function
@@ -476,9 +461,8 @@ class RandomizationHelper:
         low = np.array([0.789, 0.715, 0.622])
         for lpp in light_prim_paths:
             if "03" in lpp:
+                # TODO: for some reason this is broken on the last light...
                 continue
-                # from pdb import set_trace
-                # set_trace()
             # print(f"Light prim: {light_prim} at path: {lpp}")
             light_prim = prim_utils.get_prim_at_path(lpp)
             assert light_prim.IsValid(), f"Prim {light_prim} at path {lpp} is not valid"
@@ -940,16 +924,17 @@ def main():
 
     for obs_idx, obs in enumerate(data["observations"]):
 
+        # if args_cli.domain_rand:
+        #     if obs_idx % dr_config.random_frame_freq == 0:
+
+        # if False:
         if True:
-            if True:
-                # if args_cli.domain_rand:
-                # if obs_idx % dr_config.random_frame_freq == 0:
-                dr_helper.toggle_lights()
-                dr_helper.random_light_colors()
-                dr_helper.random_light_intensity()
-                dr_helper.random_part_colors()
-                dr_helper.random_table_colors()
-                dr_helper.random_camera_pose()
+            dr_helper.toggle_lights()
+            dr_helper.random_light_colors()
+            dr_helper.random_light_intensity()
+            dr_helper.random_part_colors()
+            dr_helper.random_table_colors()
+            dr_helper.random_camera_pose()
 
         goal_pos = torch.tensor(obs["robot_state"]["joint_positions"])
         dx = (goal_pos - prev_goal_pos) / sim_steps
