@@ -143,11 +143,11 @@ def main(cfg: DictConfig):
 
         merge_base_bc_config_with_root_config(cfg, base_cfg)
         cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
-        run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
 
-    # TRY NOT TO MODIFY: seeding
-    if cfg.seed is None:
-        cfg.seed = random.randint(0, 2**32 - 1)
+        if cfg.seed is None:
+            cfg.seed = random.randint(0, 2**32 - 1)
+
+        run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
 
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
