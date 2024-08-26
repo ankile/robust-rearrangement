@@ -600,6 +600,11 @@ class SimpleDiffIKFrankaEnv:
             self.last_grip_step = 0
             self.last_grasp = grasp
 
+        # clip robot z coordinate
+        # new_target_pose_mat[2, -1] = np.clip(
+        #     new_target_pose_mat[2, -1], a_min=0.015, a_max=None
+        # )
+
         if self.execute:
             # self.robot.update_desired_ee_pose(
             #     new_target_pose_mat, dt=self.dt
@@ -609,11 +614,11 @@ class SimpleDiffIKFrankaEnv:
             )
 
         # Draw the current target pose (in meshcat)
-        mc_util.meshcat_frame_show(
-            self.mc_vis,
-            f"scene/target_pose_wrist",
-            convert_tip2wrist(new_target_pose_mat.cpu().numpy()),
-        )
+        # mc_util.meshcat_frame_show(
+        #     self.mc_vis,
+        #     f"scene/target_pose_wrist",
+        #     convert_tip2wrist(new_target_pose_mat.cpu().numpy()),
+        # )
         mc_util.meshcat_frame_show(
             self.mc_vis, f"scene/target_pose_tip", new_target_pose_mat.cpu().numpy()
         )
@@ -622,11 +627,11 @@ class SimpleDiffIKFrankaEnv:
             f"scene/current_pose_tip",
             convert_wrist2tip(poly_util.polypose2mat(self.robot.get_ee_pose())),
         )
-        mc_util.meshcat_frame_show(
-            self.mc_vis,
-            f"scene/current_pose_wrist",
-            poly_util.polypose2mat(self.robot.get_ee_pose()),
-        )
+        # mc_util.meshcat_frame_show(
+        #     self.mc_vis,
+        #     f"scene/current_pose_wrist",
+        #     poly_util.polypose2mat(self.robot.get_ee_pose()),
+        # )
 
         # calculate timing
         # precise_wait(t_cycle_end)
@@ -702,6 +707,8 @@ def main():
 
     # Create the config object with the project name and make it read-only
     inference_steps = 8
+    # action_horizon = 4
+    # action_horizon = 12
     action_horizon = 12
     config: DictConfig = OmegaConf.create(
         {
@@ -732,7 +739,7 @@ def main():
     actor.cuda()
 
     # mc
-    actor.set_mc(mc_vis)
+    # actor.set_mc(mc_vis)
 
     part_poses_norm_mid = None
     if args.observation_type == "state":
@@ -763,10 +770,6 @@ def main():
     resize_crop_image(obs, "color_image2")
 
     # keep a queue of observations
-    obs_deque = collections.deque(
-        [obs] * obs_horizon,
-        maxlen=obs_horizon,
-    )
 
     t_start = time.monotonic()
 
@@ -793,7 +796,7 @@ def main():
     running = True
 
     start_time = time.time()
-    while True:
+    while True:  # and i < len(actions):
         # Catch keyboard press, and potentially start recording new episode
         _, collect_enum = keyboard.get_action()
         ci_helper.set_recording(collect_enum == CollectEnum.RECORD)
@@ -821,77 +824,13 @@ def main():
             time.sleep(1.0)
             continue
 
-        # Get the next actions from the actor
-        action_pred = actor.action(obs_deque)
-
-        pos_bounds_m = 0.025
-        ori_bounds_deg = 20
-
-        # This function expects the rotation to be a quat_xyzw
-        pos, rot_6d, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:9],
-            action_pred[:, 9:10],
-        )
-        quat_wxyz = pt.matrix_to_quaternion(pt.rotation_6d_to_matrix(rot_6d))
-
-        # Make it into a delta action
-        curr_pos, curr_quat_xyzw = (
-            obs["robot_state"][:, 0:3],
-            obs["robot_state"][:, 3:7],
-        )
-
-        delta_pos = pos - curr_pos
-
-        # Convert current quat to real first to be able to calculate on it
-        curr_quat_wxyz = quat_xyzw_to_quat_wxyz(curr_quat_xyzw)
-
-        delta_quat_wxyz = pt.quaternion_multiply(
-            pt.quaternion_invert(curr_quat_wxyz), quat_wxyz
-        )
-        delta_quat_xyzw = quat_wxyz_to_quat_xyzw(delta_quat_wxyz)
-
-        action_pred = torch.cat([delta_pos, delta_quat_xyzw, gripper], dim=-1)
-
-        action_pred = scale_scripted_action(
-            action_pred,
-            pos_bounds_m=pos_bounds_m,
-            ori_bounds_deg=ori_bounds_deg,
-        )
-
-        # Turn it back into using pos action
-        delta_pos, delta_quat_xyzw, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:7],
-            action_pred[:, 7:8],
-        )
-
-        if (time.time() - start_time) > 5:
-            start_time = time.time()
-            print(f"Gripper: {gripper.cpu().squeeze().item()}")
-
-        pos = curr_pos + delta_pos
-
-        delta_quat_wxyz = quat_xyzw_to_quat_wxyz(delta_quat_xyzw)
-
-        quat_wxyz = pt.quaternion_multiply(curr_quat_wxyz, delta_quat_wxyz)
-
-        # Turn it back into using rot_6d
-        rot_6d = pt.matrix_to_rotation_6d(pt.quaternion_to_matrix(quat_wxyz))
-
-        action_pred = torch.cat([pos, rot_6d, gripper], dim=-1)
+        action_pred = actor.action(obs)
 
         obs, reward, done, _ = env.step(action_pred[0])
-
-        # NOTE: Should implement storage of rollouts for further training?
-        # video_obs = obs.copy()
 
         # Resize the images in the observation if they exist
         resize_image(obs, "color_image1")
         resize_crop_image(obs, "color_image2")
-
-        # Save observations for the policy
-        obs_deque.append(obs)
 
 
 if __name__ == "__main__":
