@@ -707,8 +707,6 @@ def main():
 
     # Create the config object with the project name and make it read-only
     inference_steps = 8
-    # action_horizon = 4
-    # action_horizon = 12
     action_horizon = 12
     config: DictConfig = OmegaConf.create(
         {
@@ -737,6 +735,10 @@ def main():
     actor.load_state_dict(state_dict)
     actor.eval()
     actor.cuda()
+
+    actor.encoder1.eval()
+    actor.encoder2.eval()
+    actor.model.eval()
 
     # mc
     # actor.set_mc(mc_vis)
