@@ -1,0 +1,20 @@
+conda create -n furn-isaac-sim python=3.7
+# they are using orbit
+git clone https://github.com/NVIDIA-Omniverse/Orbit
+cd Orbit
+ln -s /path/to/omniverse/library/isaac_sim-2022.2.1 ./_isaac_sim
+# for some reason we need this before orbit install
+pip install toml
+./orbit.sh -i
+
+# install furniture bench and some depts
+pip install numba
+pip install -e . # in furniture_bench, without requirements
+
+# in terminal where running
+cd /home/anthony/.local/share/ov/pkg/isaac_sim-2022.2.1
+source setup_conda_env.sh
+
+
+# other things that should be safe to install
+pip install trimesh pyglet meshcat

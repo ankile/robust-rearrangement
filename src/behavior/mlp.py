@@ -1,16 +1,12 @@
-from omegaconf import OmegaConf
+from omegaconf import DictConfig
+from src.models.residual import build_mlp
 import torch
 import torch.nn as nn
-from typing import Dict, Tuple, Union
-from collections import deque
+from typing import Tuple, Union
 from ipdb import set_trace as bp  # noqa
 
 from src.behavior.base import Actor
 from src.models.mlp import MLP
-from src.models import get_encoder
-from src.common.control import RotationMode
-
-from src.common.geometry import proprioceptive_quat_to_6d_rotation
 
 
 import numpy as np
@@ -23,64 +19,12 @@ class MLPActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        config,
+        cfg: DictConfig,
     ) -> None:
-        super().__init__()
-        self.device = device
+        super().__init__(device, cfg)
+        actor_cfg = cfg.actor
 
-        actor_cfg = config.actor
-        self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = (
-            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
-        )
-        self.pred_horizon = actor_cfg.pred_horizon
-        self.action_horizon = actor_cfg.action_horizon
-        self.observation_type = config.observation_type
-
-        # A queue of the next actions to be executed in the current horizon
-        self.actions = deque(maxlen=self.action_horizon)
-
-        # Regularization
-        self.feature_noise = config.regularization.feature_noise
-        self.feature_dropout = config.regularization.feature_dropout
-        self.feature_layernorm = config.regularization.feature_layernorm
-        self.state_noise = config.regularization.get("state_noise", False)
-
-        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
-        encoder_name = config.vision_encoder.model
-        freeze_encoder = config.vision_encoder.freeze
-
-        self.encoder1 = get_encoder(
-            encoder_name,
-            device=device,
-            **encoder_kwargs,
-        )
-        self.encoder2 = (
-            self.encoder1
-            if freeze_encoder
-            else get_encoder(
-                encoder_name,
-                device=device,
-                **encoder_kwargs,
-            )
-        )
-
-        self.encoding_dim = self.encoder1.encoding_dim
-
-        if actor_cfg.get("projection_dim") is not None:
-            self.encoder1_proj = nn.Linear(
-                self.encoding_dim, actor_cfg.projection_dim
-            ).to(device)
-            self.encoder2_proj = nn.Linear(
-                self.encoding_dim, actor_cfg.projection_dim
-            ).to(device)
-            self.encoding_dim = actor_cfg.projection_dim
-        else:
-            self.encoder1_proj = nn.Identity()
-            self.encoder2_proj = nn.Identity()
-
-        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
-
+        # MLP specific parameters
         self.model = MLP(
             input_dim=self.timestep_obs_dim * self.obs_horizon,
             output_dim=self.action_dim * self.pred_horizon,
@@ -89,35 +33,42 @@ class MLPActor(Actor):
             residual=actor_cfg.residual,
         ).to(device)
 
-        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
-
-    # === Inference ===
-    @torch.no_grad()
-    def action(self, obs: deque):
-        # Normalize observations
-        nobs = self._normalized_obs(obs)
-
-        # If the queue is empty, fill it with the predicted actions
-        if not self.actions:
-            # Predict normalized action
-            naction = self.model(nobs).reshape(
-                nobs.shape[0], self.pred_horizon, self.action_dim
+        if "critic" in actor_cfg:
+            self.critic = build_mlp(
+                input_dim=self.obs_dim,
+                hidden_sizes=[actor_cfg.critic.hidden_size]
+                * actor_cfg.critic.num_layers,
+                output_dim=1,
+                activation=actor_cfg.critic.activation,
+                output_std=actor_cfg.critic.last_layer_std,
+                bias_on_last_layer=True,
+                last_layer_bias_const=actor_cfg.critic.last_layer_bias_const,
             )
 
-            # unnormalize action
-            # (B, pred_horizon, action_dim)
-            action_pred = self.normalizer(naction, "action", forward=False)
+            if actor_cfg.critic.last_layer_activation is not None:
+                self.critic.add_module(
+                    "output_activation",
+                    getattr(nn, actor_cfg.critic.last_layer_activation)(),
+                )
 
-            # Add the actions to the queue
-            # only take action_horizon number of actions
-            start = self.obs_horizon - 1
-            end = start + self.action_horizon
-            for i in range(start, end):
-                self.actions.append(action_pred[:, i, :])
+                print(self.critic)
 
-        # Return the first action in the queue
-        return self.actions.popleft()
+            self.actor_mean = nn.Sequential(
+                self.model,
+                nn.Unflatten(1, (self.pred_horizon, self.action_dim)),
+            )
+
+            self.actor_logstd = nn.Parameter(
+                torch.ones(1, 1, self.action_dim) * actor_cfg.init_logstd
+            )
+
+    # === Inference ===
+    def _normalized_action(self, nobs: torch.Tensor) -> torch.Tensor:
+        naction = self.model(nobs).reshape(
+            nobs.shape[0], self.pred_horizon, self.action_dim
+        )
+
+        return naction
 
     # === Training ===
     def compute_loss(self, batch):
@@ -125,6 +76,8 @@ class MLPActor(Actor):
         obs_cond = self._training_obs(batch, flatten=True)
 
         # Action already normalized in the dataset
+        # These actions are the exact ones we should predict, i.e., the
+        # handling of predicting past actions or not is also handled in the dataset class
         naction = batch["action"]
 
         # forward pass
@@ -132,152 +85,53 @@ class MLPActor(Actor):
             naction.shape[0], self.pred_horizon, self.action_dim
         )
 
-        loss = self.loss_fn(naction_pred, naction)
+        # The loss function does not have reduction on by default, need to take the mean
+        loss = self.loss_fn(naction_pred, naction).mean()
 
-        return loss
+        losses = {"bc_loss": loss.item()}
 
+        return loss, losses
 
-class MLPStateActor(Actor):
-    def __init__(
-        self,
-        device: Union[str, torch.device],
-        config,
-    ) -> None:
-        super().__init__()
-        self.device = device
+    def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
+        return self.critic(nobs)
 
-        actor_cfg = config.actor
-        self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = (
-            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
-        )
-        self.pred_horizon = actor_cfg.pred_horizon
-        self.action_horizon = actor_cfg.action_horizon
-        self.observation_type = config.observation_type
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        action_mean: torch.Tensor = self.actor_mean(nobs)
 
-        # A queue of the next actions to be executed in the current horizon
-        self.actions = deque(maxlen=self.action_horizon)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
 
-        # Get the dimension of the parts poses
-        self.parts_poses_dim = 35
+        if action is None:
+            action = probs.rsample()
 
-        self.timestep_obs_dim = config.robot_state_dim + self.parts_poses_dim
-
-        self.model = MLP(
-            input_dim=self.timestep_obs_dim * self.obs_horizon,
-            output_dim=self.action_dim * self.pred_horizon,
-            hidden_dims=actor_cfg.hidden_dims,
-            dropout=actor_cfg.dropout,
-            residual=actor_cfg.residual,
-        ).to(device)
-
-        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
-
-    # === Inference ===
-    def _normalized_obs(self, obs: deque, flatten: bool = True):
-        """
-        Normalize the observations
-
-        Takes in a deque of observations and normalizes them
-        And concatenates them into a single tensor of shape (n_envs, obs_horizon * obs_dim)
-        """
-        # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
-        robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
-
-        # Convert the robot_state to use rot_6d instead of quaternion
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
-
-        # Normalize the robot_state
-        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
-
-        # Convert parts_poses from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
-        parts_poses = torch.cat([o["parts_poses"].unsqueeze(1) for o in obs], dim=1)
-
-        # Normalize the parts_poses
-        nparts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
-
-        # Reshape concatenate the features
-        nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
-
-        if flatten:
-            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
-            nobs = nobs.flatten(start_dim=1)
-
-        return nobs
-
-    @torch.no_grad()
-    def action(self, obs: deque):
-        # Normalize observations
-        nobs = self._normalized_obs(obs)
-
-        # If the queue is empty, fill it with the predicted actions
-        if not self.actions:
-            # Predict normalized action
-            naction = self.model(nobs).reshape(
-                nobs.shape[0], self.pred_horizon, self.action_dim
-            )
-
-            # unnormalize action
-            # (B, pred_horizon, action_dim)
-            action_pred = self.normalizer(naction, "action", forward=False)
-
-            # Add the actions to the queue
-            # only take action_horizon number of actions
-            start = self.obs_horizon - 1
-            end = start + self.action_horizon
-            for i in range(start, end):
-                self.actions.append(action_pred[:, i, :])
-
-        # Return the first action in the queue
-        return self.actions.popleft()
-
-    # === Training ===
-    def _training_obs(self, batch, flatten: bool = True) -> torch.Tensor:
-        nobs = batch["obs"]
-
-        if flatten:
-            # (n_envs, obs_horizon, obs_dim) --> (n_envs, obs_horizon * obs_dim)
-            nobs = nobs.flatten(start_dim=1)
-
-        return nobs
-
-    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        # State already normalized in the dataset
-        obs_cond = self._training_obs(batch, flatten=True)
-
-        # Action already normalized in the dataset
-        naction: torch.Tensor = batch["action"]
-
-        # forward pass
-        naction_pred: torch.Tensor = self.model(obs_cond).reshape(
-            naction.shape[0], self.pred_horizon, self.action_dim
+        return (
+            action,
+            probs.log_prob(action).sum(dim=(1, 2)),
+            probs.entropy().sum(dim=(1, 2)),
+            self.critic(nobs),
         )
 
-        loss: torch.Tensor = self.loss_fn(naction_pred, naction)
+    def load_bc_weights(self, bc_weights_path):
+        wts = torch.load(bc_weights_path)["model_state_dict"]
 
-        if loss > 1:
-            print("Loss is greater than 1", loss.item())
+        # Filter out keys not starting with "model"
+        model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
 
-        return loss
+        # Change the "model"
+        model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
 
-    def train_mode(self):
-        """
-        Set models to train mode
-        """
-        pass
+        print(self.model.load_state_dict(model_wts, strict=True))
 
-    def eval_mode(self):
-        """
-        Set models to eval mode
-        """
-        pass
+        # Extract the normalizer state dict from the overall state dict
+        normalizer_state_dict = {
+            key[len("normalizer.") :]: value
+            for key, value in wts.items()
+            if key.startswith("normalizer.")
+        }
 
-    def set_task(self, *args, **kwargs):
-        """
-        Set the task for the actor
-        """
-        pass
+        # Load the normalizer state dict
+        print(self.normalizer.load_state_dict(normalizer_state_dict))
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -326,7 +180,7 @@ class SmallMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,
@@ -440,7 +294,7 @@ class ResidualMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,

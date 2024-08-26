@@ -1,0 +1,53 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: r3m
+  - override /actor/diffusion_model: transformer
+
+observation_type: image
+
+vision_encoder:
+  pretrained: true
+  freeze: false
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+actor:
+  confusion_loss_beta: 0.0
+  
+data:
+  data_subset: null
+  augment_image: true
+  dataloader_workers: 20
+
+training:
+  batch_size: 256
+  checkpoint_interval: 250
+  num_epochs: 5000
+  steps_per_epoch: 100
+  encoder_lr: 1e-5
+  eval_every: 50
+  sample_every: 100
+
+lr_scheduler:
+  name: cosine
+  warmup_steps: 2_000
+  encoder_warmup_steps: 50_000
+
+regularization:
+  feature_layernorm: true
+  front_camera_dropout: 0.1
+  weight_decay: 1e-3
+
+furniture: [one_leg,one_leg_simple]
+randomness: [med, med_perturb,low]
+demo_source: teleop
+environment: [real,sim]
+
+early_stopper:
+  patience: inf
+
+wandb:
+  entity: robust-assembly
+  project: real-one_leg-cotrain-2

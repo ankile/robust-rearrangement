@@ -70,6 +70,8 @@ def combine_zarr_datasets(
 
     metadata = {}
 
+    domain_idx = dict(sim=0, real=1)
+
     # First pass to calculate total shapes
     for path in zarr_paths:
         # [F]urniture, [S]ource, [R]andomness, [O]utcome
@@ -99,13 +101,17 @@ def combine_zarr_datasets(
         "episode_ends": np.zeros(total_episodes, dtype=np.int64),
         "furniture": [],
         "success": np.zeros(total_episodes, dtype=np.uint8),
+        # Domain is 0 for sim, 1 for real
+        "domain": np.zeros(total_episodes, dtype=np.uint8),
+        "zarr_idx": np.zeros(total_frames, dtype=np.uint8),
+        "within_zarr_idx": np.zeros(total_frames, dtype=np.uint8),
     }
     for key in keys:
         combined_data[key] = np.zeros(
             (total_frames,) + dataset[key].shape[1:], dtype=dataset[key].dtype
         )
 
-    for path in tqdm(zarr_paths, desc="Loading zarr files"):
+    for ii, path in enumerate(tqdm(zarr_paths, desc="Loading zarr files")):
         dataset = zarr.open(path, mode="r")
         # Get the max_episodes for this dataset
         max_episodes = metadata[str(dataset_tuple(path))]["n_episodes_used"]
@@ -137,6 +143,12 @@ def combine_zarr_datasets(
         combined_data["failure_idx"] = dataset.get(
             "failure_idx", np.full_like(end_idxs, -1)
         )
+        combined_data["domain"][n_episodes : n_episodes + len(end_idxs)] = domain_idx[
+            dataset.attrs["domain"][:max_episodes]
+        ]
+
+        combined_data["zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = ii
+        combined_data["within_zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = np.arange(0, end_idxs[-1])
 
         # Upddate the counters
         last_episode_end += end_idxs[-1]

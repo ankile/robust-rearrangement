@@ -42,14 +42,6 @@ Activate the environment by running:
 conda activate rr
 ```
 
-Once installed and activated, make some compatibility changes to the environment by running:
-
-```bash
-pip install setuptools==65.5.0
-pip install --upgrade pip wheel==0.38.4
-pip install termcolor
-```
-
 
 ### Install IsaacGym
 
@@ -59,6 +51,12 @@ Download the IsaacGym installer from the [IsaacGym website](https://developer.nv
 - Click "Member area".
 - Read and check the box for the license agreement.
 - Download and unzip `Isaac Gym - Ubuntu Linux 18.04 / 20.04 Preview 4 release`.
+
+You can also download a copy of the file from our AWS S3 bucket for your convenience:
+
+```bash
+wget https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/IsaacGym_Preview_4_Package.tar.gz
+```
 
 Once the zipped file is downloaded, move it to the desired location and unzip it by running:
 
@@ -70,7 +68,7 @@ tar -xzf IsaacGym_Preview_4_Package.tar.gz
 Now, you can install the IsaacGym package by navigating to the `isaacgym` directory and running:
 
 ```bash
-pip install -e python --no-cache-dir --force-reinstall
+pip install -e isaacgym/python --no-cache-dir --force-reinstall
 ```
 
 _Note: The `--no-cache-dir` and `--force-reinstall` flags are used to avoid potential issues with the installation we encountered._
@@ -127,7 +125,7 @@ https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimag
 
 ### Install the robust-rearrangement Package
 
-Finally, install the ImitationJuicer package by running:
+Finally, install the `robust-rearrangement` package by running:
 
 ```bash
 cd ..

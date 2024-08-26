@@ -14,6 +14,15 @@ class LinearNormalizer(nn.Module):
         for key, tensor in data_dict.items():
             min_value = tensor.min(dim=0)[0]
             max_value = tensor.max(dim=0)[0]
+
+            # Check if any column has only one value throughout
+            diff = max_value - min_value
+            constant_columns = diff == 0
+
+            # Set a small range for constant columns to avoid division by zero
+            min_value[constant_columns] -= 1
+            max_value[constant_columns] += 1
+
             self.stats[key] = nn.ParameterDict(
                 {
                     "min": nn.Parameter(min_value, requires_grad=False),
@@ -61,6 +70,8 @@ class LinearNormalizer(nn.Module):
 
         self.stats = stats
         self._turn_off_gradients()
+
+        return f"<Added keys {self.stats.keys()} to the normalizer.>"
 
     def keys(self):
         return self.stats.keys()

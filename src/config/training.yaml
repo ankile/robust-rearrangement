@@ -10,12 +10,19 @@ training:
   num_epochs: 200
   batch_size: 64
   start_epoch: 0
-  steps_per_epoch: 400
-  
+  steps_per_epoch: 400 # Set to -1 to do one pass over the dataset
+
   load_checkpoint_run_id: null
-  checkpoint_model: true
+  
+  eval_every: 10
+  sample_every: 100
+  
   model_save_dir: models
   checkpoint_interval: -1
+
+  store_best_test_loss_model: true
+  store_last_model: true
+  store_best_success_rate_model: true
 
   ema:
     use: false

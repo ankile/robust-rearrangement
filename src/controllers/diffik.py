@@ -9,6 +9,9 @@ import furniture_bench.controllers.control_utils as C
 
 import torch
 import pytorch3d.transforms as pt
+from src.common.geometry import quaternion_to_matrix, matrix_to_axis_angle
+
+from ipdb import set_trace as bp
 
 
 def diffik_factory(real_robot=True, *args, **kwargs):
@@ -59,24 +62,22 @@ def diffik_factory(real_robot=True, *args, **kwargs):
             # Shape of ee_pos: (batch_size, 3)
             # Shape of ee_quat: (batch_size, 4) with real part at the end
             ee_pos, ee_quat_xyzw = state_dict["ee_pos"], state_dict["ee_quat"]
+            goal_ori_xyzw = self.goal_ori
 
             position_error = self.goal_pos - ee_pos
 
-            # Move the real part of the quaternion to the front
-            ee_quat_wxyz = C.quat_xyzw_to_wxyz(ee_quat_xyzw)
-            goal_ori_wxyz = C.quat_xyzw_to_wxyz(self.goal_ori)
-
             # Convert quaternions to rotation matrices
-            ee_mat = pt.quaternion_to_matrix(ee_quat_wxyz)
-            goal_mat = pt.quaternion_to_matrix(goal_ori_wxyz)
+            ee_mat = quaternion_to_matrix(ee_quat_xyzw)
+            goal_mat = quaternion_to_matrix(goal_ori_xyzw)
 
             # Compute the matrix error
             mat_error = torch.matmul(goal_mat, torch.inverse(ee_mat))
 
             # Convert the matrix error to axis-angle representation
-            ee_delta_axis_angle = pt.matrix_to_axis_angle(mat_error)
+            ee_delta_axis_angle = matrix_to_axis_angle(mat_error)
 
-            dt = 1.0
+            dt = 0.1
+
             ee_pos_vel = position_error * self.pos_scalar / dt
             ee_rot_vel = ee_delta_axis_angle * self.rot_scalar / dt
 

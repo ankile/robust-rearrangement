@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  - state/base
+  - override /actor: residual_diffusion
+  - override /actor/diffusion_model: unet
+
+data:
+  include_future_obs: true
+
+actor:
+  # I think it would make more sense for this to be the path to WandB that contains config
+  # and we can just use hydra.utils.instantiate to load the model directly? 
+  # base_bc_wts: /data/scratch/ankile/robust-rearrangement/outputs/2024-05-17/16-36-36/models/zany-totem-33/actor_chkpt_best_success_rate.pt
+  base_bc_wts: null
+
+randomness: [med, med_perturb]
+
+rollout:
+  loss_threshold: 1000
+
+wandb:
+  entity: robust-assembly
+  project: residual-diffusion-bc-1

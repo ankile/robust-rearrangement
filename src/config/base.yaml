@@ -1,3 +1,5 @@
+actor_name: ${actor.name}
+
 defaults:
   - _self_
   - actor: diffusion
@@ -11,12 +13,15 @@ defaults:
 
 hydra:
   run:
-    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S}"
+    dir: "${oc.env:RUN_OUTPUT_DIR,./outputs}/${now:%Y-%m-%d}/${now:%H-%M-%S.%f}"
 
 action_horizon: 8
-pred_horizon: 16
-obs_horizon: 2
-observation_type: image
+pred_horizon: 32
+obs_horizon: 1
+predict_past_actions: false
+parts_poses_in_robot_frame: false
+
+observation_type: ???
 furniture: ???
 environment: sim
 demo_source: teleop
@@ -26,12 +31,13 @@ demo_outcome: success
 
 control:
   act_rot_repr: rot_6d
-  control_mode: pos # delta, pos
-  controller: diffik  # osc, diffik
+  control_mode: pos # delta, pos, relative
+  controller: diffik  # diffik
 
 lr_scheduler:
   name: cosine
-  warmup_steps: 500
+  warmup_steps: 10000
+  encoder_warmup_steps: 10000
 
 wandb:
   project: ???
@@ -39,5 +45,10 @@ wandb:
   mode: online
   continue_run_id: null
   name: null
+
+  watch_model: false
+
+  # Call the osh service not every epoch
+  osh_sync_interval: 25
 
 dryrun: false

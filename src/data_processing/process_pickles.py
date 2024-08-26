@@ -329,43 +329,55 @@ if __name__ == "__main__":
         choices=["osc", "diffik"],
     )
     parser.add_argument(
-        "--domain", "-d", type=str, nargs="+", default=None, choices=["sim", "real"]
+        "--domain",
+        "-d",
+        type=str,
+        choices=["sim", "real"],
+        required=True,
     )
-    parser.add_argument("--furniture", "-f", type=str, default=None, nargs="+")
+    parser.add_argument(
+        "--furniture",
+        "-f",
+        type=str,
+        required=True,
+    )
     parser.add_argument(
         "--source",
         "-s",
         type=str,
         choices=["scripted", "rollout", "teleop", "augmentation"],
-        default=None,
-        nargs="+",
+        required=True,
     )
     parser.add_argument(
         "--randomness",
         "-r",
         type=str,
-        default=None,
-        nargs="+",
+        choices=["low", "low_perturb", "med", "med_perturb", "high", "high_perturb"],
+        required=True,
     )
     parser.add_argument(
         "--demo-outcome",
         "-o",
         type=str,
         choices=["success", "failure", "partial_success"],
-        default=None,
-        nargs="+",
+        required=True,
     )
     parser.add_argument(
         "--suffix",
         type=str,
         default=None,
     )
+    parser.add_argument("--output-suffix", type=str, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--max-files", type=int, default=None)
+    parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--randomize-order", action="store_true")
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--n-cpus", type=int, default=1)
+    parser.add_argument("--chunk-size", type=int, default=1000)
     args = parser.parse_args()
+
+    assert not args.randomize_order or args.offset == 0, "Cannot offset with randomize"
 
     pickle_paths: List[Path] = sorted(
         get_raw_paths(
@@ -379,13 +391,19 @@ if __name__ == "__main__":
         )
     )
 
+    total_files = len(pickle_paths)
+
     if args.randomize_order:
         print(f"Using random seed: {args.random_seed}")
         random.seed(args.random_seed)
         random.shuffle(pickle_paths)
-
-    if args.max_files is not None:
-        pickle_paths = pickle_paths[: args.max_files]
+    start = args.offset
+    end = (
+        args.offset + args.max_files
+        if args.max_files is not None
+        else len(pickle_paths)
+    )
+    pickle_paths = pickle_paths[start:end]
 
     print(f"Found {len(pickle_paths)} pickle files")
 
@@ -396,7 +414,7 @@ if __name__ == "__main__":
         demo_source=args.source,
         randomness=args.randomness,
         demo_outcome=args.demo_outcome,
-        suffix=args.suffix,
+        suffix=args.output_suffix,
     )
 
     print(f"Output path: {output_path}")
@@ -407,12 +425,14 @@ if __name__ == "__main__":
         )
 
     # Process all pickle files
-    chunksize = 1_000
+    chunksize = args.chunk_size
     noop_threshold = 0.0
     n_cpus = min(os.cpu_count(), args.n_cpus)
 
     print(
-        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}"
+        f"Processing pickle files with {n_cpus} CPUs, chunksize={chunksize}, noop_threshold={noop_threshold}\n"
+        f"randomize_order={args.randomize_order}, random_seed={args.random_seed}\n"
+        f"from file nr. {start} to {end} out of {total_files}"
     )
 
     all_data = parallel_process_pickle_files(
@@ -469,4 +489,10 @@ if __name__ == "__main__":
     z.attrs["calculated_pos_action_from_delta"] = True
     z.attrs["randomize_order"] = args.randomize_order
     z.attrs["random_seed"] = args.random_seed
-    z.attrs["demo_source"] = args.source[0]
+    z.attrs["demo_source"] = args.source
+    z.attrs["controller"] = args.controller
+    z.attrs["domain"] = args.domain
+    z.attrs["furniture"] = args.furniture
+    z.attrs["randomness"] = args.randomness
+    z.attrs["demo_outcome"] = args.demo_outcome
+    z.attrs["suffix"] = args.suffix

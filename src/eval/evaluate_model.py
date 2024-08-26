@@ -1,24 +1,27 @@
 import argparse
 import time
-from typing import List
+
 import furniture_bench
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+import torch  # needs to be after isaac gym imports
+from omegaconf import OmegaConf
 from src.behavior.base import Actor  # noqa
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
-import torch
-from omegaconf import OmegaConf, DictConfig
+from src.behavior.diffusion import DiffusionPolicy  # noqa
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
 from src.common.tasks import furniture2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
+from src.eval.eval_utils import load_model_weights
 
+from typing import List, Optional
 from ipdb import set_trace as bp  # noqa
 import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
-api = Api()
+api = Api(overrides=dict(entity="robust-assembly"))
 
 
 def validate_args(args: argparse.Namespace):
@@ -51,11 +54,11 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
     # Clear the cache to make sure we get the latest runs
     api.flush()
     if args.sweep_id:
-        runs: List[Run] = list(api.sweep(f"robot-rearrangement/{args.sweep_id}").runs)
+        runs: List[Run] = list(api.sweep(args.sweep_id).runs)
     elif args.run_id:
-        runs: List[Run] = [api.run(f"{run_id}") for run_id in args.run_id]
+        runs: List[Run] = [api.run(run_id) for run_id in args.run_id]
     elif args.project_id:
-        runs: List[Run] = list(api.runs(f"robot-rearrangement/{args.project_id}"))
+        runs: List[Run] = list(api.runs(args.project_id))
     else:
         raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
@@ -64,12 +67,13 @@ def get_runs(args: argparse.Namespace) -> List[Run]:
         runs = [run for run in runs if run.state in args.run_state]
 
     # Filter out runs based on action type
-    runs = [
-        run
-        for run in runs
-        if run.config.get("control", {}).get("control_mode", "delta")
-        == args.action_type
-    ]
+    # run.config.control.control_mode == args.action_type
+    # runs = [
+    #     run
+    #     for run in runs
+    #     if run.config.get("control", {}).get("control_mode", "delta")
+    #     == args.action_type
+    # ]
     return runs
 
 
@@ -122,7 +126,16 @@ if __name__ == "__main__":
         "--furniture",
         "-f",
         type=str,
-        choices=["one_leg", "lamp", "round_table", "desk", "square_table", "cabinet"],
+        choices=[
+            "one_leg",
+            "lamp",
+            "round_table",
+            "desk",
+            "square_table",
+            "cabinet",
+            "mug_rack",
+            "factory_peg_hole"
+        ],
         required=True,
     )
     parser.add_argument("--n-parts-assemble", type=int, default=None)
@@ -166,7 +179,7 @@ if __name__ == "__main__":
     parser.add_argument("--store-video-wandb", action="store_true")
     parser.add_argument("--eval-top-k", type=int, default=None)
     parser.add_argument(
-        "--action-type", type=str, default="pos", choices=["delta", "pos"]
+        "--action-type", type=str, default="pos", choices=["delta", "pos", "relative"]
     )
     parser.add_argument("--prioritize-fewest-rollouts", action="store_true")
     parser.add_argument("--multitask", action="store_true")
@@ -182,6 +195,15 @@ if __name__ == "__main__":
     )
     parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
+    parser.add_argument("--wt-type", type=str, default="best_success_rate")
+
+    parser.add_argument("--stop-after-n-success", type=int, default=0)
+    parser.add_argument("--break-on-n-success", action="store_true")
+    parser.add_argument("--record-for-coverage", action="store_true")
+    parser.add_argument("--parts-poses-in-robot-frame", action="store_true")
+
+    parser.add_argument("--save-rollouts-suffix", type=str, default="")
+
     # Parse the arguments
     args = parser.parse_args()
 
@@ -203,7 +225,7 @@ if __name__ == "__main__":
     print(
         f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env: FurnitureSimEnv = None
+    env: Optional[FurnitureSimEnv] = None
 
     f: str = args.furniture
 
@@ -278,7 +300,7 @@ if __name__ == "__main__":
 
                 # Only actually load the environment after we know we've got at least one run to evaluate
                 if env is None:
-                    kwargs = dict(
+                    env = get_rl_env(
                         gpu_id=args.gpu,
                         furniture=args.furniture,
                         num_envs=args.n_envs,
@@ -290,19 +312,10 @@ if __name__ == "__main__":
                         ctrl_mode=args.controller,
                         action_type=args.action_type,
                         april_tags=not args.no_april_tags,
+                        parts_poses_in_robot_frame=args.parts_poses_in_robot_frame,
                         verbose=args.verbose,
                         headless=not args.visualize,
-                        pos_scalar=1,
-                        rot_scalar=1,
-                        stiffness=1000,
-                        damping=200,
-                        max_force_magnitude=0.2,  # 0.3,
-                        max_torque_magnitude=0.005,  # 0.0075,
                     )
-                    if args.use_new_env:
-                        env: FurnitureRLSimEnv = get_rl_env(**kwargs)
-                    else:
-                        env: FurnitureSimEnv = get_env(**kwargs)
 
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if args.wandb:
@@ -312,82 +325,39 @@ if __name__ == "__main__":
                     run.config["currently_evaluating"] = True
                     run.update()
 
-                checkpoint_type = "best_success_rate"  # or "best_test_loss"
-                model_file = [
-                    f
-                    for f in run.files()
-                    if f.name.endswith(".pt") and checkpoint_type in f.name
-                ][0]
-                model_path = model_file.download(
-                    root=f"./models/{run.name}", exist_ok=True, replace=True
-                ).name
-
-                print(f"Model path: {model_path}")
-
                 # Get the current `test_epoch_loss` from the run
                 test_epoch_loss = run.summary.get("test_epoch_loss", None)
                 print(
                     f"Evaluating run: {run.name} at test_epoch_loss: {test_epoch_loss}"
                 )
 
-                # Create the config object with the project name and make it read-only
-                config: DictConfig = OmegaConf.create(
-                    {
-                        **run.config,
-                        "project_name": run.project,
-                        "actor": {
-                            **run.config["actor"],
-                            "inference_steps": 4,
-                            "action_horizon": (
-                                args.action_horizon
-                                if args.action_horizon is not None
-                                else run.config["actor"]["action_horizon"]
-                            ),
-                        },
-                    },
-                    flags={"readonly": True},
+                cfg = OmegaConf.create(run.config)
+                
+                # Check that we didn't set the wrong action type and pose representation
+                assert cfg.control.control_mode == args.action_type
+                assert (
+                    cfg.get("parts_poses_in_robot_frame", False)
+                    == args.parts_poses_in_robot_frame
                 )
 
-                # Check that we didn't set the wrong action type above
-                assert config.control.control_mode == args.action_type, (
-                    f"Control mode in the config: {config.control.control_mode} "
-                    f"does not match the action type: {args.action_type}"
-                )
-
-                # # Get the normalizer
-                # normalizer_type = config.get("data", {}).get("normalization", "min_max")
-                # normalizer = get_normalizer(
-                #     normalizer_type=normalizer_type,
-                #     control_mode=config.control.control_mode,
-                # )
-
-                # TODO: Fix this properly, but for now have an ugly escape hatch
-                # vision_encoder_field_hotfix(run, config)
-
-                print(OmegaConf.to_yaml(config))
+                print(OmegaConf.to_yaml(cfg))
 
                 # Make the actor
-                actor: Actor = get_actor(cfg=config, device=device)
+                actor: Actor = get_actor(cfg=cfg, device=device)
 
-                # print("NBNB: This is a hack to load the model weights, please fix soon")
-                # # TODO: Fix this properly, but for now have an ugly escape hatch
-                # import torch.nn as nn
+                # Set the inference steps of the actor
+                if isinstance(actor, DiffusionPolicy):
+                    actor.inference_steps = 4
 
-                # actor.normalizer.stats["parts_poses"] = nn.ParameterDict(
-                #     {
-                #         "min": nn.Parameter(torch.zeros(35)),
-                #         "max": nn.Parameter(torch.ones(35)),
-                #     }
-                # )
+                actor: Optional[Actor] = load_model_weights(
+                    run=run, actor=actor, wt_type=args.wt_type
+                )
 
-                state_dict = torch.load(model_path)
-
-                # # Load the model weights
-                # convert_state_dict(state_dict)
-
-                actor.load_state_dict(state_dict)
-                actor.eval()
-                actor.cuda()
+                if actor is None:
+                    print(
+                        f"Skipping run: {run.name} as no weights for wt_type: {args.wt_type} was found"
+                    )
+                    continue
 
                 save_dir = (
                     trajectory_save_dir(
@@ -396,7 +366,8 @@ if __name__ == "__main__":
                         task=args.furniture,
                         demo_source="rollout",
                         randomness=args.randomness,
-                        create=False,
+                        suffix=args.save_rollouts_suffix,
+                        create=True,
                     )
                     if args.save_rollouts
                     else None
@@ -421,12 +392,15 @@ if __name__ == "__main__":
                     n_rollouts=args.n_rollouts,
                     rollout_max_steps=rollout_max_steps,
                     epoch_idx=0,
-                    gamma=config.discount,
+                    discount=cfg.discount,
                     rollout_save_dir=save_dir,
                     save_failures=args.save_failures,
                     n_parts_assemble=args.n_parts_assemble,
                     compress_pickles=args.compress_pickles,
                     resize_video=not args.store_full_resolution_video,
+                    break_on_n_success=args.break_on_n_success,
+                    stop_after_n_success=args.stop_after_n_success,
+                    record_first_state_only=args.record_for_coverage,
                 )
 
                 if args.store_video_wandb:

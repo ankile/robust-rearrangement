@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot name="mug">
+    <link name="mug">
+        <visual>
+            <geometry>
+                <mesh filename="../mesh/mug_rack/muggood/muggood.obj" scale="1 1 1"/>
+            </geometry>
+        </visual>
+        <collision>
+            <geometry>
+                <mesh filename="../mesh/mug_rack/muggood/muggood.obj" scale="1 1 1"/>
+            </geometry>
+            <sdf resolution="512"/>
+        </collision>
+    </link>
+</robot>

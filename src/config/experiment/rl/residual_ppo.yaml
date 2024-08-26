@@ -1,0 +1,17 @@
+# @package _global_
+base_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
+
+env:
+  randomness: low
+
+normalize_reward: false
+residual_l2: 0.0
+
+wandb:
+  entity: robust-assembly
+  project: ol-rppo-dr-${env.randomness}-1
+  mode: online
+
+debug: false

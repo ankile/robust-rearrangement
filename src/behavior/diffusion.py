@@ -1,5 +1,5 @@
 from collections import deque
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 import torch
 import torch.nn as nn
 
@@ -7,18 +7,10 @@ from src.dataset.normalizer import LinearNormalizer
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from src.behavior.base import Actor
-from src.common.control import RotationMode
-from src.models import get_diffusion_backbone, get_encoder
-from src.models.vib import VIB
+from src.models import get_diffusion_backbone
 
 from ipdb import set_trace as bp  # noqa
-from typing import Union
-
-# our real/debug imports
-import pytorch3d.transforms as pt
-from rdt.common import mc_util
-
-import wandb
+from typing import Tuple, Union
 
 
 class DiffusionPolicy(Actor):
@@ -26,41 +18,13 @@ class DiffusionPolicy(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        config: DictConfig,
+        cfg: DictConfig,
     ) -> None:
-        super().__init__()
-        actor_cfg = config.actor
-        self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = (
-            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
-        )
-        self.pred_horizon = actor_cfg.pred_horizon
-        self.action_horizon = actor_cfg.action_horizon
+        super().__init__(device, cfg)
+        actor_cfg = cfg.actor
 
-        # A queue of the next actions to be executed in the current horizon
-        self.actions = deque(maxlen=self.action_horizon)
-
+        # Diffusion-specific parameters
         self.inference_steps = actor_cfg.inference_steps
-        self.observation_type = config.observation_type
-
-        # Regularization
-        self.feature_noise = config.regularization.get("feature_noise", None)
-        self.feature_dropout = config.regularization.get("feature_dropout", None)
-        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
-        self.state_noise = config.regularization.get("state_noise", False)
-        self.proprioception_dropout = config.regularization.get(
-            "proprioception_dropout", 0.0
-        )
-        self.front_camera_dropout = config.regularization.get(
-            "front_camera_dropout", 0.0
-        )
-
-        self.vib_front_feature_beta = config.regularization.get(
-            "vib_front_feature_beta", 0.0
-        )
-
-        self.device = device
-
         self.train_noise_scheduler = DDPMScheduler(
             num_train_timesteps=actor_cfg.num_diffusion_iters,
             beta_schedule=actor_cfg.beta_schedule,
@@ -75,79 +39,29 @@ class DiffusionPolicy(Actor):
             prediction_type=actor_cfg.prediction_type,
         )
 
-        # Convert the stats to tensors on the device
-        if self.observation_type == "image":
-            self._initiate_image_encoder(config)
-
-        elif self.observation_type == "state":
-            self.timestep_obs_dim = config.robot_state_dim + config.parts_poses_dim
-        else:
-            raise ValueError(f"Invalid observation type: {self.observation_type}")
-
-        self.flatten_obs = config.actor.diffusion_model.get("flatten_obs", True)
-        self.obs_dim = (
-            self.timestep_obs_dim * self.obs_horizon
-            if self.flatten_obs
-            else self.timestep_obs_dim
-        )
-
         self.model = get_diffusion_backbone(
             action_dim=self.action_dim,
             obs_dim=self.obs_dim,
             actor_config=actor_cfg,
         ).to(device)
 
-        loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
-
-        self.mc_vis = None
         self.warmstart_timestep = 50
         self.prev_naction = None
-
-    def set_mc(self, mc_vis):
-        self.mc_vis = mc_vis
-
-    def _initiate_image_encoder(self, config):
-        # === Encoder ===
-        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
-        device = self.device
-        actor_cfg = config.actor
-        encoder_name = config.vision_encoder.model
-        self.freeze_encoder = config.vision_encoder.freeze
-
-        self.encoder1 = get_encoder(
-            encoder_name,
-            device=device,
-            **encoder_kwargs,
-        )
-        self.encoder2 = (
-            self.encoder1
-            if self.freeze_encoder
-            else get_encoder(
-                encoder_name,
-                device=device,
-                **encoder_kwargs,
-            )
-        )
-        self.encoding_dim = self.encoder1.encoding_dim
-
-        if actor_cfg.get("projection_dim") is not None:
-            self.encoder1_proj = nn.Linear(
-                self.encoding_dim, actor_cfg.projection_dim
-            ).to(device)
-            self.encoder2_proj = nn.Linear(
-                self.encoding_dim, actor_cfg.projection_dim
-            ).to(device)
-            self.encoding_dim = actor_cfg.projection_dim
-        else:
-            self.encoder1_proj = nn.Identity()
-            self.encoder2_proj = nn.Identity()
-
-        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
+        self.eta = 0.0
 
     # === Inference ===
-    def _normalized_action(self, nobs):
+    def _normalized_action(self, nobs: torch.Tensor) -> torch.Tensor:
+        """
+        Perform diffusion to generate actions given the observation.
+        """
         B = nobs.shape[0]
+
+        # Now we know what batch size we have, so set the previous action to zeros of the correct size
+        if self.prev_naction is None or self.prev_naction.shape[0] != B:
+            self.prev_naction = torch.zeros(
+                (B, self.pred_horizon, self.action_dim), device=self.device
+            )
+
         # Important! `nobs` needs to be normalized and flattened before passing to this function
         # Sample Gaussian noise to use to corrupt the actions
         noise = torch.randn(
@@ -173,71 +87,24 @@ class DiffusionPolicy(Actor):
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
-                model_output=noise_pred, timestep=k, sample=naction
+                model_output=noise_pred, timestep=k, sample=naction, eta=self.eta
             ).prev_sample
-
-        return naction
-
-    def _sample_action_pred(self, nobs):
-        # Predict normalized action
-        # (B, candidates, pred_horizon, action_dim)
-        naction = self._normalized_action(nobs)
-
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
-
-        # Add the actions to the queue
-        # only take action_horizon number of actions
-        start = self.obs_horizon - 1
-        end = start + self.action_horizon
-        actions = deque()
-        for i in range(start, end):
-            actions.append(action_pred[:, i, :])
-
-            if self.mc_vis is not None:
-                rot_6d = action_pred[0, i, 3:9]
-                rot_mat = pt.rotation_6d_to_matrix(rot_6d)
-                action_pose_mat = torch.eye(4)
-                action_pose_mat[:-1, :-1] = rot_mat
-                action_pose_mat[:-1, -1] = action_pred[0, i, :3]
-                # Draw the current target pose (in meshcat)
-                mc_util.meshcat_frame_show(
-                    self.mc_vis, f"scene/actions/{i}", action_pose_mat.cpu().numpy()
-                )
 
         # Store the remaining actions in the previous action to warm start the next horizon
         self.prev_naction[:, : self.pred_horizon - self.action_horizon, :] = naction[
             :, self.action_horizon :, :
         ]
 
-        return actions
-
-    @torch.no_grad()
-    def action(self, obs: deque):
-        # Normalize observations
-        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
-
-        # Now we know what batch size we have, so set the previous action to zeros of the correct size
-        if self.prev_naction is None or self.prev_naction.shape[0] != nobs.shape[0]:
-            self.prev_naction = torch.zeros(
-                (nobs.shape[0], self.pred_horizon, self.action_dim), device=self.device
-            )
-
-        # If the queue is empty, fill it with the predicted actions
-        if not self.actions:
-            self.actions = self._sample_action_pred(nobs)
-
-        # Return the first action in the queue
-        return self.actions.popleft()
+        return naction
 
     # === Training ===
-    def compute_loss(self, batch):
+    def compute_loss(self, batch) -> Tuple[torch.Tensor, dict]:
         # State already normalized in the dataset
         obs_cond = self._training_obs(batch, flatten=self.flatten_obs)
 
         # Action already normalized in the dataset
-        # naction = normalize_data(batch["action"], stats=self.stats["action"])
+        # These actions are the exact ones we should predict, i.e., the
+        # handling of predicting past actions or not is also handled in the dataset class
         naction = batch["action"]
 
         # sample noise to add to actions
@@ -256,8 +123,29 @@ class DiffusionPolicy(Actor):
         noisy_action = self.train_noise_scheduler.add_noise(naction, noise, timesteps)
 
         # forward pass
-        noise_pred = self.model(noisy_action, timesteps, global_cond=obs_cond.float())
-        loss = self.loss_fn(noise_pred, noise)
+        noise_pred: torch.Tensor = self.model(
+            noisy_action, timesteps, global_cond=obs_cond.float()
+        )
+
+        # Without reuction so is of shape (B, H, A)
+        loss: torch.Tensor = self.loss_fn(noise_pred, noise)
+
+        # Take the mean over the last two dimensions to get the loss for each example in the batch
+        # (B, H, A) -> (B, 1)
+        loss = loss.mean(dim=[1, 2]).unsqueeze(1)
+
+        if self.rescale_loss_for_domain:
+            # Calculate class weights
+            class_sizes = torch.bincount(batch["domain"].squeeze())
+            class_weights = torch.pow(class_sizes.float(), -1.0 / 2)
+            class_weights = class_weights / class_weights.sum()
+
+            # Apply class weights to the loss
+            class_weights = class_weights[batch["domain"]]
+            loss *= class_weights
+
+        loss = loss.mean()
+        losses = {"bc_loss": loss.item()}
 
         # Add the VIB loss
         if self.camera_2_vib is not None:
@@ -265,13 +153,20 @@ class DiffusionPolicy(Actor):
             vib_loss = self.camera_2_vib.kl_divergence(mu, log_var)
 
             # Clip the VIB loss to prevent it from dominating the total loss
-            wandb.log({"vib_loss": vib_loss.item(), "bc_loss": loss.item()})
+            losses["vib_loss"] = vib_loss.item()
             vib_loss = torch.clamp(vib_loss, max=1)
 
             # Scale the VIB loss by the beta and add it to the total loss
             loss += self.vib_front_feature_beta * vib_loss
 
-        return loss
+        # Add the confusion loss
+        if self.confusion_loss_beta > 0:
+            confusion_loss = batch["confusion_loss"]
+            losses["confusion_loss"] = confusion_loss.item()
+
+            loss += self.confusion_loss_beta * confusion_loss
+
+        return loss, losses
 
 
 class MultiTaskDiffusionPolicy(DiffusionPolicy):
@@ -283,7 +178,7 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
         encoder_name: str,
         freeze_encoder: bool,
         normalizer: LinearNormalizer,
-        config,
+        cfg,
     ) -> None:
         raise NotImplementedError(
             "Multitask diffusion actor is not supported at the moment."
@@ -293,11 +188,11 @@ class MultiTaskDiffusionPolicy(DiffusionPolicy):
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
             normalizer=normalizer,
-            config=config,
+            cfg=cfg,
         )
 
-        multitask_cfg = config.multitask
-        actor_cfg = config.actor
+        multitask_cfg = cfg.multitask
+        actor_cfg = cfg.actor
 
         self.task_dim = multitask_cfg.task_dim
         self.task_encoder = nn.Embedding(
@@ -366,16 +261,19 @@ class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
         encoder_name: str,
         freeze_encoder: bool,
         normalizer: LinearNormalizer,
-        config,
+        cfg,
     ) -> None:
+        raise NotImplementedError(
+            "Guided diffusion actor is not supported at the moment."
+        )
         super().__init__(
             device=device,
             encoder_name=encoder_name,
             freeze_encoder=freeze_encoder,
             normalizer=normalizer,
-            config=config,
+            cfg=cfg,
         )
-        actor_cfg = config.actor
+        actor_cfg = cfg.actor
 
         self.guidance_scale = actor_cfg.guidance_scale
         self.prob_blank_cond = actor_cfg.prob_blank_cond

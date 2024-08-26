@@ -1,0 +1,385 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (50000.18140525073, -1.1102270526308792e-11, 0)
+                double radius = 500
+            }
+            dictionary Perspective = {
+                double3 position = (5, 4.9999999999999964, 5.000000000000003)
+                double3 target = (-3.978038431995401e-8, -3.978038520813243e-8, 7.956077041626486e-8)
+            }
+            dictionary Right = {
+                double3 position = (0, -50000.12939199805, -1.1102258977046653e-11)
+                double radius = 500
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 50001.11466311893)
+                double radius = 500
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./franka_instanceable.usd"
+            dictionary muteness = {
+            }
+        }
+        dictionary renderSettings = {
+            float3 "rtx:debugView:pixelDebug:textColor" = (0, 1e18, 0)
+            float3 "rtx:fog:fogColor" = (0.75, 0.75, 0.75)
+            float3 "rtx:post:backgroundZeroAlpha:backgroundDefaultColor" = (0, 0, 0)
+            float3 "rtx:post:colorcorr:contrast" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:gain" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:gamma" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:offset" = (0, 0, 0)
+            float3 "rtx:post:colorcorr:saturation" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:blackpoint" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:contrast" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:gain" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:gamma" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:lift" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:multiply" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:offset" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:whitepoint" = (1, 1, 1)
+            float3 "rtx:post:lensDistortion:lensFocalLengthArray" = (10, 30, 50)
+            float3 "rtx:post:lensFlares:anisoFlareFalloffX" = (450, 475, 500)
+            float3 "rtx:post:lensFlares:anisoFlareFalloffY" = (10, 10, 10)
+            float3 "rtx:post:lensFlares:cutoffPoint" = (2, 2, 2)
+            float3 "rtx:post:lensFlares:haloFlareFalloff" = (10, 10, 10)
+            float3 "rtx:post:lensFlares:haloFlareRadius" = (75, 75, 75)
+            float3 "rtx:post:lensFlares:isotropicFlareFalloff" = (50, 50, 50)
+            float3 "rtx:post:tonemap:whitepoint" = (1, 1, 1)
+            float3 "rtx:raytracing:inscattering:singleScatteringAlbedo" = (0.9, 0.9, 0.9)
+            float3 "rtx:raytracing:inscattering:transmittanceColor" = (0.5, 0.5, 0.5)
+            float3 "rtx:sceneDb:ambientLightColor" = (0.1, 0.1, 0.1)
+        }
+    }
+    defaultPrim = "panda"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def PhysicsScene "physicsScene" (
+    prepend apiSchemas = ["PhysxSceneAPI"]
+)
+{
+    vector3f physics:gravityDirection = (0, 0, -1)
+    float physics:gravityMagnitude = 9.81
+    uniform token physxScene:broadphaseType = "MBP"
+    bool physxScene:enableCCD = 1
+    bool physxScene:enableGPUDynamics = 0
+    bool physxScene:enableStabilization = 1
+    uniform token physxScene:solverType = "TGS"
+}
+
+def Xform "panda" (
+    prepend apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI"]
+)
+{
+    bool physxArticulation:enabledSelfCollisions = 0
+
+    def Xform "panda_link0" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        float3 xformOp:translate = (3.7252903e-9, 3.4924597e-10, -1.4901161e-8)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link0_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link0_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link1" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        float3 xformOp:translate = (1.1641532e-10, 3.7252903e-9, 0.333)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link1_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link1_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link2" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (-0.7071066, 0.70710695, -3.1584864e-23, 5.5879354e-9)
+        double3 xformOp:scale = (1, 0.9999999657714589, 0.9999999657714589)
+        float3 xformOp:translate = (9.349606e-10, -1.1175871e-8, 0.333)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link2_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link2_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link3" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        float3 xformOp:translate = (-1.1175871e-8, 5.5879354e-9, 0.649)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link3_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link3_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link4" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (0.7071067, 0.7071068, 2.9802322e-8, 1.4901161e-8)
+        double3 xformOp:scale = (1, 0.9999997971840948, 0.9999997971840948)
+        float3 xformOp:translate = (0.08249999, 2.6077032e-8, 0.649)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link4_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link4_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link5" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (1, 0, 0, 0)
+        double3 xformOp:scale = (1, 1, 1)
+        float3 xformOp:translate = (7.4360287e-9, -6.7055225e-8, 1.0330001)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link5_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link5_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link6" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (0.70710677, 0.70710677, -2.561137e-9, 2.0954758e-9)
+        double3 xformOp:scale = (1, 0.9999997971840948, 0.9999997971840948)
+        float3 xformOp:translate = (7.450581e-9, -4.8894435e-8, 1.033)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link6_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link6_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_link7" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (6.123234e-17, 1, 0, 0)
+        double3 xformOp:scale = (1, 0.9999995231628702, 0.9999995231628702)
+        float3 xformOp:translate = (0.08799998, -6.984919e-8, 1.033)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_link7_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_link7_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_hand" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (-1.4551854e-11, 0.9238795, 0.38268346, -4.6566123e-10)
+        double3 xformOp:scale = (1, 0.9999993997033982, 0.9999993997033982)
+        float3 xformOp:translate = (0.08799998, -4.9709342e-8, 0.926)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_hand_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_hand_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_leftfinger" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (6.123234e-17, 0.9238795, 0.38268346, -6.3372193e-31)
+        double3 xformOp:scale = (1, 0.9999993997033982, 0.9999993997033982)
+        float3 xformOp:translate = (0.08799998, -4.9360096e-8, 0.8676)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_leftfinger_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_leftfinger_collisions>
+        )
+        {
+        }
+    }
+
+    def Xform "panda_rightfinger" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+    )
+    {
+        vector3f physics:angularVelocity = (0, 0, 0)
+        float physics:density = 1000
+        vector3f physics:velocity = (0, 0, 0)
+        quatf xformOp:orient = (6.123234e-17, 0.92387956, 0.38268343, -1.1990686e-30)
+        double3 xformOp:scale = (1, 0.9999993997033982, 0.9999993997033982)
+        float3 xformOp:translate = (0.087999985, -5.029142e-8, 0.8676)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def "visuals" (
+            instanceable = true
+            references = @./franka_visuals.usd@</panda_rightfinger_visuals>
+        )
+        {
+        }
+
+        def "collisions" (
+            instanceable = true
+            references = @./franka_collisions.usd@</panda_rightfinger_collisions>
+        )
+        {
+        }
+    }
+}
+
+over "Render" (
+    hide_in_stage_window = true
+)
+{
+}
+

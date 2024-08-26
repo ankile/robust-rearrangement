@@ -2,6 +2,8 @@ from torch import nn
 
 
 class SwitchEMA:
+    # TODO: See if this implementation is better some way (decay warm-up etc.)
+    # https://github.com/huggingface/diffusers/blob/main/src/diffusers/training_utils.py#L224
     def __init__(self, model: nn.Module, decay: float):
         self.model = model
         self.decay = decay

@@ -9,6 +9,9 @@ furniture2idx = {
     "chair": 6,
     "drawer": 7,
     "place_shade": 9,
+    "mug_rack": 10,
+    "factory_peg_hole": 11,
+    "factory_nut_bolt": 12,
 }
 
 
@@ -24,6 +27,9 @@ task_phases = {
     "stool": 11,
     "chair": 17,
     "drawer": 8,
+    "mug_rack": 2,
+    "factory_peg_hole": 2,
+    "factory_nut_bolt": 2,
 }
 
 
@@ -40,6 +46,7 @@ task_parts = {
     "stool": 3,
     "chair": 5,
     "drawer": 2,
+    "mug_rack": 2,
 }
 
 

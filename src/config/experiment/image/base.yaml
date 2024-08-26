@@ -1,0 +1,29 @@
+# @package _global_
+defaults:
+  - override /vision_encoder: r3m
+
+observation_type: image
+
+control:
+  controller: diffik
+
+action_horizon: 8
+pred_horizon: 32
+obs_horizon: 1
+
+furniture: one_leg
+randomness: ???
+demo_source: teleop
+
+early_stopper:
+  patience: inf
+
+training:
+  batch_size: 256
+  steps_per_epoch: 100
+  checkpoint_interval: -1
+  num_epochs: 5000
+
+wandb:
+  project: ???
+  entity: robust-assembly
