@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 )
 
                 cfg = OmegaConf.create(run.config)
-
+                
                 # Check that we didn't set the wrong action type and pose representation
                 assert cfg.control.control_mode == args.action_type
                 assert (

@@ -133,6 +133,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             )
 
         elif self.observation_type == "state":
+            self.robot_state_dim = cfg.robot_state_dim
+            self.parts_poses_dim = cfg.parts_poses_dim
             self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
@@ -394,7 +396,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         return action
 
     @torch.no_grad()
-    def action(self, obs: Dict[str, torch.Tensor]):
+    def action(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Given a deque of observations, predict the action
 
@@ -572,7 +574,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         return feature1, feature2
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, dict]:
         raise NotImplementedError
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:

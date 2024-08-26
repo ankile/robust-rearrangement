@@ -11,7 +11,7 @@
 #SBATCH --job-name=fph_mppo_low
 
 python -m src.train.ppo \
-    base_policy.wandb_id=mr-state-dr-low-1/6zwxy8h8 \
+    base_policy.wandb_id=fph-state-dr-low-1/b7febnq7 \
     base_policy.wt_type=best_success_rate \
     env.task=factory_peg_hole \
     env.randomness=low \
