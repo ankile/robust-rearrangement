@@ -664,9 +664,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         """
         Set models to eval mode
         """
-        super().eval()
+        super().train(mode=False)
         self.camera1_transform.eval()
         self.camera2_transform.eval()
+
+        # Verify we are in eval mode
+        for module in self.modules():
+            assert not module.training
 
     def set_task(self, task):
         """
