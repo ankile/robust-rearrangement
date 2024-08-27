@@ -108,8 +108,16 @@ from typing import Dict, Union, Tuple
 
 # folder to load from
 DEMO_DIR = args_cli.load_dir
-FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
+file_list = os.listdir(DEMO_DIR)
+demo_index = (
+    args_cli.demo_index
+    if args_cli.demo_index >= 0
+    else np.random.randint(len(file_list))
+)
+FILES = [os.path.join(DEMO_DIR, f) for f in file_list]
 FILE = FILES[args_cli.demo_index]
+
+print(f"Loading file: {FILE}")
 
 PART_COLOR_BASE = (
     "white" if "PART_COLOR_BASE" not in os.environ else os.environ["PART_COLOR_BASE"]
@@ -367,7 +375,7 @@ def resize_dict(img_dict: dict):
 @dataclass
 class RandomizationConfig:
     part_random: str = "base"
-    table_random: str = "base"
+    table_random: str = "full"
     different_part_colors: bool = False
     random_frame_freq: int = 1
 
@@ -544,8 +552,8 @@ class RandomizationHelper:
     def random_camera_pose(self):
 
         dist_type = "gaussian"
-        std_xyz = 0.0025
-        std_rpyaw = np.deg2rad(0.5)
+        std_xyz = 0.0025 * 2
+        std_rpyaw = np.deg2rad(0.5) * 2
         for i, cam in enumerate(self.global_cams):
             nom_world_pose = self.global_cam_poses[i]
             new_world_pose = rnd_isaac_pose_about_nominal(
@@ -561,8 +569,8 @@ class RandomizationHelper:
                 new_quat.reshape(1, 4),
             )
 
-        std_xyz = 0.00075
-        std_rpyaw = np.deg2rad(0.25)
+        std_xyz = 0.00075 * 2
+        std_rpyaw = np.deg2rad(0.25) * 2
         for i, cam in enumerate(self.local_cams):
             nom_local_pose = self.local_cam_poses[i]
             new_local_pose = rnd_isaac_pose_about_nominal(

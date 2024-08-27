@@ -15,6 +15,8 @@ pip install -e . # in furniture_bench, without requirements
 cd /home/anthony/.local/share/ov/pkg/isaac_sim-2022.2.1
 source setup_conda_env.sh
 
+export RARL_SOURCE_DIR=/data/scratch/ankile/robust-rearrangement/src
+
 
 # other things that should be safe to install
 pip install trimesh pyglet meshcat
