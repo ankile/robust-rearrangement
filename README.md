@@ -1,4 +1,8 @@
-# Robust Rearrangement
+# From Imitation to Refinement
+
+
+_**NOTE** (updated Sept 1, 2024): The repo is still under active development and we are working on making reproducing the experiments [in the paper](https://arxiv.org/pdf/2407.16677) straightforward and hosting and making available the demonstration data we collected for learning the imitation policies from._
+
 
 ## Installation Instructions
 
