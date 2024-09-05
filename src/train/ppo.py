@@ -525,6 +525,7 @@ def main(cfg: DictConfig):
                         ref_dist = Normal(action_mean, action_std)
                     kl_loss = -ref_dist.log_prob(mb_new_actions).mean()
                     policy_loss = policy_loss + cfg.kl_coef * kl_loss
+                
                 # Total loss
                 loss = policy_loss + cfg.vf_coef * v_loss
 

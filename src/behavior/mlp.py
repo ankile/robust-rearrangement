@@ -113,7 +113,11 @@ class MLPActor(Actor):
         )
 
     def load_bc_weights(self, bc_weights_path):
-        wts = torch.load(bc_weights_path)["model_state_dict"]
+
+        wts = torch.load(bc_weights_path)
+
+        if "model_state_dict" in wts:
+            wts = wts["model_state_dict"]
 
         # Filter out keys not starting with "model"
         model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
