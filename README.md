@@ -1,4 +1,8 @@
-# Robust Rearrangement
+# From Imitation to Refinement
+
+
+_**NOTE** (updated Sept 1, 2024): The repo is still under active development and we are working on making reproducing the experiments [in the paper](https://arxiv.org/pdf/2407.16677) straightforward and hosting and making available the demonstration data we collected for learning the imitation policies from._
+
 
 ## Installation Instructions
 
@@ -185,6 +189,14 @@ _Note: The code uses the directory structure in the folders to locate the data. 
 
 
 To be researched...
+
+
+## Notes on sim-to-real (in development)
+Please see [our notes on using Isaac Sim to re-render trajectories in service of visual sim-to-real](src/sim2real/readme.md). With the ondoing developments of Isaac Sim and IsaacLab, this area of the pipeline is not as mature and is still under ongoing development. The `src/sim2real` folder contains the scripts we used for converting assets to USD for use with Isaac Sim and re-rendering trajectories collected either via teleoperation or rolling out trained agents. 
+
+
+## Notes on real world evaluation (in development)
+Please see [our notes on running on the real world Franka Panda robot](src/real/readme.md). Our steps for reproducing the identical real world setup are still being developed, but in the `src/real` folder, we provide the scripts that we used along with some notes on the general process of getting set up to use the same tools.
 
 
 
