@@ -17,7 +17,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.behavior.diffusion import DiffusionPolicy
 from src.behavior.residual_diffusion import ResidualDiffusionPolicy
-from src.dataset.dataset import FurnitureStateDataset
+from src.dataset.dataset import StateDataset
 from torch.utils.data import DataLoader
 
 from src.common.pytorch_util import dict_to_device
@@ -192,7 +192,7 @@ def main(cfg: DictConfig):
         weight_decay=1e-6,
     )
 
-    demo_dataset = FurnitureStateDataset(
+    demo_dataset = StateDataset(
         dataset_paths=[Path(p) for p in to_native(base_cfg.data_path)],
         pred_horizon=cfg.data.pred_horizon,
         obs_horizon=cfg.data.obs_horizon,

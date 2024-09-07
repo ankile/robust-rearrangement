@@ -11,8 +11,6 @@
 #SBATCH --requeue
 #SBATCH --job-name=01_ol_img_10_demos
 
-export HOME=/data/scratch/ankile
-
 python -m src.train.bc +experiment=image/diff_transformer \
     furniture=one_leg \
     rollout=rollout rollout.every=25 rollout.max_steps=700 \

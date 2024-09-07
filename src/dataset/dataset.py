@@ -8,7 +8,7 @@ from src.dataset.normalizer import LinearNormalizer
 from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
-from src.common.tasks import furniture2idx
+# from src.common.tasks import furniture2idx
 import src.common.geometry as G
 import furniture_bench.controllers.control_utils as C
 
@@ -74,7 +74,7 @@ def sample_sequence(
     return result
 
 
-class FurnitureImageDataset(torch.utils.data.Dataset):
+class ImageDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         dataset_paths: Union[List[str], str],
@@ -199,9 +199,8 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
 
         self.n_samples = len(self.indices)
 
-        self.task_idxs = np.array(
-            [furniture2idx[f] for f in combined_data["furniture"]]
-        )
+        task_key = "task" if "task" in combined_data else "furniture"
+        # self.task_idxs = np.array([furniture2idx[f] for f in combined_data[task_key]])
         self.successes = combined_data["success"].astype(np.uint8)
         self.skills = combined_data["skill"].astype(np.uint8)
         self.failure_idx = combined_data["failure_idx"]
@@ -367,7 +366,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
             )
 
         # Add the task index and success flag to the sample
-        nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
+        # nsample["task_idx"] = torch.LongTensor([self.task_idxs[demo_idx]])
         nsample["success"] = torch.IntTensor([self.successes[demo_idx]])
         nsample["domain"] = torch.IntTensor([self.domain[demo_idx]])
 
@@ -380,7 +379,7 @@ class FurnitureImageDataset(torch.utils.data.Dataset):
         pass
 
 
-class FurnitureStateDataset(torch.utils.data.Dataset):
+class StateDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         dataset_paths: Union[List[Path], Path],
@@ -528,9 +527,8 @@ class FurnitureStateDataset(torch.utils.data.Dataset):
 
         self.n_samples = len(self.indices)
 
-        self.task_idxs = np.array(
-            [furniture2idx[f] for f in combined_data["furniture"]]
-        )
+        task_key = "task" if "task" in combined_data else "furniture"
+        # self.task_idxs = np.array([furniture2idx[f] for f in combined_data[task_key]])
         self.successes = combined_data["success"].astype(np.uint8)
         # self.skills = combined_data["skill"].astype(np.uint8)
         self.failure_idx = combined_data["failure_idx"]

@@ -17,7 +17,7 @@ from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.context import suppress_all_output
 from src.common.pytorch_util import dict_to_device
-from src.dataset.dataset import FurnitureStateDataset
+from src.dataset.dataset import StateDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
