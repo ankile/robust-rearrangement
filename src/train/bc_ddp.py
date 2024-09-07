@@ -1,3 +1,5 @@
+import furniture_bench
+
 from collections import defaultdict
 from datetime import datetime
 import os
@@ -7,8 +9,6 @@ from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
-with suppress_stdout():
-    import furniture_bench
 
 import numpy as np
 import torch

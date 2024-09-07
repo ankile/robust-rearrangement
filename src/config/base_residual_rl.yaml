@@ -36,6 +36,8 @@ actor:
 
 # Learning rates
 learning_rate_actor: 3e-4
+optimizer_betas_actor: [0.9, 0.999]
+
 learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine

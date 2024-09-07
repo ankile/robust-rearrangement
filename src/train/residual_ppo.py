@@ -210,6 +210,7 @@ def main(cfg: DictConfig):
     optimizer_actor = optim.AdamW(
         agent.actor_parameters,
         lr=cfg.learning_rate_actor,
+        betas=cfg.get("optimizer_betas_actor", (0.9, 0.999)),
         eps=1e-5,
         weight_decay=1e-6,
     )
