@@ -8,8 +8,7 @@
 
 export OMP_NUM_THREADS=20
 
-# torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/real_ol_cotrain \
-python -m src.train.bc +experiment=image/real_ol_cotrain \
+torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/real_ol_cotrain \
     demo_source='[teleop,rollout]' \
     furniture='[one_leg_full_new,one_leg_render_demos_brighter,one_leg_render_rppo_brighter]' \
     randomness='[low,med,med_perturb]' \
@@ -23,5 +22,5 @@ python -m src.train.bc +experiment=image/real_ol_cotrain \
     wandb.mode=offline \
     wandb.project=real-ol-demo-scaling-1 \
     wandb.name=ol-40-cotrain-cf-centroid-e3-1 \
-    dryrun=true
+    dryrun=false
 
