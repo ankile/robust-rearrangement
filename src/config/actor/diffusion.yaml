@@ -21,6 +21,7 @@ clip_sample: true
 
 loss_fn: MSELoss  # MSELoss | L1Loss
 confusion_loss_beta: 0.0
+confusion_loss_centroid_formulation: false
 rescale_loss_for_domain: false
 confusion_loss_anchored: false
 weight_confusion_loss_by_action: false

@@ -630,7 +630,7 @@ def main(cfg: DictConfig):
         lr_scheduler_critic.step()
 
         # Checkpoint every cfg.checkpoint_interval steps
-        if iteration % cfg.checkpoint_interval == 0:
+        if cfg.checkpoint_interval > 0 and iteration % cfg.checkpoint_interval == 0:
             model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {
