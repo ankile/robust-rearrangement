@@ -19,12 +19,13 @@ python -m src.train.dagger \
     beta=0.9 \
     teacher_only_iters=2 \
     correct_student_action_only=false \
-    eval_interval=3 \
+    eval_interval=5 \
     num_envs=16 \
     num_epochs=100 \
     eval_first=false \
+    beta_min=0.1 \
     max_steps_per_epoch=10 \
-    checkpoint_interval=5 \
-    learning_rate_student=3e-4 \
+    checkpoint_interval=1 \
+    learning_rate_student=1e-4 \
     replay_buffer_size=10000000 \
     debug=false

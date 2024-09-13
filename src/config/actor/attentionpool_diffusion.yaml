@@ -1,0 +1,4 @@
+defaults:
+  - diffusion
+
+name: attentionpool_diffusion
