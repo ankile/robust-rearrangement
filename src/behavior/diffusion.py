@@ -89,7 +89,10 @@ class DiffusionPolicy(Actor):
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
-                model_output=noise_pred, timestep=k, sample=naction, eta=self.eta
+                model_output=noise_pred,
+                timestep=k,
+                sample=naction,
+                eta=self.eta,
             ).prev_sample
 
         # Store the remaining actions in the previous action to warm start the next horizon
