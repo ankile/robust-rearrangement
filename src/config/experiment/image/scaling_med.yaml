@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - image/base
+  - override /actor: diffusion
+  - override /actor/diffusion_model: unet
+  - override /rollout: rollout
+
+rollout:
+  num_envs: 128
+  every: 50
+  furniture: one_leg
+  randomness: med
+
+randomness: med
+furniture: one_leg
+
+wandb:
+  project: ol-vision-scaling-med-1

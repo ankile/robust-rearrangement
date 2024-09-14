@@ -14,3 +14,4 @@ class CollectEnum(Enum):
     UNDO = 9  # Undo last 10 actions.
     PAUSE = 10  # Pause data collection.
     CONTINUE = 11  # Continue data collection.
+    SUCCESS_RECORD = 12  # Successful trajectory is collected, should save last

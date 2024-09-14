@@ -1,7 +1,9 @@
-from typing import Tuple, Union
+import random
+from typing import Dict, Tuple, Union
 from collections import deque
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
+from src.models.utils import PrintParamCountMixin
 from src.models.vib import VIB
 from src.models.vision import VisionEncoder
 import torch
@@ -19,6 +21,7 @@ from pytorch3d.transforms import (
     matrix_to_rotation_6d,
     euler_angles_to_matrix,
 )
+import furniture_bench.controllers.control_utils as C
 
 
 # Update the PostInitCaller to be compatible
@@ -29,7 +32,7 @@ class PostInitCaller(type(torch.nn.Module)):
         return obj
 
 
-class Actor(torch.nn.Module, metaclass=PostInitCaller):
+class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     obs_horizon: int
     action_horizon: int
 
@@ -37,15 +40,21 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     feature_noise: bool = False
     feature_dropout: bool = False
     feature_layernorm: bool = False
-    state_noise: bool = False
+    state_noise: float = 0.0
     proprioception_dropout: float = 0.0
     front_camera_dropout: float = 0.0
     wrist_camera_dropout: float = 0.0
     vib_front_feature_beta: float = 0.0
     confusion_loss_beta: float = 0.0
+    confusion_loss_centroid_formulation: bool = False
+    rescale_loss_for_domain: bool = False
+    confusion_loss_anchored: bool = False
+    weight_confusion_loss_by_action: bool = False
 
     encoding_dim: int
-    augment_image: bool = True
+    augment_image: bool
+
+    model: nn.Module
 
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
@@ -56,58 +65,81 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
     encoder2: VisionEncoder
     encoder2_proj: nn.Module
 
-    camera_2_vib: VIB = None
+    camera_2_vib: VIB
 
     def __init__(
         self,
         device: Union[str, torch.device],
-        config: DictConfig,
+        cfg: DictConfig,
     ):
         super().__init__()
         self.normalizer = LinearNormalizer()
+        self.camera_2_vib = None
 
-        actor_cfg = config.actor
+        actor_cfg = cfg.actor
         self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = (
-            10 if config.control.act_rot_repr == RotationMode.rot_6d else 8
-        )
+        self.action_dim = 10 if cfg.control.act_rot_repr == RotationMode.rot_6d else 8
         self.pred_horizon = actor_cfg.pred_horizon
         self.action_horizon = actor_cfg.action_horizon
         self.predict_past_actions = actor_cfg.predict_past_actions
 
         # A queue of the next actions to be executed in the current horizon
+        self.observations = deque(maxlen=self.obs_horizon)
         self.actions = deque(maxlen=self.action_horizon)
 
-        self.observation_type = config.observation_type
+        self.observation_type = cfg.observation_type
+
+        # Define what parts of the robot state to use
+        self.include_proprioceptive_pos = actor_cfg.get(
+            "include_proprioceptive_pos", True
+        )
+        self.include_proprioceptive_ori = actor_cfg.get(
+            "include_proprioceptive_ori", True
+        )
 
         # Regularization
-        self.feature_noise = config.regularization.get("feature_noise", None)
-        self.feature_dropout = config.regularization.get("feature_dropout", None)
-        self.feature_layernorm = config.regularization.get("feature_layernorm", None)
-        self.state_noise = config.regularization.get("state_noise", False)
-        self.proprioception_dropout = config.regularization.get(
-            "proprioception_dropout", 0.0
-        )
-        self.front_camera_dropout = config.regularization.get(
-            "front_camera_dropout", 0.0
-        )
-
-        self.vib_front_feature_beta = config.regularization.get(
-            "vib_front_feature_beta", 0.0
-        )
+        self.augment_image = cfg.data.augment_image
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
+        self.action_type = cfg.control.control_mode
 
         # Convert the stats to tensors on the device
         if self.observation_type == "image":
-            self._initiate_image_encoder(config)
+            self._initiate_image_encoder(cfg)
+
+            self.feature_noise = cfg.regularization.get("feature_noise", None)
+            self.feature_dropout = cfg.regularization.get("feature_dropout", None)
+            self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
+            self.state_noise = cfg.regularization.get("state_noise", 0.0)
+            self.proprioception_dropout = cfg.regularization.get(
+                "proprioception_dropout", 0.0
+            )
+            self.front_camera_dropout = cfg.regularization.get(
+                "front_camera_dropout", 0.0
+            )
+
+            self.vib_front_feature_beta = cfg.regularization.get(
+                "vib_front_feature_beta", 0.0
+            )
+            self.rescale_loss_for_domain = actor_cfg.get(
+                "rescale_loss_for_domain", False
+            )
+            self.confusion_loss_anchored = actor_cfg.get(
+                "confusion_loss_anchored", False
+            )
+            self.weight_confusion_loss_by_action = actor_cfg.get(
+                "weight_confusion_loss_by_action", False
+            )
+
         elif self.observation_type == "state":
-            self.timestep_obs_dim = config.robot_state_dim + config.parts_poses_dim
+            self.robot_state_dim = cfg.robot_state_dim
+            self.parts_poses_dim = cfg.parts_poses_dim
+            self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
-        self.flatten_obs = config.actor.flatten_obs
+        self.flatten_obs = cfg.actor.flatten_obs
         self.obs_dim = (
             self.timestep_obs_dim * self.obs_horizon
             if self.flatten_obs
@@ -115,7 +147,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         )
 
         loss_fn_name = actor_cfg.loss_fn if hasattr(actor_cfg, "loss_fn") else "MSELoss"
-        self.loss_fn = getattr(nn, loss_fn_name)()
+        self.loss_fn = getattr(nn, loss_fn_name)(reduction="none")
 
     def __post_init__(self, *args, **kwargs):
 
@@ -136,6 +168,26 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         self.print_model_params()
 
+    def actor_parameters(self):
+        """
+        Return the parameters of the actor by filtering out the encoder parameters
+        """
+        return [
+            p
+            for n, p in self.named_parameters()
+            if not (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
+
+    def encoder_parameters(self):
+        """
+        Return the parameters of the encoder
+        """
+        return [
+            p
+            for n, p in self.named_parameters()
+            if (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
+
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
 
@@ -153,21 +205,13 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         # Load the rest of the state dict
         super().load_state_dict(state_dict)
 
-    def print_model_params(self: torch.nn.Module):
-        total_params = sum(p.numel() for p in self.parameters())
-        print(f"Total parameters: {total_params / 1_000_000:.2f}M")
-
-        for name, submodule in self.named_children():
-            params = sum(p.numel() for p in submodule.parameters())
-            print(f"{name}: {params / 1_000_000:.2f}M parameters")
-
-    def _initiate_image_encoder(self, config):
+    def _initiate_image_encoder(self, cfg):
         # === Encoder ===
-        encoder_kwargs = OmegaConf.to_container(config.vision_encoder, resolve=True)
+        encoder_kwargs = OmegaConf.to_container(cfg.vision_encoder, resolve=True)
         device = self.device
-        actor_cfg = config.actor
-        encoder_name = config.vision_encoder.model
-        self.freeze_encoder = config.vision_encoder.freeze
+        actor_cfg = cfg.actor
+        encoder_name = cfg.vision_encoder.model
+        self.freeze_encoder = cfg.vision_encoder.freeze
 
         self.encoder1 = get_encoder(
             encoder_name,
@@ -197,7 +241,7 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             self.encoder1_proj = nn.Identity()
             self.encoder2_proj = nn.Identity()
 
-        self.timestep_obs_dim = config.robot_state_dim + 2 * self.encoding_dim
+        self.timestep_obs_dim = cfg.robot_state_dim + 2 * self.encoding_dim
 
     # === Inference Observations ===
     def _normalized_obs(self, obs: deque, flatten: bool = True):
@@ -212,6 +256,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         # Convert the robot_state to use rot_6d instead of quaternion
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        robot_state[..., :3] *= int(self.include_proprioceptive_pos)
+        robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -232,17 +278,12 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             ).reshape(B * self.obs_horizon, *img_size)
 
             # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
-            # TODO: Remove this changing back and forth of channels first and last
             image1 = image1.permute(0, 3, 1, 2)
             image2 = image2.permute(0, 3, 1, 2)
 
             # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
             image1: torch.Tensor = self.camera1_transform(image1)
             image2: torch.Tensor = self.camera2_transform(image2)
-
-            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
-            image1 = image1.permute(0, 2, 3, 1)
-            image2 = image2.permute(0, 2, 3, 1)
 
             # Encode the images and reshape back to (B, obs_horizon, -1)
             feature1: torch.Tensor = self.encoder1_proj(self.encoder1(image1)).reshape(
@@ -272,6 +313,10 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
             # Concatenate the robot_state and parts_poses
             nobs = torch.cat([nrobot_state, nparts_poses], dim=-1)
+
+            # Clamp the observation to be bounded to [-3, 3]
+            nobs = torch.clamp(nobs, -3, 3)
+
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
@@ -298,6 +343,31 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         # unnormalize action
         # (B, pred_horizon, action_dim)
         action_pred = self.normalizer(naction, "action", forward=False)
+        B = action_pred.shape[0]
+
+        # These actions may be `pos`, `delta`, or `relative`, if relative, we make them absolute
+        if self.action_type == "relative":
+            # Need the current EE position in the robot frame unnormalized
+            curr_pose = self.normalizer(
+                nobs.view(B, self.obs_horizon, -1)[:, -1, :16],
+                "robot_state",
+                forward=False,
+            )[:, :9]
+            curr_pos = curr_pose[:, :3]
+            curr_ori_6d = curr_pose[:, 3:9]
+            action_pred[:, :, :3] += curr_pos[:, None, :]
+
+            # Each action in the chunk will be relative to the current EE pose
+            curr_ori_quat = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
+
+            # Calculate the relative rot action
+            action_quat = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
+
+            # Apply the relative quat on top of the current quat to get the absolute quat
+            action_quat = C.quaternion_multiply(curr_ori_quat[:, None], action_quat)
+
+            # Convert the absolute quat to 6D rotation
+            action_pred[:, :, 3:9] = C.quaternion_to_rotation_6d(action_quat)
 
         # Add the actions to the queue
         # only take action_horizon number of actions
@@ -310,20 +380,23 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         return actions
 
     @torch.no_grad()
-    def normalized_action_chunk(self, obs: deque):
+    def action_pred(self, batch):
+        """
+        Predict the action given the batch of observations
+        """
         # Normalize observations
-        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
+        nobs = self._training_obs(batch, flatten=self.flatten_obs)
 
+        # Predict the action
         naction = self._normalized_action(nobs)
 
-        # unnormalize action
-        # (B, pred_horizon, action_dim)
-        action_pred = self.normalizer(naction, "action", forward=False)
+        # Unnormalize the action
+        action = self.normalizer(naction, "action", forward=False)
 
-        return action_pred
+        return action
 
     @torch.no_grad()
-    def action(self, obs: deque):
+    def action(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Given a deque of observations, predict the action
 
@@ -332,8 +405,13 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         This function must account for if we predict the past actions or not
         """
 
+        # Append the new observation to the queue and ensure we fill it up to the horizon
+        self.observations.append(obs)
+        while len(self.observations) < self.obs_horizon:
+            self.observations.append(obs)
+
         # Normalize observations
-        nobs = self._normalized_obs(obs, flatten=self.flatten_obs)
+        nobs = self._normalized_obs(self.observations, flatten=self.flatten_obs)
 
         # If the queue is empty, fill it with the predicted actions
         if not self.actions:
@@ -342,7 +420,8 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
         # Return the first action in the queue
         return self.actions.popleft()
 
-    def action_normalized(self, obs: deque):
+    # @torch.compile
+    def action_normalized(self, obs: Dict[str, torch.Tensor]):
         action = self.action(obs)
         return self.normalizer(action, "action", forward=True)
 
@@ -399,30 +478,24 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             image1: torch.Tensor = batch["color_image1"]
             image2: torch.Tensor = batch["color_image2"]
 
-            # TODO: Remove this changing back and forth of channels first and last
-            # Reshape the images to (B * obs_horizon, H, W, C) for the encoder
+            # Images now have the channels first
+            assert image1.shape[-3:] == (3, 240, 320)
+
+            # Reshape the images to (B * obs_horizon, C, H, W) for the encoder
             image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])
             image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
 
-            # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
-            image1 = image1.permute(0, 3, 1, 2)
-            image2 = image2.permute(0, 3, 1, 2)
-
             # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
-            # Since we're in training mode, the tranform also performs augmentation
+            # Since we're in training mode, the transform also performs augmentation
             image1: torch.Tensor = self.camera1_transform(image1)
             image2: torch.Tensor = self.camera2_transform(image2)
 
-            # Place the channel back to the end (B * obs_horizon, C, 224, 224) -> (B * obs_horizon, 224, 224, C)
-            image1 = image1.permute(0, 2, 3, 1)
-            image2 = image2.permute(0, 2, 3, 1)
-
             # Encode images and reshape back to (B, obs_horizon, encoding_dim)
             feature1 = self.encoder1_proj(self.encoder1(image1)).reshape(
-                B, self.obs_horizon, -1
+                B, self.obs_horizon, self.encoding_dim
             )
             feature2 = self.encoder2_proj(self.encoder2(image2)).reshape(
-                B, self.obs_horizon, -1
+                B, self.obs_horizon, self.encoding_dim
             )
 
             # Apply the regularization to the features
@@ -449,14 +522,21 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         elif self.observation_type == "state":
             # Parts poses are already normalized in the dataset
-            nobs = batch["obs"]
+            nobs = batch["obs"][:, : self.obs_horizon]
 
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
+        # Take out the parts of the robot_state that we don't want
+        nobs[..., :3] *= int(self.include_proprioceptive_pos)
+        nobs[..., 3:9] *= int(self.include_proprioceptive_ori)
+
         if flatten:
             # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
             nobs = nobs.flatten(start_dim=1)
+
+        # Add a little bit of noise to the observations
+        nobs = nobs + torch.randn_like(nobs) * self.state_noise
 
         return nobs
 
@@ -494,44 +574,94 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
 
         return feature1, feature2
 
-    def compute_loss(self, batch):
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, dict]:
         raise NotImplementedError
 
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.compute_loss(batch)
+
     def confusion_loss(self, batch, feature1, feature2):
-        domain_idx = batch["domain"]
+        domain_idx: torch.Tensor = batch["domain"]
 
         # Split the embeddings into the two domains (sim/real)
         sim_emb1 = feature1[domain_idx == 0]  # N1 x 128
         real_emb1 = feature1[domain_idx == 1]  # N2 x 128
 
-        real_emb1_expanded = real_emb1.unsqueeze(1)
-        sim_emb1_expanded = sim_emb1.unsqueeze(0)
-
-        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
-        differences1 = torch.norm((real_emb1_expanded - sim_emb1_expanded), dim=-1)
-
-        # Split the embeddings into the two domains (sim/real)
         sim_emb2 = feature2[domain_idx == 0]
         real_emb2 = feature2[domain_idx == 1]
 
-        real_emb2_expanded = real_emb2.unsqueeze(1)
-        sim_emb2_expanded = sim_emb2.unsqueeze(0)
+        # Concatenate the embeddings along a new dimension
+        sim_emb = torch.stack((sim_emb1, sim_emb2), dim=1)  # N1 x 2 x 128
+        real_emb = torch.stack((real_emb1, real_emb2), dim=1)  # N2 x 2 x 128
 
-        # Subtract using broadcasting, resulting shape is [N1, N2, 128]
-        differences2 = torch.norm((real_emb2_expanded - sim_emb2_expanded), dim=-1)
+        if self.confusion_loss_centroid_formulation:
+            # Find the centroids of the embeddings
+            sim_centroid = sim_emb.mean(dim=0)
+            real_centroid = real_emb.mean(dim=0)
 
-        # Sum along all dimensions except the last to compute the accumulated loss
-        # Final shape after sum will be [128], so another sum over the last dimension is needed
-        loss = differences1.mean(dim=(0, 1)) + differences2.mean(dim=(0, 1))
+            # Compute the confusion loss using the centroids
+            loss = torch.norm((real_centroid - sim_centroid), dim=-1).mean()
+
+        else:
+            # Randomly select the anchor domain (0 for sim, 1 for real)
+            if self.confusion_loss_anchored:
+                anchor_domain = random.randint(0, 1)
+                if anchor_domain == 0:
+                    # Use sim embeddings as the anchor
+                    sim_emb = sim_emb.detach()
+                else:
+                    # Use real embeddings as the anchor
+                    real_emb = real_emb.detach()
+
+            sim_emb_expanded = sim_emb.unsqueeze(1)  # N1 x 1 x 2 x 128
+            real_emb_expanded = real_emb.unsqueeze(0)  # 1 x N2 x 2 x 128
+
+            # Compute the differences using broadcasting, N1 x N2 x 2
+            differences = torch.norm((real_emb_expanded - sim_emb_expanded), dim=-1)
+
+            if self.weight_confusion_loss_by_action:
+
+                actions = batch["action"]  # Shape: (B, T, D)
+                domain_idx = domain_idx.squeeze()  # Shape: (B,)
+
+                # Split the actions into the two domains (sim/real)
+                sim_actions = actions[domain_idx == 0]  # N1 x T x D
+                real_actions = actions[domain_idx == 1]  # N2 x T x D
+
+                # Compute the pairwise distances between actions
+                sim_actions_expanded = sim_actions.unsqueeze(1)  # N1 x 1 x T x D
+                real_actions_expanded = real_actions.unsqueeze(0)  # 1 x N2 x T x D
+
+                # N1 x N2 x T
+                action_distances = torch.norm(
+                    (real_actions_expanded - sim_actions_expanded), dim=-1
+                )
+
+                # Compute the weights based on action distances
+                weights = torch.exp(-action_distances)  # N1 x N2 x T
+                weights = weights.mean(dim=-1)  # N1 x N2
+
+                # Weight the differences using the computed weights
+                differences = differences * weights.unsqueeze(-1)  # N1 x N2 x 2
+
+            # Sum along all dimensions except the last to compute the accumulated loss
+            loss = differences.mean(dim=(0, 1, 2))
 
         return loss
 
+    def reset(self):
+        """
+        Reset the actor
+        """
+        self.actions.clear()
+        self.observations.clear()
+
     # === Mode Toggle ===
-    def train_mode(self):
+    def train(self, mode=True):
         """
         Set models to train mode
         """
-        self.train()
+        super().train()
         if self.augment_image:
             self.camera1_transform.train()
             self.camera2_transform.train()
@@ -539,13 +669,17 @@ class Actor(torch.nn.Module, metaclass=PostInitCaller):
             self.camera1_transform.eval()
             self.camera2_transform.eval()
 
-    def eval_mode(self):
+    def eval(self):
         """
         Set models to eval mode
         """
-        self.eval()
+        super().train(mode=False)
         self.camera1_transform.eval()
         self.camera2_transform.eval()
+
+        # Verify we are in eval mode
+        for module in self.modules():
+            assert not module.training
 
     def set_task(self, task):
         """

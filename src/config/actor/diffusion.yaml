@@ -1,9 +1,15 @@
+# Extend the base_actor config
+defaults:
+  - base_actor
+  - diffusion_model: unet
+
 name: diffusion
 
 action_horizon: ${action_horizon}
 pred_horizon: ${pred_horizon}
 obs_horizon: ${obs_horizon}
 predict_past_actions: ${predict_past_actions}
+
 # Set the flatten obs variable to whatever value is in the diffusion_model sub-config
 flatten_obs: ${actor.diffusion_model.flatten_obs}
 
@@ -15,8 +21,9 @@ clip_sample: true
 
 loss_fn: MSELoss  # MSELoss | L1Loss
 confusion_loss_beta: 0.0
+confusion_loss_centroid_formulation: false
+rescale_loss_for_domain: false
+confusion_loss_anchored: false
+weight_confusion_loss_by_action: false
 
 projection_dim: 128
-
-defaults:
-  - diffusion_model: unet

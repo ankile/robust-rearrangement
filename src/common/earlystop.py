@@ -1,6 +1,7 @@
 class EarlyStopper:
-    def __init__(self, patience=5, smooth_factor=0.9):
-        self.patience = patience
+    def __init__(self, patience: float = 5, smooth_factor=0.9):
+        assert patience == "inf" or patience > 0, "Patience must be a positive number."
+        self.patience = float(patience)
         self.smooth_factor = smooth_factor
         self.counter = 0
         self.best_loss = None

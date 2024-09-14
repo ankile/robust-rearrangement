@@ -50,14 +50,16 @@ def save_raw_rollout(
         pos_action_quat = R.from_quat(actions[:, 3:7])
 
         # Get the position quat from the robot state
-        pos_quat = R.from_quat(robot_states[:-1, 3:7])
+        pos_quat = R.from_quat([rs["ee_quat"] for rs in robot_states[:-1]])
 
         # The action quat was calculated as pos_quat * action_quat
         # Calculate the delta quat between the pos_quat and the action_quat
         delta_action_quat = pos_quat.inv() * pos_action_quat
 
         # Also calculate the delta position
-        delta_action_pos = actions[:, :3] - robot_states[:-1, :3]
+        delta_action_pos = actions[:, :3] - np.array(
+            [rs["ee_pos"] for rs in robot_states[:-1]]
+        )
 
         # Insert the delta quat into the actions
         actions = np.concatenate(
@@ -75,7 +77,7 @@ def save_raw_rollout(
 
     output_path = rollout_save_dir / ("success" if success else "failure")
     output_path.mkdir(parents=True, exist_ok=True)
-    output_path = output_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.pkl"
+    output_path = output_path / f"{datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')}.pkl"
 
     if compress_pickles:
         output_path = output_path.with_suffix(".pkl.xz")

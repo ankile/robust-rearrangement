@@ -1,11 +1,15 @@
 from pathlib import Path
 import furniture_bench  # noqa: F401
-from furniture_bench.envs.observation import DEFAULT_VISUAL_OBS, DEFAULT_STATE_OBS
+from furniture_bench.envs.observation import (
+    DEFAULT_VISUAL_OBS,
+    DEFAULT_STATE_OBS,
+    FULL_OBS,
+)
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
-import gym
-
 from src.common.context import suppress_all_output
+
+from ipdb import set_trace as bp
 
 
 def turn_off_april_tags():
@@ -74,7 +78,7 @@ def get_env(
     return env
 
 
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 
 def get_rl_env(
@@ -91,6 +95,7 @@ def get_rl_env(
     april_tags=False,
     verbose=False,
     headless=True,
+    record=False,
     **kwargs,
 ) -> FurnitureRLSimEnv:
     if not april_tags:
@@ -100,19 +105,25 @@ def get_rl_env(
             Path(__file__).parent.parent.absolute() / "assets"
         )
 
-    if observation_space == "image":
-        obs_keys = DEFAULT_VISUAL_OBS + ["parts_poses"]
-    elif observation_space == "state":
-        obs_keys = DEFAULT_STATE_OBS
-    else:
-        raise ValueError("Invalid observation space")
+    # To ensure we can replay the rollouts, we need to (1) include all robot states in the observation space
+    # and (2) ensure that the robot state is stored as a dict for compatibility with the teleop data
+    obs_keys = FULL_OBS
+    if observation_space == "state":
+        # Filter out keys with `image` in them
+        obs_keys = [key for key in obs_keys if "image" not in key]
+
+    if action_type == "relative":
+        print(
+            "[INFO] Using relative actions. This keeps the environment using position actions."
+        )
+    action_type = "pos" if action_type == "relative" else action_type
 
     with suppress_all_output(not verbose):
         env = FurnitureRLSimEnv(
             furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
-            concat_robot_state=True,  # If true, robot state is concatenated to the observation.
+            concat_robot_state=False,  # If true, robot state is concatenated to the observation.
             headless=headless,  # If true, simulation runs without GUI.
             obs_keys=obs_keys,
             compute_device_id=gpu_id,
@@ -123,7 +134,7 @@ def get_rl_env(
             randomness=randomness,  # Level of randomness in the environment [low | med | high].
             high_random_idx=-1,  # Index of the high randomness level (range: [0-2]). Default -1 will randomly select the index within the range.
             save_camera_input=False,  # If true, the initial camera inputs are saved.
-            record=False,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
+            record=record,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
             ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.

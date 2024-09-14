@@ -51,7 +51,15 @@ def annotate_frames_with_speed(frames: np.ndarray, fps: int) -> np.ndarray:
     return frames
 
 
-def create_mp4_jupyter(np_images, filename, fps=10):
+def create_mp4_jupyter(
+    np_images,
+    filename,
+    fps=10,
+    speed_annotation=False,
+):
+    if speed_annotation:
+        np_images = annotate_frames_with_speed(np_images, fps)
+
     with imageio.get_writer(filename, fps=fps) as writer:
         for img in np_images:
             writer.append_data(img)
@@ -67,8 +75,9 @@ def mp4_from_pickle_jupyter(
     filename=None,
     fps=10,
     speed_annotation=False,
+    cameras=[1, 2],
 ):
-    ims = extract_numpy_frames(pickle_path)
+    ims = extract_numpy_frames(pickle_path, cameras)
 
     if speed_annotation:
         ims = annotate_frames_with_speed(ims, fps)
@@ -94,17 +103,26 @@ def mp4_from_pickle(pickle_path, filename=None):
     create_mp4(ims, filename)
 
 
-def extract_numpy_frames(pickle_path: Union[str, Path]) -> np.ndarray:
+def extract_numpy_frames(pickle_path: Union[str, Path], cameras=[1, 2]) -> np.ndarray:
     data = unpickle_data(pickle_path)
-    ims = data_to_video(data)
+    ims = data_to_video(data, cameras)
 
     return ims
 
 
-def data_to_video(data: dict) -> np.ndarray:
-    ims1 = np.array([o["color_image1"] for o in data["observations"]])
-    ims2 = np.array([o["color_image2"] for o in data["observations"]])
-    ims = np.concatenate([ims1, ims2], axis=2)
+def data_to_video(data: dict, cameras=[1, 2]) -> np.ndarray:
+    # Old code
+    # ims1 = np.array([o["color_image1"] for o in data["observations"]])
+    # ims2 = np.array([o["color_image2"] for o in data["observations"]])
+    # ims = np.concatenate([ims1, ims2], axis=2)
+
+    ims = []
+
+    for camera in cameras:
+        ims.append(np.array([o[f"color_image{camera}"] for o in data["observations"]]))
+
+    ims = np.concatenate(ims, axis=2)
+
     return ims
 
 

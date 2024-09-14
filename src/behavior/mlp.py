@@ -1,3 +1,5 @@
+from omegaconf import DictConfig
+from src.models.residual import build_mlp
 import torch
 import torch.nn as nn
 from typing import Tuple, Union
@@ -17,10 +19,10 @@ class MLPActor(Actor):
     def __init__(
         self,
         device: Union[str, torch.device],
-        config,
+        cfg: DictConfig,
     ) -> None:
-        super().__init__(device, config)
-        actor_cfg = config.actor
+        super().__init__(device, cfg)
+        actor_cfg = cfg.actor
 
         # MLP specific parameters
         self.model = MLP(
@@ -30,6 +32,35 @@ class MLPActor(Actor):
             dropout=actor_cfg.dropout,
             residual=actor_cfg.residual,
         ).to(device)
+
+        if "critic" in actor_cfg:
+            self.critic = build_mlp(
+                input_dim=self.obs_dim,
+                hidden_sizes=[actor_cfg.critic.hidden_size]
+                * actor_cfg.critic.num_layers,
+                output_dim=1,
+                activation=actor_cfg.critic.activation,
+                output_std=actor_cfg.critic.last_layer_std,
+                bias_on_last_layer=True,
+                last_layer_bias_const=actor_cfg.critic.last_layer_bias_const,
+            )
+
+            if actor_cfg.critic.last_layer_activation is not None:
+                self.critic.add_module(
+                    "output_activation",
+                    getattr(nn, actor_cfg.critic.last_layer_activation)(),
+                )
+
+                print(self.critic)
+
+            self.actor_mean = nn.Sequential(
+                self.model,
+                nn.Unflatten(1, (self.pred_horizon, self.action_dim)),
+            )
+
+            self.actor_logstd = nn.Parameter(
+                torch.ones(1, 1, self.action_dim) * actor_cfg.init_logstd
+            )
 
     # === Inference ===
     def _normalized_action(self, nobs: torch.Tensor) -> torch.Tensor:
@@ -54,9 +85,53 @@ class MLPActor(Actor):
             naction.shape[0], self.pred_horizon, self.action_dim
         )
 
-        loss = self.loss_fn(naction_pred, naction)
+        # The loss function does not have reduction on by default, need to take the mean
+        loss = self.loss_fn(naction_pred, naction).mean()
 
-        return loss
+        losses = {"bc_loss": loss.item()}
+
+        return loss, losses
+
+    def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
+        return self.critic(nobs)
+
+    def get_action_and_value(self, nobs: torch.Tensor, action=None):
+        action_mean: torch.Tensor = self.actor_mean(nobs)
+
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+
+        if action is None:
+            action = probs.rsample()
+
+        return (
+            action,
+            probs.log_prob(action).sum(dim=(1, 2)),
+            probs.entropy().sum(dim=(1, 2)),
+            self.critic(nobs),
+        )
+
+    def load_bc_weights(self, bc_weights_path):
+        wts = torch.load(bc_weights_path)["model_state_dict"]
+
+        # Filter out keys not starting with "model"
+        model_wts = {k: v for k, v in wts.items() if k.startswith("model")}
+
+        # Change the "model"
+        model_wts = {k.replace("model.", ""): v for k, v in model_wts.items()}
+
+        print(self.model.load_state_dict(model_wts, strict=True))
+
+        # Extract the normalizer state dict from the overall state dict
+        normalizer_state_dict = {
+            key[len("normalizer.") :]: value
+            for key, value in wts.items()
+            if key.startswith("normalizer.")
+        }
+
+        # Load the normalizer state dict
+        print(self.normalizer.load_state_dict(normalizer_state_dict))
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -105,7 +180,7 @@ class SmallMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,
@@ -219,7 +294,7 @@ class ResidualMLPAgent(nn.Module):
         probs = Normal(action_mean, action_std)
 
         if action is None:
-            action = probs.sample()
+            action = probs.rsample()
 
         return (
             action,

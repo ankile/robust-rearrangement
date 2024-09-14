@@ -6,7 +6,7 @@ data:
   obs_horizon: ${obs_horizon}
   action_horizon: ${action_horizon}
   predict_past_actions: ${predict_past_actions}
-  augment_image: false
+  augment_image: true
   environment: ${environment}
   furniture: ${furniture}
   demo_source: ${demo_source}
@@ -15,3 +15,8 @@ data:
   demo_outcome: ${demo_outcome}
   pad_after: true
   suffix: null
+  include_future_obs: false
+  minority_class_power: false
+  data_paths_override: null
+  load_into_memory: true
+  parts_poses_in_robot_frame: ${parts_poses_in_robot_frame}

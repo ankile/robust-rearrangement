@@ -5,10 +5,16 @@ import furniture_bench
 from furniture_bench.device import make_device
 from furniture_bench.config import config
 
+from pathlib import Path
+
 from src.data_collection.data_collector_sm import DataCollectorSpaceMouse
 from src.data_collection.keyboard_interface import KeyboardInterface
+from furniture_bench.envs.initialization_mode import Randomness
+
 from src.common.files import trajectory_save_dir
 from src.gym import turn_off_april_tags
+
+from ipdb import set_trace as bp
 
 
 def main():
@@ -51,6 +57,10 @@ def main():
         help="Directory to resume trajectories from",
         default=None,
     )
+    parser.add_argument(
+        "--sample-perturbations",
+        action="store_true",
+    )
 
     args = parser.parse_args()
 
@@ -60,15 +70,16 @@ def main():
     keyboard_device_interface = KeyboardInterface()
     keyboard_device_interface.print_usage()
 
-    data_path = trajectory_save_dir(
+    # Ensure valid randomness
+    randomness = Randomness.str_to_enum(args.randomness)
+
+    data_path: Path = trajectory_save_dir(
         controller=args.ctrl_mode,
         domain="sim",
         task=args.furniture,
         demo_source="teleop",
-        randomness=args.randomness,
+        randomness=args.randomness + ("_perturb" if args.sample_perturbations else ""),
     )
-
-    from pathlib import Path
 
     if args.resume_dir is not None:
         pickle_paths = list(Path(args.resume_dir).rglob("*.pkl*"))
@@ -79,16 +90,12 @@ def main():
         pickle_paths = None
 
     data_collector = DataCollectorSpaceMouse(
-        is_sim=True,
         data_path=data_path,
         device_interface=keyboard_device_interface,
         furniture=args.furniture,
-        headless=False,
         draw_marker=args.draw_marker,
-        manual_label=True,
         resize_sim_img=False,
-        scripted=False,
-        randomness=args.randomness,
+        randomness=randomness,
         compute_device_id=args.gpu_id,
         graphics_device_id=args.gpu_id,
         save_failure=args.save_failure,
@@ -97,6 +104,7 @@ def main():
         ee_laser=args.ee_laser,
         compress_pickles=False,
         resume_trajectory_paths=pickle_paths,
+        sample_perturbations=args.sample_perturbations,
     )
     data_collector.collect()
 

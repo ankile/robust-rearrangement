@@ -13,6 +13,12 @@ from src.common.types import (
     DemoStatus,
 )
 
+SCAN_ASSET_ROOT = Path(__file__).parent.parent.absolute() / "real2sim/assets"
+SCAN_ASSET_FB_ROOT = (
+    Path(__file__).parent.parent.parent.absolute()
+    / "furniture-bench/furniture_bench/assets_no_tags"
+)
+
 
 def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
     if parts is None:
@@ -55,7 +61,8 @@ def get_processed_path(
     path = add_subdir(path, demo_outcome)
 
     # We can mix suffixes
-    path = add_subdir(path, suffix)
+    if suffix is not None:
+        path = add_subdir(path, suffix)
 
     # Set the file extension
     path = path.with_suffix(".zarr")
@@ -119,6 +126,15 @@ def get_processed_paths(
     return paths
 
 
+def path_override(
+    paths: List[Path],
+) -> List[Path]:
+
+    root = Path(os.environ["DATA_DIR_PROCESSED"]) / "processed"
+    paths = [root / path for path in paths]
+    return paths
+
+
 def add_glob_part(paths, part) -> List[Path]:
     if part is None:
         if paths[0].parts[-1] == "**":
@@ -127,7 +143,13 @@ def add_glob_part(paths, part) -> List[Path]:
     elif isinstance(part, str):
         return [path / part for path in paths]
     elif isinstance(part, list):
-        return [path / p for path in paths for p in part]
+        # Recursively add each part
+        ret = []
+
+        for p in part:
+            ret.extend(add_glob_part(paths, p))
+
+        return ret
     else:
         raise ValueError(f"Invalid part: {part}")
 
@@ -167,15 +189,16 @@ def get_raw_paths(
     # Add the randomness pattern to all paths
     paths = add_glob_part(paths, randomness)
 
+    # Add the suffix pattern to all paths
+    if suffix is not None:
+        paths = add_glob_part(paths, suffix)
+
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)
 
     # Add ** if we are not using an explicit demo outcome
     if demo_outcome is None and paths[0].parts[-1] != "**":
         paths = add_glob_part(paths, "**")
-
-    # Add the suffix pattern to all paths
-    paths = add_glob_part(paths, suffix)
 
     # Add the extension pattern to all paths
     paths = [path / "*.pkl*" for path in paths]
@@ -196,9 +219,11 @@ def trajectory_save_dir(
     task: TaskName,
     demo_source: DemoSources,
     randomness: Randomness,
+    perturb: bool = False,
     create: bool = True,
     suffix: str = "",
 ) -> Path:
+
     # Make the path to the directory
     path = (
         Path(os.environ["DATA_DIR_RAW"])

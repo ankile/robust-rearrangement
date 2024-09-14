@@ -1,14 +1,16 @@
 regularization:
   feature_layernorm: false
-  feature_noise: false
+  weight_decay: 1e-6
+
+  feature_noise: 0.0
   feature_dropout: 0.0
   proprioception_dropout: 0.0
   front_camera_dropout: 0.0
   wrist_camera_dropout: 0.0
-  weight_decay: 1e-6
   vib_front_feature_beta: 0.0
 
-  # Ke et al., “Grasping with Chopsticks.”
-  # Right now we use two different but fixed \sigma of 1 cm and 0.1 rad.
-  state_noise: False
+  image_augmention:
+    random_erase: false
+
+  state_noise: 0.0
   

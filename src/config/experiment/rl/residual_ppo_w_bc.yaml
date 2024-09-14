@@ -1,0 +1,39 @@
+# @package _global_
+actor:
+  residual_policy:
+    pretrained_wts: null
+
+base_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
+
+base_bc:
+  train_bc: true
+  train_with_bc_every: 1
+  learning_rate: 5e-5
+  clip_grad_norm: true
+  replay_buffer_size: 1000000
+  batch_size: 1024
+  num_epochs: 1
+  cycle_bc_loader: true
+  max_updates_per_epoch: 100
+  improvement_threshold: 0.0 # E.g., 0.1 for 10% improvement
+
+  # ema:
+  #   use: false
+  #   decay: 0.999
+  #   switch: false
+
+env:
+  randomness: low
+
+normalize_reward: false
+residual_l2: 0.0
+
+wandb:
+  entity: robust-assembly
+  project: ol-rppo-dr-${env.randomness}-1
+  # project: tmp-bc-in-the-loop-rl-test
+  mode: online
+
+debug: false

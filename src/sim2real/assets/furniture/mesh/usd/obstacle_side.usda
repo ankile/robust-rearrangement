@@ -1,0 +1,128 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (0, 0, 500)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (0.06333264886017462, 0.063332766689688, 0.06333264886017581)
+                double3 target = (-3.978038368157577e-8, 7.956076886195262e-8, -3.978038248808602e-8)
+            }
+            dictionary Right = {
+                double3 position = (-500, 0, 0)
+                double radius = 5
+            }
+            dictionary Top = {
+                double3 position = (0, 500, 0)
+                double radius = 5
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./square_table_leg1.usd"
+            dictionary muteness = {
+            }
+        }
+        dictionary renderSettings = {
+            float3 "rtx:debugView:pixelDebug:textColor" = (0, 1e18, 0)
+            float3 "rtx:fog:fogColor" = (0.75, 0.75, 0.75)
+            float3 "rtx:post:backgroundZeroAlpha:backgroundDefaultColor" = (0, 0, 0)
+            float3 "rtx:post:colorcorr:contrast" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:gain" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:gamma" = (1, 1, 1)
+            float3 "rtx:post:colorcorr:offset" = (0, 0, 0)
+            float3 "rtx:post:colorcorr:saturation" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:blackpoint" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:contrast" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:gain" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:gamma" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:lift" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:multiply" = (1, 1, 1)
+            float3 "rtx:post:colorgrad:offset" = (0, 0, 0)
+            float3 "rtx:post:colorgrad:whitepoint" = (1, 1, 1)
+            float3 "rtx:post:lensDistortion:lensFocalLengthArray" = (10, 30, 50)
+            float3 "rtx:post:lensFlares:anisoFlareFalloffX" = (450, 475, 500)
+            float3 "rtx:post:lensFlares:anisoFlareFalloffY" = (10, 10, 10)
+            float3 "rtx:post:lensFlares:cutoffPoint" = (2, 2, 2)
+            float3 "rtx:post:lensFlares:haloFlareFalloff" = (10, 10, 10)
+            float3 "rtx:post:lensFlares:haloFlareRadius" = (75, 75, 75)
+            float3 "rtx:post:lensFlares:isotropicFlareFalloff" = (50, 50, 50)
+            float3 "rtx:post:tonemap:whitepoint" = (1, 1, 1)
+            float3 "rtx:raytracing:inscattering:singleScatteringAlbedo" = (0.9, 0.9, 0.9)
+            float3 "rtx:raytracing:inscattering:transmittanceColor" = (0.5, 0.5, 0.5)
+            float3 "rtx:sceneDb:ambientLightColor" = (0.1, 0.1, 0.1)
+        }
+    }
+    defaultPrim = "World"
+    metersPerUnit = 0.01
+    upAxis = "Y"
+)
+
+def Xform "World"
+{
+    quatf xformOp:orient = (1, 0, 0, 0)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+    def Scope "Looks"
+    {
+        def Material "OmniPBR_ClearCoat"
+        {
+            token outputs:mdl:displacement.connect = </World/Looks/OmniPBR_ClearCoat/Shader.outputs:out>
+            token outputs:mdl:surface.connect = </World/Looks/OmniPBR_ClearCoat/Shader.outputs:out>
+            token outputs:mdl:volume.connect = </World/Looks/OmniPBR_ClearCoat/Shader.outputs:out>
+
+            def Shader "Shader"
+            {
+                reorder properties = ["inputs:detail_bump_factor", "inputs:diffuse_color_constant", "inputs:enable_clearcoat", "inputs:clearcoat_weight", "inputs:clearcoat_tint", "inputs:clearcoat_transparency", "inputs:clearcoat_reflection_roughness", "inputs:clearcoat_ior", "inputs:clearcoat_bump_factor", "inputs:clearcoat_normalmap_texture", "inputs:clearcoat_flatten", "inputs:bump_factor", "inputs:normalmap_texture", "inputs:opacity_threshold", "inputs:detail_normalmap_texture", "inputs:flip_tangent_u", "inputs:flip_tangent_v", "inputs:project_uvw", "inputs:world_or_object", "inputs:uv_space_index", "inputs:texture_translate", "inputs:texture_rotate", "inputs:texture_scale", "inputs:detail_texture_translate", "inputs:detail_texture_rotate", "inputs:detail_texture_scale", "inputs:ao_to_diffuse", "inputs:diffuse_texture", "inputs:albedo_desaturation", "inputs:albedo_add", "inputs:albedo_brightness", "inputs:diffuse_tint", "inputs:reflection_roughness_constant", "inputs:reflection_roughness_texture_influence", "inputs:reflectionroughness_texture", "inputs:metallic_constant", "inputs:metallic_texture_influence", "inputs:metallic_texture", "inputs:specular_level", "inputs:enable_ORM_texture", "inputs:ORM_texture", "inputs:opacity_mode", "inputs:ao_texture", "inputs:enable_emission", "inputs:emissive_color", "inputs:emissive_color_texture", "inputs:emissive_mask_texture", "inputs:emissive_intensity", "inputs:enable_opacity", "inputs:opacity_texture", "inputs:opacity_constant", "inputs:enable_opacity_texture", "inputs:clearcoat_texture_translate", "inputs:clearcoat_texture_rotate", "inputs:clearcoat_texture_scale"]
+                uniform token info:implementationSource = "sourceAsset"
+                uniform asset info:mdl:sourceAsset = @OmniPBR_ClearCoat.mdl@
+                uniform token info:mdl:sourceAsset:subIdentifier = "OmniPBR_ClearCoat"
+                # color3f inputs:diffuse_color_constant = (0.4, 0.4, 0.4) (
+                # color3f inputs:diffuse_color_constant = (1.0, 1.0, 1.0) (
+                color3f inputs:diffuse_color_constant = (0.984, 0.890, 0.843) (
+                    customData = {
+                        float3 default = (0.2, 0.2, 0.2)
+                    }
+                    displayGroup = "Albedo"
+                    displayName = "Albedo Color"
+                    doc = "This is the albedo base color"
+                    hidden = false
+                )
+                token outputs:out (
+                    renderType = "material"
+                )
+            }
+        }
+    }
+
+    def Xform "obstacle_side"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def Mesh "Cube_002"
+        {
+            float3[] extent = [(-0.01, -0.085, -0.015), (0.01, 0.085, 0.015)]
+            int[] faceVertexCounts = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+            int[] faceVertexIndices = [0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4, 4, 5, 6, 5, 7, 6, 6, 7, 0, 7, 1, 0, 2, 4, 0, 4, 6, 0, 5, 3, 7, 3, 1, 7]
+            rel material:binding = </World/Looks/OmniPBR_ClearCoat> (
+                bindMaterialAs = "weakerThanDescendants"
+            )
+            normal3f[] normals = [(-0, -1, -0), (-0, -1, -0), (-0, -1, -0), (-0, -1, -0), (-0, -1, -0), (-0, -1, -0), (-1, -0, -0), (-1, -0, -0), (-1, -0, -0), (-1, -0, -0), (-1, -0, -0), (-1, -0, -0), (-0, 1, -0), (-0, 1, -0), (-0, 1, -0), (-0, 1, -0), (-0, 1, -0), (-0, 1, -0), (1, -0, -0), (1, -0, -0), (1, -0, -0), (1, -0, -0), (1, -0, -0), (1, -0, -0), (-0, -0, -1), (-0, -0, -1), (-0, -0, -1), (-0, -0, -1), (-0, -0, -1), (-0, -0, -1), (-0, -0, 1), (-0, -0, 1), (-0, -0, 1), (-0, -0, 1), (-0, -0, 1), (-0, -0, 1)] (
+                interpolation = "faceVarying"
+            )
+            point3f[] points = [(0.01, -0.085, -0.015), (0.01, -0.085, 0.015), (-0.01, -0.085, -0.015), (-0.01, -0.085, 0.015), (-0.01, 0.085, -0.015), (-0.01, 0.085, 0.015), (0.01, 0.085, -0.015), (0.01, 0.085, 0.015)]
+            float2[] primvars:st = [(0.375, 0), (0.625, 0), (0.375, 0.25), (0.625, 0), (0.625, 0.25), (0.375, 0.25), (0.375, 0.25), (0.625, 0.25), (0.375, 0.5), (0.625, 0.25), (0.625, 0.5), (0.375, 0.5), (0.375, 0.5), (0.625, 0.5), (0.375, 0.75), (0.625, 0.5), (0.625, 0.75), (0.375, 0.75), (0.375, 0.75), (0.625, 0.75), (0.375, 1), (0.625, 0.75), (0.625, 1), (0.375, 1), (0.125, 0.5), (0.375, 0.5), (0.125, 0.75), (0.375, 0.5), (0.375, 0.75), (0.125, 0.75), (0.625, 0.5), (0.875, 0.5), (0.625, 0.75), (0.875, 0.5), (0.875, 0.75), (0.625, 0.75)] (
+                interpolation = "faceVarying"
+            )
+            uniform token subdivisionScheme = "none"
+        }
+    }
+}
+
