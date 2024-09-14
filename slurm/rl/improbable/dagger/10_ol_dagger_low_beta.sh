@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH -p vision-pulkitag-a100,vision-pulkitag-v100,vision-pulkitag-3090,vision-pulkitag-a6000
+#SBATCH -p vision-pulkitag-a6000,vision-pulkitag-3090,vision-pulkitag-a100,vision-pulkitag-v100
 #SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -16,14 +16,16 @@ python -m src.train.dagger \
     teacher_policy.wandb_id=ol-rppo-dr-low-1/k8tg86rc \
     env.randomness=low \
     student_policy.wt_type=best_success_rate \
-    beta=0.9 \
+    beta=0.95 \
     teacher_only_iters=2 \
     correct_student_action_only=false \
     eval_interval=5 \
     num_envs=16 \
     num_epochs=100 \
     eval_first=false \
-    beta_min=0.1 \
+    beta_min=0.5 \
+    beta_decay_ref_sr_ratio=0.8 \
+    beta_linear_decay=0.05 \
     max_steps_per_epoch=10 \
     checkpoint_interval=1 \
     learning_rate_student=1e-4 \
