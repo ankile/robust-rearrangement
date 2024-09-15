@@ -8,12 +8,12 @@ output_file="dagger_eval_$curr_time.csv"
 echo "id,idx,success_rate" > "$output_file"
 
 # Array of IDs
-ids=("o7wi96qm", "9ksejwjm", "v8zfflw4", "9ks1mzyv")
+ids=("n8yhgylx")
 
 for id in "${ids[@]}"; do
     echo "Processing ID: $id"
     
-    for idx in {5..101..5}; do
+    for idx in {10..100..10}; do
         echo "Processing idx: $idx"
         
         # Run the command and capture its output
