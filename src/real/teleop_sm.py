@@ -260,15 +260,15 @@ class ObsActHelper:
         pos_bounds_m = 0.025
         ori_bounds_deg = 20
 
-        delta_action = (
-            scale_scripted_action(
-                torch.from_numpy(delta_action).unsqueeze(0),
-                pos_bounds_m=pos_bounds_m,
-                ori_bounds_deg=ori_bounds_deg,
-            )
-            .squeeze()
-            .numpy()
-        )
+        # delta_action = (
+        #     scale_scripted_action(
+        #         torch.from_numpy(delta_action).unsqueeze(0),
+        #         pos_bounds_m=pos_bounds_m,
+        #         ori_bounds_deg=ori_bounds_deg,
+        #     )
+        #     .squeeze()
+        #     .numpy()
+        # )
 
         # write out action
         new_target_pose = self.target_pose.copy()
