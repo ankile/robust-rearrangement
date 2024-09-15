@@ -58,6 +58,10 @@ class DiffusionPolicy(Actor):
         """
         B = nobs.shape[0]
 
+        if not self.flatten_obs and len(nobs.shape) == 2:
+            # If the observation is not flattened, we need to reshape it to (B, obs_horizon, obs_dim)
+            nobs = nobs.reshape(B, self.obs_horizon, self.obs_dim)
+
         # Now we know what batch size we have, so set the previous action to zeros of the correct size
         if self.prev_naction is None or self.prev_naction.shape[0] != B:
             self.prev_naction = torch.zeros(

@@ -184,7 +184,7 @@ def rollout(
         # Get the next actions from the actor
         action_pred = actor.action(obs)
 
-        obs, reward, done, _ = env.step(action_pred)
+        obs, reward, done, _ = env.step(action_pred, sample_perturbations=False)
 
         video_obs = deepcopy(obs)
 

@@ -22,4 +22,4 @@ python -m src.train.vas \
     checkpoint_interval=100 \
     total_timesteps=1_000_000_000 \
     wandb.project=fph-vas-dr-low-1 \
-    debug=true
+    debug=false
