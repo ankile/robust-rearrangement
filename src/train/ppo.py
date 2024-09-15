@@ -16,7 +16,7 @@ from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.pytorch_util import dict_to_device
-from src.dataset.dataset import FurnitureStateDataset
+from src.dataset.dataset import StateDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -80,7 +80,7 @@ def get_demo_data_loader(
         demo_outcome="success",
     )
 
-    demo_data = FurnitureStateDataset(
+    demo_data = StateDataset(
         dataset_paths=paths,
         obs_horizon=1,
         pred_horizon=action_horizon,

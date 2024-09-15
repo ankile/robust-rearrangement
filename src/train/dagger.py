@@ -464,6 +464,24 @@ def main(cfg: DictConfig):
                     color_images2=success_color_images2,
                 )
 
+        # Checkpoint every cfg.checkpoint_interval steps
+        if iteration % cfg.checkpoint_interval == 0:
+            model_path = str(model_save_dir / f"student_chkpt_{iteration}.pt")
+            torch.save(
+                {
+                    "model_state_dict": student.state_dict(),
+                    "optimizer_student_state_dict": optimizer_student.state_dict(),
+                    "scheduler_student_state_dict": lr_scheduler_student.state_dict(),
+                    "config": OmegaConf.to_container(cfg, resolve=True),
+                    "success_rate": success_rate,
+                    "iteration": iteration,
+                },
+                model_path,
+            )
+
+            wandb.save(model_path)
+            print(f"Model saved to {model_path}")
+
         if eval_mode:
             # If we are in eval mode, we don't need to do any training, so log the result and continue
 
@@ -517,24 +535,6 @@ def main(cfg: DictConfig):
             },
             step=global_step,
         )
-
-        # Checkpoint every cfg.checkpoint_interval steps
-        if iteration % cfg.checkpoint_interval == 0:
-            model_path = str(model_save_dir / f"student_chkpt_{iteration}.pt")
-            torch.save(
-                {
-                    "model_state_dict": student.state_dict(),
-                    "optimizer_student_state_dict": optimizer_student.state_dict(),
-                    "scheduler_student_state_dict": lr_scheduler_student.state_dict(),
-                    "config": OmegaConf.to_container(cfg, resolve=True),
-                    "success_rate": success_rate,
-                    "iteration": iteration,
-                },
-                model_path,
-            )
-
-            wandb.save(model_path)
-            print(f"Model saved to {model_path}")
 
         # Prepare the replay buffer and data loader for this epoch
         buffer.rebuild_seq_indices()

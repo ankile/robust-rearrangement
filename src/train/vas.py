@@ -9,25 +9,18 @@ import math
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from src.common.config_util import merge_base_bc_config_with_root_config
-from src.common.files import get_processed_paths
 from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
-from src.common.context import suppress_all_output
-from src.common.pytorch_util import dict_to_device
-from src.dataset.dataset import FurnitureStateDataset
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
 from tqdm import trange
 
 from src.dataset.normalizer import LinearNormalizer
 
-from src.behavior.mlp import MLPActor
 
 from ipdb import set_trace as bp
 
@@ -36,8 +29,6 @@ import gym
 
 gym.logger.set_level(40)
 import wandb
-import copy
-from torch.distributions.normal import Normal
 from src.behavior.diffusion import DiffusionPolicy
 
 from src.gym import turn_off_april_tags
@@ -167,6 +158,10 @@ def main(cfg: DictConfig):
         agent.inference_steps = 4
 
     base_state_dict = torch.load(base_wts)
+
+    if "model_state_dict" in base_state_dict:
+        base_state_dict = base_state_dict["model_state_dict"]
+
     # Load the model weights
     agent.load_state_dict(base_state_dict)
     # agent.eta = 1.0
@@ -189,7 +184,7 @@ def main(cfg: DictConfig):
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture="one_leg",
+        furniture=cfg.env.task,
         gpu_id=0,
         headless=cfg.headless,
         num_envs=cfg.num_envs,

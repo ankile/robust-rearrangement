@@ -1,5 +1,7 @@
 from collections import deque
+from furniture_bench.controllers.control_utils import proprioceptive_quat_to_6d_rotation
 from omegaconf import DictConfig
+from src.models.vision import DualInputAttentionPool2d
 import torch
 import torch.nn as nn
 
@@ -87,7 +89,10 @@ class DiffusionPolicy(Actor):
 
             # inverse diffusion step (remove noise)
             naction = self.inference_noise_scheduler.step(
-                model_output=noise_pred, timestep=k, sample=naction, eta=self.eta
+                model_output=noise_pred,
+                timestep=k,
+                sample=naction,
+                eta=self.eta,
             ).prev_sample
 
         # Store the remaining actions in the previous action to warm start the next horizon
@@ -169,215 +174,134 @@ class DiffusionPolicy(Actor):
         return loss, losses
 
 
-class MultiTaskDiffusionPolicy(DiffusionPolicy):
-    current_task = None
+class AttentionPoolDiffusionPolicy(DiffusionPolicy):
+    def __init__(self, device: Union[str, torch.device], cfg: DictConfig) -> None:
+        super().__init__(device, cfg)
 
-    def __init__(
-        self,
-        device: Union[str, torch.device],
-        encoder_name: str,
-        freeze_encoder: bool,
-        normalizer: LinearNormalizer,
-        cfg,
-    ) -> None:
-        raise NotImplementedError(
-            "Multitask diffusion actor is not supported at the moment."
-        )
-        super().__init__(
-            device=device,
-            encoder_name=encoder_name,
-            freeze_encoder=freeze_encoder,
-            normalizer=normalizer,
-            cfg=cfg,
-        )
-
-        multitask_cfg = cfg.multitask
-        actor_cfg = cfg.actor
-
-        self.task_dim = multitask_cfg.task_dim
-        self.task_encoder = nn.Embedding(
-            num_embeddings=multitask_cfg.num_tasks,
-            embedding_dim=self.task_dim,
-            padding_idx=None,
-            max_norm=None,
-            norm_type=2.0,
-            scale_grad_by_freq=False,
-            sparse=False,
-            _weight=None,
+        # Attention Pooling
+        self.attention_pool = DualInputAttentionPool2d(
+            spatial_dim=7,
+            embed_dim=512,
+            num_heads=8,
+            output_dim=256,
         ).to(device)
 
-        self.obs_dim = self.obs_dim + self.task_dim
+        # Hook into the encoder to replace the avgpool with identity
+        self.encoder1.model.convnet.avgpool = nn.Identity()
+        self.encoder2.model.convnet.avgpool = nn.Identity()
 
-        self.model = get_diffusion_backbone(
-            action_dim=self.action_dim,
-            obs_dim=self.obs_dim,
-            actor_config=actor_cfg,
-        ).to(device)
-
+    # === Training Observations ===
     def _training_obs(self, batch, flatten: bool = True):
-        # Get the standard observation data
-        nobs = super()._training_obs(batch, flatten=flatten)
 
-        # Get the task embedding
-        task_idx: torch.Tensor = batch["task_idx"]
-        task_embedding: torch.Tensor = self.task_encoder(task_idx)
+        assert self.observation_type == "image"
+
+        # The robot state is already normalized in the dataset
+        nrobot_state = batch["robot_state"]
+        B = nrobot_state.shape[0]
+
+        image1: torch.Tensor = batch["color_image1"]
+        image2: torch.Tensor = batch["color_image2"]
+
+        # Images now have the channels first
+        assert image1.shape[-3:] == (3, 240, 320)
+
+        # Reshape the images to (B * obs_horizon, C, H, W) for the encoder
+        image1 = image1.reshape(B * self.obs_horizon, *image1.shape[-3:])
+        image2 = image2.reshape(B * self.obs_horizon, *image2.shape[-3:])
+
+        # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+        # Since we're in training mode, the transform also performs augmentation
+        image1: torch.Tensor = self.camera1_transform(image1)
+        image2: torch.Tensor = self.camera2_transform(image2)
+
+        # Encode images and reshape back to (B, obs_horizon, encoding_dim, 7, 7)
+        featuremap1 = (
+            self.encoder1(image1)
+            .reshape(B * self.obs_horizon, 7, 7, 512)
+            .permute(0, 3, 1, 2)
+        )
+        featuremap2 = (
+            self.encoder2(image2)
+            .reshape(B * self.obs_horizon, 7, 7, 512)
+            .permute(0, 3, 1, 2)
+        )
+
+        # Apply the attention pooling to the feature maps
+        image_features = self.attention_pool(featuremap1, featuremap2).reshape(
+            B, self.obs_horizon, 256
+        )
+
+        # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+        nobs = torch.cat([nrobot_state, image_features], dim=-1)
 
         if flatten:
-            task_embedding = task_embedding.flatten(start_dim=1)
+            # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
 
-        # Concatenate the task embedding to the observation
-        obs_cond = torch.cat((nobs, task_embedding), dim=-1)
+        return nobs
 
-        return obs_cond
-
-    def set_task(self, task):
-        self.current_task = task
-
+    # === Inference Observations ===
     def _normalized_obs(self, obs: deque, flatten: bool = True):
-        assert self.current_task is not None, "Must set current task before calling"
+        """
+        Normalize the observations
 
-        # Get the standard observation data
-        nobs = super()._normalized_obs(obs, flatten=flatten)
-        B = nobs.shape[0]
+        Takes in a deque of observations and normalizes them
+        And concatenates them into a single tensor of shape (n_envs, obs_horizon * obs_dim)
+        """
+        # Convert robot_state from obs_horizon x (n_envs, 14) -> (n_envs, obs_horizon, 14)
+        robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
-        # Get the task embedding for the current task and repeat it for the batch size and observation horizon
-        task_embedding = self.task_encoder(
-            torch.tensor(self.current_task).to(self.device)
-        ).repeat(B, self.obs_horizon, 1)
+        # Convert the robot_state to use rot_6d instead of quaternion
+        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
+        # Normalize the robot_state
+        nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
+
+        B = nrobot_state.shape[0]
+
+        assert self.observation_type == "image"
+
+        # Get size of the image
+        img_size = obs[0]["color_image1"].shape[-3:]
+
+        # Images come in as obs_horizon x (n_envs, 224, 224, 3) concatenate to (n_envs * obs_horizon, 224, 224, 3)
+        image1 = torch.cat(
+            [o["color_image1"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
+        image2 = torch.cat(
+            [o["color_image2"].unsqueeze(1) for o in obs], dim=1
+        ).reshape(B * self.obs_horizon, *img_size)
+
+        # Move the channel to the front (B * obs_horizon, H, W, C) -> (B * obs_horizon, C, H, W)
+        image1 = image1.permute(0, 3, 1, 2)
+        image2 = image2.permute(0, 3, 1, 2)
+
+        # Apply the transforms to resize the images to 224x224, (B * obs_horizon, C, 224, 224)
+        image1: torch.Tensor = self.camera1_transform(image1)
+        image2: torch.Tensor = self.camera2_transform(image2)
+
+        # Encode images and reshape back to (B, obs_horizon, encoding_dim, 7, 7)
+        featuremap1 = (
+            self.encoder1(image1)
+            .reshape(B * self.obs_horizon, 7, 7, 512)
+            .permute(0, 3, 1, 2)
+        )
+        featuremap2 = (
+            self.encoder2(image2)
+            .reshape(B * self.obs_horizon, 7, 7, 512)
+            .permute(0, 3, 1, 2)
+        )
+
+        # Apply the attention pooling to the feature maps
+        image_features = self.attention_pool(featuremap1, featuremap2).reshape(
+            B, self.obs_horizon, 256
+        )
+
+        # Combine the robot_state and image features, (B, obs_horizon, obs_dim)
+        nobs = torch.cat([nrobot_state, image_features], dim=-1)
 
         if flatten:
-            task_embedding = task_embedding.flatten(start_dim=1)
+            # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
+            nobs = nobs.flatten(start_dim=1)
 
-        # Concatenate the task embedding to the observation
-        obs_cond = torch.cat((nobs, task_embedding), dim=-1)
-
-        return obs_cond
-
-
-class SuccessGuidedDiffusionPolicy(DiffusionPolicy):
-    def __init__(
-        self,
-        device: Union[str, torch.device],
-        encoder_name: str,
-        freeze_encoder: bool,
-        normalizer: LinearNormalizer,
-        cfg,
-    ) -> None:
-        raise NotImplementedError(
-            "Guided diffusion actor is not supported at the moment."
-        )
-        super().__init__(
-            device=device,
-            encoder_name=encoder_name,
-            freeze_encoder=freeze_encoder,
-            normalizer=normalizer,
-            cfg=cfg,
-        )
-        actor_cfg = cfg.actor
-
-        self.guidance_scale = actor_cfg.guidance_scale
-        self.prob_blank_cond = actor_cfg.prob_blank_cond
-        self.success_cond_emb_dim = actor_cfg.success_cond_emb_dim
-
-        self.success_embedding = nn.Embedding(
-            num_embeddings=2,
-            embedding_dim=self.success_cond_emb_dim,
-            padding_idx=None,
-            max_norm=None,
-            norm_type=2.0,
-            scale_grad_by_freq=False,
-            sparse=False,
-            _weight=None,
-        ).to(device)
-
-        self.obs_dim = self.obs_dim + self.success_cond_emb_dim
-
-        self.model = get_diffusion_backbone(
-            action_dim=self.action_dim,
-            obs_dim=self.obs_dim,
-            actor_config=actor_cfg,
-        ).to(device)
-
-    def _training_obs(self, batch, flatten=True):
-        # Get the standard observation data
-        nobs = super()._training_obs(batch, flatten=flatten)
-
-        # Get the task embedding
-        success = batch["success"].squeeze(-1)
-        success_embedding = self.success_embedding(success)
-
-        # With probability p, zero out the success embedding
-        B = success_embedding.shape[0]
-        blank = torch.rand(B, device=self.device) < self.prob_blank_cond
-        success_embedding = success_embedding * ~blank.unsqueeze(-1)
-
-        # Concatenate the task embedding to the observation
-        obs_cond = torch.cat((nobs, success_embedding), dim=-1)
-
-        return obs_cond
-
-    # === Inference ===
-    def _normalized_action(self, nobs):
-        """
-        Overwrite the diffusion inference to use the success embedding
-        by calling the model with both positive and negative success embeddings
-        and without any success embedding.
-
-        The resulting noise prediction will be
-        noise_pred = noise_pred_pos - self.guidance_scale * (noise_pred_neg - noise_pred_blank)
-
-        We'll calculate all three in parallel and then split the result into the three parts.
-        """
-        B = nobs.shape[0]
-        # Important! `nobs` needs to be normalized and flattened before passing to this function
-        # Initialize action from Guassian noise
-        naction = torch.randn(
-            (B, self.pred_horizon, self.action_dim),
-            device=self.device,
-        )
-
-        # Create 3 success embeddings: positive, negative, and blank
-        success_embedding_pos = self.success_embedding(
-            torch.tensor(1).to(self.device).repeat(B)
-        )
-        success_embedding_neg = self.success_embedding(
-            torch.tensor(0).to(self.device).repeat(B)
-        )
-        success_embedding_blank = torch.zeros_like(success_embedding_pos)
-
-        # Concatenate the success embeddings to the observation
-        # (B, obs_dim + success_cond_emb_dim)
-        obs_cond_pos = torch.cat((nobs, success_embedding_pos), dim=-1)
-        obs_cond_neg = torch.cat((nobs, success_embedding_neg), dim=-1)
-        obs_cond_blank = torch.cat((nobs, success_embedding_blank), dim=-1)
-
-        # Stack together so that we can calculate all three in parallel
-        # (3, B, obs_dim + success_cond_emb_dim)
-        obs_cond = torch.stack((obs_cond_pos, obs_cond_neg, obs_cond_blank))
-
-        # Flatten the obs_cond so that it can be passed to the model
-        # (3 * B, obs_dim + success_cond_emb_dim)
-        obs_cond = obs_cond.view(-1, obs_cond.shape[-1])
-
-        # init scheduler
-        self.inference_noise_scheduler.set_timesteps(self.inference_steps)
-
-        for k in self.inference_noise_scheduler.timesteps:
-            # Predict the noises for all three success embeddings
-            noise_pred_pos, noise_pred_neg, noise_pred_blank = self.model(
-                sample=naction.repeat(3, 1, 1),
-                timestep=k,
-                global_cond=obs_cond,
-            ).view(3, B, self.pred_horizon, self.action_dim)
-
-            # Calculate the final noise prediction
-            noise_pred = noise_pred_pos - self.guidance_scale * (
-                noise_pred_neg - noise_pred_blank
-            )
-
-            # inverse diffusion step (remove noise)
-            naction = self.inference_noise_scheduler.step(
-                model_output=noise_pred, timestep=k, sample=naction
-            ).prev_sample
-
-        return naction
+        return nobs

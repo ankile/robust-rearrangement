@@ -234,7 +234,7 @@ parser.add_argument("--wandb", action="store_true")
 parser.add_argument("--leaderboard", action="store_true")
 parser.add_argument("--project-id", type=str, default=None)
 parser.add_argument(
-    "--action-type", type=str, default="delta", choices=["delta", "pos"]
+    "--action-type", type=str, default="pos", choices=["delta", "pos"]
 )
 parser.add_argument("--verbose", "-v", action="store_true")
 parser.add_argument("--multitask", action="store_true")

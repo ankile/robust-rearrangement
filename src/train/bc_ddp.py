@@ -1,3 +1,5 @@
+import furniture_bench
+
 from collections import defaultdict
 from datetime import datetime
 import os
@@ -7,16 +9,14 @@ from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
-with suppress_stdout():
-    import furniture_bench
 
 import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import (
-    FurnitureImageDataset,
-    FurnitureStateDataset,
+    ImageDataset,
+    StateDataset,
 )
 from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_env, get_rl_env
@@ -143,7 +143,7 @@ def main(cfg: DictConfig):
     print(f"Using data from {data_path}")
 
     if cfg.observation_type == "image":
-        dataset = FurnitureImageDataset(
+        dataset = ImageDataset(
             dataset_paths=data_path,
             pred_horizon=cfg.data.pred_horizon,
             obs_horizon=cfg.data.obs_horizon,
@@ -157,7 +157,7 @@ def main(cfg: DictConfig):
             load_into_memory=cfg.data.get("load_into_memory", True),
         )
     elif cfg.observation_type == "state":
-        dataset = FurnitureStateDataset(
+        dataset = StateDataset(
             dataset_paths=data_path,
             pred_horizon=cfg.data.pred_horizon,
             obs_horizon=cfg.data.obs_horizon,

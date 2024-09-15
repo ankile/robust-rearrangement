@@ -210,6 +210,7 @@ def main(cfg: DictConfig):
     optimizer_actor = optim.AdamW(
         agent.actor_parameters,
         lr=cfg.learning_rate_actor,
+        betas=cfg.get("optimizer_betas_actor", (0.9, 0.999)),
         eps=1e-5,
         weight_decay=1e-6,
     )
@@ -629,7 +630,7 @@ def main(cfg: DictConfig):
         lr_scheduler_critic.step()
 
         # Checkpoint every cfg.checkpoint_interval steps
-        if iteration % cfg.checkpoint_interval == 0:
+        if cfg.checkpoint_interval > 0 and iteration % cfg.checkpoint_interval == 0:
             model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {
