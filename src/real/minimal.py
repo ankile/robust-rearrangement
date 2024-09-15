@@ -705,7 +705,7 @@ def main():
 
     # Create the config object with the project name and make it read-only
     inference_steps = 8
-    action_horizon = 12
+    action_horizon = 8
     config: DictConfig = OmegaConf.create(
         {
             **run.config,
@@ -729,6 +729,9 @@ def main():
 
     if "model_state_dict" in state_dict:
         state_dict = state_dict["model_state_dict"]
+
+    if "model._dummy_variable" in state_dict:
+        del state_dict["model._dummy_variable"]
 
     actor.load_state_dict(state_dict)
     actor.eval()
