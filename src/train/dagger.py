@@ -432,20 +432,23 @@ def main(cfg: DictConfig):
                 success_robot_states
             )
 
-            # Normalize the observations and actions so we only do this once
-            success_obs = torch.cat(
-                [
-                    normalizer(success_robot_states, "robot_state", forward=True),
-                    normalizer(success_parts_poses, "parts_poses", forward=True),
-                ],
-                dim=-1,
-            )
             success_actions = normalizer(success_actions, "action", forward=True)
 
             if not buffer.include_images:
+                # Normalize the observations and actions so we only do this once
+                success_obs = torch.cat(
+                    [
+                        normalizer(success_robot_states, "robot_state", forward=True),
+                        normalizer(success_parts_poses, "parts_poses", forward=True),
+                    ],
+                    dim=-1,
+                )
                 # Add the successful trajectories to the replay buffer
                 buffer.add_trajectories(
-                    success_obs, success_actions, success_rewards, success_dones
+                    states=success_obs,
+                    actions=success_actions,
+                    rewards=success_rewards,
+                    dones=success_dones,
                 )
             else:
                 # Add the successful trajectories to the replay buffer
@@ -455,10 +458,9 @@ def main(cfg: DictConfig):
                 success_color_images1 = color_images1[:, success_idxs]
                 success_color_images2 = color_images2[:, success_idxs]
                 buffer.add_trajectories(
-                    success_obs,
-                    success_actions,
-                    success_rewards,
-                    success_dones,
+                    actions=success_actions,
+                    rewards=success_rewards,
+                    dones=success_dones,
                     robot_states=success_robot_states,
                     color_images1=success_color_images1,
                     color_images2=success_color_images2,
