@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import gc
 
+
 class RolloutBuffer:
     def __init__(
         self,
@@ -15,7 +16,7 @@ class RolloutBuffer:
         device: str = "cuda:0",
         predict_past_actions: bool = False,
         include_future_obs: bool = False,
-        include_images: bool = False
+        include_images: bool = False,
     ):
 
         self.device = device
@@ -45,10 +46,7 @@ class RolloutBuffer:
         self.dones = torch.zeros(max_size, dtype=torch.bool)
 
         self.train_data = {
-            "obs": self.states,
             "action": self.actions,
-            # "rewards": self.rewards,
-            # "dones": self.dones,
         }
 
         self.include_images = include_images
@@ -59,13 +57,15 @@ class RolloutBuffer:
             self.train_data["robot_state"] = self.robot_states
             self.train_data["color_image1"] = self.color_image1
             self.train_data["color_image2"] = self.color_image2
+        else:
+            self.train_data["obs"] = self.states
 
         self.max_size = max_size
         self.ptr = 0
         self.size = 0
 
         self.indices = None
-    
+
     @property
     def episode_end_idxs(self):
         return torch.where(self.dones[: self.size])[0].cpu().numpy() + 1
@@ -141,10 +141,11 @@ class RolloutBuffer:
 
     def add_trajectories(
         self,
-        states: torch.Tensor,
+        *,
         actions: torch.Tensor,
         rewards: torch.Tensor,
         dones: torch.Tensor,
+        states: torch.Tensor = None,
         robot_states: torch.Tensor = None,
         color_images1: torch.Tensor = None,
         color_images2: torch.Tensor = None,
@@ -164,7 +165,6 @@ class RolloutBuffer:
                 restart = True
 
             # Add the data to the buffer
-            self.states[self.ptr : self.ptr + ep_len] = states[:ep_len, ep_idx]
             self.actions[self.ptr : self.ptr + ep_len] = actions[:ep_len, ep_idx]
             self.rewards[self.ptr : self.ptr + ep_len] = rewards[:ep_len, ep_idx]
             self.dones[self.ptr : self.ptr + ep_len] = dones[:ep_len, ep_idx]
@@ -173,9 +173,18 @@ class RolloutBuffer:
                 assert robot_states is not None
                 assert color_images1 is not None
                 assert color_images2 is not None
-                self.robot_states[self.ptr : self.ptr + ep_len] = robot_states[:ep_len, ep_idx]
-                self.color_image1[self.ptr : self.ptr + ep_len] = color_images1[:ep_len, ep_idx]
-                self.color_image2[self.ptr : self.ptr + ep_len] = color_images2[:ep_len, ep_idx]
+                self.robot_states[self.ptr : self.ptr + ep_len] = robot_states[
+                    :ep_len, ep_idx
+                ]
+                self.color_image1[self.ptr : self.ptr + ep_len] = color_images1[
+                    :ep_len, ep_idx
+                ]
+                self.color_image2[self.ptr : self.ptr + ep_len] = color_images2[
+                    :ep_len, ep_idx
+                ]
+            else:
+                assert states is not None
+                self.states[self.ptr : self.ptr + ep_len] = states[:ep_len, ep_idx]
 
             # Increment the start_idx (go to the next full episode)
             self.ptr = self.ptr + ep_len if not restart else 0
@@ -228,7 +237,6 @@ class RolloutBuffer:
         ]
 
         # Discard unused observations
-        nsample["obs"] = nsample["obs"][: self.last_obs, :]
         if self.include_images:
             nsample["robot_state"] = nsample["robot_state"][: self.last_obs, :]
             nsample["color_image1"] = nsample["color_image1"][: self.last_obs, :]
@@ -236,6 +244,8 @@ class RolloutBuffer:
 
             nsample["color_image1"] = nsample["color_image1"].permute(0, 3, 1, 2)
             nsample["color_image2"] = nsample["color_image2"].permute(0, 3, 1, 2)
+        else:
+            nsample["obs"] = nsample["obs"][: self.last_obs, :]
 
         return nsample
 
