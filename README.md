@@ -3,6 +3,8 @@
 
 _**NOTE** (updated Sept 1, 2024): The repo is still under active development and we are working on making reproducing the experiments [in the paper](https://arxiv.org/pdf/2407.16677) straightforward and hosting and making available the demonstration data we collected for learning the imitation policies from._
 
+_**Update Sept 20, 2024:**_ The data used to train the models in this project is now available in an [S3 bucket](https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/index.html). We also have a script to download data for the different tasks in the right places.
+
 
 ## Installation Instructions
 
@@ -59,7 +61,7 @@ Download the IsaacGym installer from the [IsaacGym website](https://developer.nv
 You can also download a copy of the file from our AWS S3 bucket for your convenience:
 
 ```bash
-wget https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/IsaacGym_Preview_4_Package.tar.gz
+wget https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/packages/IsaacGym_Preview_4_Package.tar.gz
 ```
 
 Once the zipped file is downloaded, move it to the desired location and unzip it by running:
@@ -122,10 +124,7 @@ export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
 ```
 
 
-
-
-10:45
-https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4
+Some context on this error: https://forums.developer.nvidia.com/t/cudaimportexternalmemory-failed-on-rgbimage/212944/4
 
 ### Install the robust-rearrangement Package
 
@@ -138,8 +137,12 @@ pip install -e .
 
 ### Data Collection: Install the SpaceMouse Driver
 
-TODO: Write this up.
-
+```bash
+pip install numpy termcolor atomics scipy
+pip install git+https://github.com/cheng-chi/spnav
+sudo apt install libspnav-dev spacenavd
+sudo systemctl start spacenavd
+```
 
 ### Install Additional Dependencies
 
@@ -147,41 +150,36 @@ Depending on what parts of the codebase you want to run, you may need to install
 
 ```bash
 pip install -e robust-rearrangement/furniture-bench/r3m
-pip install -e robust-rearrangement/furniture-bench/vip
-```
-
-The Spatial Softmax encoder and BC_RNN policy require the `robomimic` package to be installed:
-
-```bash
-git clone https://github.com/ARISE-Initiative/robomimic.git
-cd robomimic
-pip install -e .
 ```
 
 
 ## Download the Data
 
-We provide a Google Drive folder that contains a zip file with the raw data and a zip file with the processed data. [Download the data](https://drive.google.com/drive/folders/13UqtMLXY1_8JCQOZf3j-YbZyMRTsgZ2K?usp=sharing).
+We provide an S3 bucket that contains all the data. You can browse the contents of the bucket [here](https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/index.html).
 
-The data files can be unzipped by running:
-
-```bash
-tar -xzvf imitation-juicer-data-raw.tar.gz
-tar -xzvf imitation-juicer-data-processed.tar.gz
-```
-
-Then, for the code to know where to look for the data, please set the environment variables `DATA_DIR_RAW` and `DATA_DIR_PROCESSED` to the paths of the raw and processed data directories, respectively. This can be done by running or adding the following lines to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
+Then, for the code to know where to look for the data, please set the environment variables `DATA_DIR_PROCESSED` to the path of the processed data directories. This can be done by running or adding the following lines to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`):
 
 ```bash
-export DATA_DIR_RAW=/path/to/raw-data
 export DATA_DIR_PROCESSED=/path/to/processed-data
 ```
 
-In the above example, the folders `raw` and `processed` in the two zipped files should be placed immediately inside the above folder, e.g., `/path/to/raw-data/raw` and `/path/to/processed-data/processed.`
+The raw data, i.e., trajectories stored as `.pkl` files according to the file format used in [FurnitureBench](https://github.com/clvrai/furniture-bench), is also available. Before we train policies on this data, we process it into flat `.zarr` files with `src/data_processing/process_pickles.py` so it's easier to deal with in BC training. Please set the `DATA_DIR_RAW` environment variable before downloading the raw data.
 
 All parts of the code (data collection, training, evaluation rollout storage, data processing, etc.) use these environment variables to locate the data.
 
 _Note: The code uses the directory structure in the folders to locate the data. If you change the directory structure, you may need to update the code accordingly._
+
+To download the data, you can call the downloading script and specify the appropriate `task` name. At this point, these are the options:
+
+```bash
+python scripts/download_data.py --task one_leg
+python scripts/download_data.py --task lamp
+python scripts/download_data.py --task roundd_table
+python scripts/download_data.py --task mug_rack
+python scripts/download_data.py --task factory_peg_hole
+```
+
+For each of these, the 50 demos we collected for each randomness level will be downloaded.
 
 
 
@@ -192,7 +190,7 @@ To be researched...
 
 
 ## Notes on sim-to-real (in development)
-Please see [our notes on using Isaac Sim to re-render trajectories in service of visual sim-to-real](src/sim2real/readme.md). With the ondoing developments of Isaac Sim and IsaacLab, this area of the pipeline is not as mature and is still under ongoing development. The `src/sim2real` folder contains the scripts we used for converting assets to USD for use with Isaac Sim and re-rendering trajectories collected either via teleoperation or rolling out trained agents. 
+Please see [our notes on using Isaac Sim to re-render trajectories in service of visual sim-to-real](src/sim2real/readme.md). With the ongoing developments of Isaac Sim and IsaacLab, this area of the pipeline is not as mature and is still under ongoing development. The `src/sim2real` folder contains the scripts we used for converting assets to USD for use with Isaac Sim and re-rendering trajectories collected either via teleoperation or rolling out trained agents. 
 
 
 ## Notes on real world evaluation (in development)
@@ -205,8 +203,10 @@ Please see [our notes on running on the real world Franka Panda robot](src/real/
 If you find the paper or the code useful, please consider citing the paper:
 
 ```tex      
-TBA
-```
+@article{ankile2024imitation,
+  title={From Imitation to Refinement--Residual RL for Precise Visual Assembly},
+  author={Ankile, Lars and Simeonov, Anthony and Shenfeld, Idan and Torne, Marcel and Agrawal, Pulkit},
+  journal={arXiv preprint arXiv:2407.16677},
+  year={2024}
+}```
 
-
-<p><small>Project based on the <a target="_blank" href="https://drivendata.github.io/cookiecutter-data-science/">cookiecutter data science project template</a>. #cookiecutterdatascience</small></p>
