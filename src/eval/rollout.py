@@ -259,7 +259,7 @@ def calculate_success_rate(
     pbar = SuccessTqdm(
         num_envs=env.num_envs,
         n_rollouts=n_rollouts,
-        task_name=env.task_name,
+        task_name=env.furniture_name,
         total=rollout_max_steps * (n_rollouts // env.num_envs),
         desc="Performing rollouts",
         leave=True,
@@ -267,7 +267,7 @@ def calculate_success_rate(
     )
 
     if n_parts_assemble is None:
-        n_parts_assemble = len(env.task.should_be_assembled)
+        n_parts_assemble = len(env.furniture.should_be_assembled)
 
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -475,14 +475,14 @@ def do_rollout_evaluation(
         rollout_save_dir = trajectory_save_dir(
             controller=env.ctrl_mode,
             environment="sim",
-            task=env.task_name,
+            task=config.task,
             demo_source="rollout",
             randomness=config.randomness,
             # Don't create here because we have to do it when we save anyway
             create=False,
         )
 
-    actor.set_task(task2idx[env.task_name])
+    actor.set_task(task2idx[config.task])
 
     rollout_stats = calculate_success_rate(
         env,
