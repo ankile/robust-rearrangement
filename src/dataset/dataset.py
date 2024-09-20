@@ -644,3 +644,126 @@ class StateDataset(torch.utils.data.Dataset):
             self.train_data[key] = torch.cat(data_slices)
 
         self.episode_ends = torch.tensor(self.episode_ends)
+
+
+class DaggerDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        dataset_path: Path,
+        pred_horizon: int,
+        obs_horizon: int,
+        action_horizon: int,
+        normalizer: LinearNormalizer,
+        control_mode: ControlMode = ControlMode.position,
+        predict_past_actions: bool = False,
+        include_future_obs: bool = False,
+    ):
+        self.pred_horizon = pred_horizon
+        self.action_horizon = action_horizon
+        self.obs_horizon = obs_horizon
+
+        self.sequence_length = (
+            pred_horizon if predict_past_actions else obs_horizon + pred_horizon - 1
+        )
+
+        # Set the limits for the action indices based on wether we predict past actions or not
+        # First action refers to the first action we predict, not necessarily the first action executed
+        self.first_action_idx = 0 if predict_past_actions else self.obs_horizon - 1
+        self.final_action_idx = self.first_action_idx + self.pred_horizon
+        # self.last_obs = (
+        #     self.obs_horizon if not include_future_obs else self.sequence_length
+        # )
+
+        self.control_mode = control_mode
+        self.predict_past_actions = predict_past_actions
+
+        self.normalizer = normalizer
+
+        assert control_mode in [ControlMode.position]
+
+        self.dataset = zarr.open(str(dataset_path), mode="r+")
+        self.episode_ends = list(self.dataset["episode_ends"])
+
+        self.action_dim = self.dataset["action"].shape[-1]
+        self.robot_state_dim = self.dataset["robot_state"].shape[-1]
+
+    def __len__(self):
+        return self.dataset["action"].shape[0]
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        episode_idx = self._get_episode_index(idx)
+        start_idx = idx
+        end_idx = idx + self.sequence_length
+
+        return self._get_sample(start_idx, end_idx, episode_idx)
+
+    def _get_episode_index(self, idx: int) -> int:
+        return next(i for i, end in enumerate(self.episode_ends) if idx < end)
+
+    def _get_sample(
+        self, start_idx: int, end_idx: int, episode_idx: int
+    ) -> Dict[str, torch.Tensor]:
+        episode_end = self.episode_ends[episode_idx]
+        obs_end_idx = min(start_idx + self.obs_horizon, episode_end)
+
+        sample = {}
+
+        # Load robot_state
+        robot_state = self.dataset["robot_state"][start_idx:obs_end_idx]
+        if len(robot_state) < self.obs_horizon:
+            robot_state = np.concatenate(
+                [
+                    robot_state,
+                    np.repeat(
+                        robot_state[-1:], self.obs_horizon - len(robot_state), axis=0
+                    ),
+                ]
+            )
+        sample["robot_state"] = self.normalizer(
+            torch.from_numpy(robot_state), "robot_state", forward=True
+        )
+
+        # Load images
+        for key in ["color_image1", "color_image2"]:
+            images = self.dataset[key][start_idx:obs_end_idx]
+            if len(images) < self.obs_horizon:
+                images = np.concatenate(
+                    [
+                        images,
+                        np.repeat(images[-1:], self.obs_horizon - len(images), axis=0),
+                    ]
+                )
+            # Make into tensor and move channels to the front
+            sample[key] = torch.from_numpy(images).permute(0, 3, 1, 2)
+
+        # Load actions
+        actions = self.dataset["action"][start_idx : min(end_idx, episode_end)]
+        if len(actions) < self.sequence_length:
+            actions = np.concatenate(
+                [
+                    actions,
+                    np.repeat(
+                        actions[-1:], self.sequence_length - len(actions), axis=0
+                    ),
+                ]
+            )
+        sample["action"] = self.normalizer(
+            torch.from_numpy(actions), "action", forward=True
+        )
+
+        # Adjust action sequence based on predict_past_actions
+        sample["action"] = sample["action"][
+            self.first_action_idx : self.final_action_idx
+        ].clone()
+
+        return sample
+
+    def add_trajectory(self, trajectory: Dict[str, np.ndarray]):
+        last_episode_end: int = self.episode_ends[-1] if self.episode_ends else 0
+        new_episode_end = last_episode_end + len(trajectory["action"])
+
+        for key, value in trajectory.items():
+            self.dataset[key].append(value)
+
+        self.episode_ends.append(new_episode_end)
+        self.dataset["episode_ends"].append([new_episode_end])

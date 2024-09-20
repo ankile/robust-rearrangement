@@ -1,6 +1,7 @@
 from typing import Dict, Union
 import torch.nn as nn
 import numpy as np
+import torch
 
 from ipdb import set_trace as bp
 
@@ -12,6 +13,9 @@ class LinearNormalizer(nn.Module):
 
     def fit(self, data_dict):
         for key, tensor in data_dict.items():
+            if isinstance(tensor, np.ndarray):
+                tensor = torch.from_numpy(tensor)
+
             min_value = tensor.min(dim=0)[0]
             max_value = tensor.max(dim=0)[0]
 
