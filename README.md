@@ -183,10 +183,60 @@ For each of these, the 50 demos we collected for each randomness level will be d
 
 
 
-## Guide to Project Workflow
+## Training models
+
+We heavily rely on WandB as a tracking service and a way to organize runs and model weights. So, for the most streamlined experience with the below training, ensure that you've set `WANDB_ENTITY` environment variable, e.g.:
+
+```bash
+export WANDB_ENTITY=your-entity-name
+```
+
+This will log training runs to this entity, and we will later use the weights from those runs to evaluate the runs and load weights for RL fine-tuning.
+
+_NOTE:_ We are also working on releasing our weights in a way that's independent of our specific WandB projects and a way to specify local weight paths instead of a WandB run ID.
 
 
-To be researched...
+### BC Pre-training
+
+#### Training from scratch
+
+To pre-train the models, please ensure that you've downloaded the relevant data and that the `DATA_DIR_PROCESSED` environment variable is set correctly.
+
+The pre-training runs can then be launched with one of these commands:
+
+**`one_leg`**
+
+```bash
+python -m src.train.bc +experiment=state/diff_unet \
+    task=one_leg \
+    rollout=rollout rollout.every=10 rollout.max_steps=700 rollout.num_envs=512 \
+    rollout.randomness=low \
+    pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
+    demo_source=teleop randomness='[low,low_perturb]' \
+    training.batch_size=128 training.actor_lr=1e-4 training.num_epochs=10000 \
+    training.steps_per_epoch=1000 \
+    wandb.project=ol-state-low \
+    dryrun=false
+```
+
+
+#### Evaluate pre-trained checkpoints
+
+_Our BC pre-trained weights are to be available for download shortly_
+
+
+### RL Fine-tuning
+
+#### Run full fine-tuning
+
+
+#### Evaluate trained checkpoints
+
+_Our RL fine-tuned weights are to be available for download shortly_
+
+
+
+
 
 
 ## Notes on sim-to-real (in development)
