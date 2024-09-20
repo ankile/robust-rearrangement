@@ -10,7 +10,7 @@
 #SBATCH --time=00-12:00
 #SBATCH --gres=gpu:1
 
-python -m src.train.bc +experiment=state/diffusion furniture=one_leg \
+python -m src.train.bc +experiment=state/diffusion task=one_leg \
     rollout=rollout rollout.every=10 rollout.max_steps=1000 rollout.num_envs=256 \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     demo_source='[teleop,rollout]' randomness='[med,med_perturb]' \

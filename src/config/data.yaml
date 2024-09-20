@@ -8,7 +8,7 @@ data:
   predict_past_actions: ${predict_past_actions}
   augment_image: true
   environment: ${environment}
-  furniture: ${furniture}
+  task: ${task}
   demo_source: ${demo_source}
   randomness: ${randomness}
   normalization: min_max # min_max, mean_std, none

@@ -19,7 +19,7 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     training.actor_lr=5e-4 training.encoder_lr=1e-5 \
     training.num_epochs=5000 \
     early_stopper.patience=inf \
-    furniture=one_leg_simple \
+    task=one_leg_simple \
     environment=real \
     training.ema.use=true \
     wandb.project=real-one_leg_simple-1 \

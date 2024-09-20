@@ -7,7 +7,7 @@
 #SBATCH --job-name=2_lp_cotrain_40
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
-    furniture=lamp \
+    task=lamp \
     randomness='[low,med]' \
     environment='[real,sim]' \
     data.data_paths_override='[diffik/real/lamp/teleop/low/success.zarr,diffik/sim/lamp_render_rppo/rollout/low/success.zarr,diffik/sim/lamp_render_rppo/rollout/med/success.zarr,diffik/sim/lamp_render_demos_colors/teleop/med/success.zarr,diffik/sim/lamp_render_demos_colors/teleop/med_perturb/success.zarr,diffik/sim/lamp_render_rppo_colors/rollout/low/success.zarr,diffik/sim/lamp_render_rppo_colors/rollout/med/success.zarr]' \

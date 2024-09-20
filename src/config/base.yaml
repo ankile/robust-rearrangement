@@ -22,7 +22,7 @@ predict_past_actions: false
 parts_poses_in_robot_frame: false
 
 observation_type: ???
-furniture: ???
+task: ???
 environment: sim
 demo_source: teleop
 randomness: low

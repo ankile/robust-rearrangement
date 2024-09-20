@@ -28,13 +28,3 @@ def combine_datasets(data_paths, output_path):
 
     out_zarr.attrs["num_episodes"] = len(out_zarr["episode_ends"]) + 1
     out_zarr.attrs["created_at"] = str(datetime.now())
-
-
-if __name__ == "__main__":
-    data_paths = [
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/one_leg/data.zarr",
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/lamp/data.zarr",
-        "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/round_table/data.zarr",
-    ]
-    output_path = "/data/scratch/ankile/furniture-data/data/processed/sim/feature/vip/combined.zarr"
-    combine_datasets(data_paths, output_path)

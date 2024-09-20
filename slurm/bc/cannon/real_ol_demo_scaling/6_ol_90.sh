@@ -10,7 +10,7 @@
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     demo_source=teleop \
-    furniture=one_leg \
+    task=one_leg \
     randomness=low \
     environment=real \
     training.batch_size=256 \

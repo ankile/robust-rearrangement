@@ -9,7 +9,7 @@
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     actor/diffusion_model=transformer \
     demo_source=teleop \
-    furniture='[one_leg_full]' \
+    task='[one_leg_full]' \
     randomness=low \
     environment=real \
     +data.max_episode_count.one_leg_full.teleop.low.success=40 \

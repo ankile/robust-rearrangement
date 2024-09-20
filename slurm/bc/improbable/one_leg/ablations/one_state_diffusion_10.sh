@@ -10,7 +10,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=ol_diff_10
 
-python -m src.train.bc +experiment=state/diff_unet furniture=one_leg \
+python -m src.train.bc +experiment=state/diff_unet task=one_leg \
     rollout=rollout rollout.every=25 rollout.max_steps=700 rollout.num_envs=512 \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     demo_source=teleop randomness=low \

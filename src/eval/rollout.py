@@ -16,7 +16,7 @@ from pathlib import Path
 from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
-from src.common.tasks import furniture2idx
+from src.common.tasks import task2idx
 from src.common.files import trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
 from src.data_processing.utils import filter_and_concat_robot_state
@@ -111,7 +111,7 @@ class SuccessTqdm(tqdm):
         self,
         num_envs: int,
         n_rollouts: int,
-        furniture_name: str,
+        task_name: str,
         *args,
         **kwargs,
     ):
@@ -119,7 +119,7 @@ class SuccessTqdm(tqdm):
 
         self.num_envs = num_envs
         self.n_rollouts = n_rollouts
-        self.furniture_name = furniture_name
+        self.task_name = task_name
         self.round = 0
         self.success_in_prev_rounds = 0
 
@@ -128,7 +128,7 @@ class SuccessTqdm(tqdm):
         n_success += self.success_in_prev_rounds
         success_rate = n_success / total if total > 0 else 0
         self.set_description(
-            f"Performing rollouts ({self.furniture_name}): "
+            f"Performing rollouts ({self.task_name}): "
             f"round {self.round}/{self.n_rollouts//self.num_envs}, "
             f"success: {n_success}/{total} ({success_rate:.1%})"
         )
@@ -259,7 +259,7 @@ def calculate_success_rate(
     pbar = SuccessTqdm(
         num_envs=env.num_envs,
         n_rollouts=n_rollouts,
-        furniture_name=env.furniture_name,
+        task_name=env.task_name,
         total=rollout_max_steps * (n_rollouts // env.num_envs),
         desc="Performing rollouts",
         leave=True,
@@ -267,7 +267,7 @@ def calculate_success_rate(
     )
 
     if n_parts_assemble is None:
-        n_parts_assemble = len(env.furniture.should_be_assembled)
+        n_parts_assemble = len(env.task.should_be_assembled)
 
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -351,7 +351,7 @@ def calculate_success_rate(
             rewards = all_rewards[rollout_idx].numpy()
             parts_poses = all_parts_poses[rollout_idx].numpy()
             success = all_success[rollout_idx].item()
-            furniture = env.furniture_name
+            task = env.task_name
 
             if record_first_state_only:
                 first_robot_states.append(robot_states[0])
@@ -415,7 +415,7 @@ def calculate_success_rate(
                     actions=actions[trim_start_steps:n_steps],
                     rewards=rewards[trim_start_steps:n_steps],
                     success=success,
-                    furniture=furniture,
+                    task=task,
                     action_type=env.action_type,
                     rollout_save_dir=rollout_save_dir,
                     compress_pickles=compress_pickles,
@@ -475,14 +475,14 @@ def do_rollout_evaluation(
         rollout_save_dir = trajectory_save_dir(
             controller=env.ctrl_mode,
             environment="sim",
-            task=env.furniture_name,
+            task=env.task_name,
             demo_source="rollout",
             randomness=config.randomness,
             # Don't create here because we have to do it when we save anyway
             create=False,
         )
 
-    actor.set_task(furniture2idx[env.furniture_name])
+    actor.set_task(task2idx[env.task_name])
 
     rollout_stats = calculate_success_rate(
         env,

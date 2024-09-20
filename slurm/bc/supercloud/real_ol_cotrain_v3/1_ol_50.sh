@@ -8,7 +8,7 @@
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     demo_source=teleop \
-    furniture='[one_leg_full]' \
+    task='[one_leg_full]' \
     randomness=low \
     environment=real \
     wandb.mode=offline \

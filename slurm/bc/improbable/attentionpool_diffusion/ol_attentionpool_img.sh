@@ -12,7 +12,7 @@
 #SBATCH --job-name=ol_attentionpool_diffusion_unet_low
 
 python -m src.train.bc +experiment=image/attentionpool_diffusion \
-    furniture=one_leg \
+    task=one_leg \
     rollout=rollout rollout.every=10 rollout.max_steps=700 rollout.num_envs=16 \
     rollout.randomness=low \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \

@@ -16,7 +16,7 @@ python -m src.train.bc +experiment=state/diff_unet \
     pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
     training.batch_size=1024 training.actor_lr=1e-4 training.num_epochs=10000 \
     rollout.randomness=med \
-    furniture=round_table \
+    task=round_table \
     rollout.max_steps=1000 \
     training.steps_per_epoch=1000 \
     training.actor_lr=3e-4 \

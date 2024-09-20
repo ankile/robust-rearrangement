@@ -170,7 +170,7 @@ def main(cfg: DictConfig):
         data_path = get_processed_paths(
             controller=to_native(cfg.control.controller),
             domain=to_native(cfg.data.environment),
-            task=to_native(cfg.data.furniture),
+            task=to_native(cfg.data.task),
             demo_source=to_native(cfg.data.demo_source),
             randomness=to_native(cfg.data.randomness),
             demo_outcome=to_native(cfg.data.demo_outcome),
@@ -401,7 +401,7 @@ def main(cfg: DictConfig):
 
     early_stop = False
 
-    pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
+    pbar_desc = f"Epoch ({cfg.task}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
     tglobal = trange(
         cfg.training.start_epoch,
@@ -535,7 +535,7 @@ def main(cfg: DictConfig):
                 if env is None:
                     env = get_rl_env(
                         cfg.training.gpu_id,
-                        furniture=cfg.rollout.furniture,
+                        task=cfg.rollout.task,
                         num_envs=cfg.rollout.num_envs,
                         randomness=cfg.rollout.randomness,
                         observation_space=cfg.observation_type,

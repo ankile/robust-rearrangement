@@ -14,7 +14,7 @@ torchrun --standalone --nproc_per_node=1 -m src.train.bc_ddp +experiment=image/d
     actor.diffusion_model.down_dims='[128,256,512]' \
     training.batch_size=64 \
     randomness='[low,low_perturb]' \
-    furniture=one_leg regularization.weight_decay=0 \
+    task=one_leg regularization.weight_decay=0 \
     rollout=rollout rollout.randomness=low rollout.every=1 \
     rollout.max_steps=700 rollout.num_envs=32 \
     training.ema.use=false \

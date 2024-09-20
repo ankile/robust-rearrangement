@@ -12,7 +12,7 @@
 #SBATCH --job-name=01_ol_img_10_demos
 
 python -m src.train.bc +experiment=image/diff_transformer \
-    furniture=one_leg \
+    task=one_leg \
     rollout=rollout rollout.every=25 rollout.max_steps=700 \
     rollout.num_envs=64 rollout.count=256 \
     rollout.randomness=low \

@@ -8,7 +8,7 @@
 
 python -m src.train.bc +experiment=image/diff_unet \
     demo_source='[teleop,rollout]' \
-    furniture=one_leg \
+    task=one_leg \
     randomness='[med,med_perturb]' \
     data.suffix='[rppo_2_000,rppo_2_250]' \
     data.data_subset=1000 \

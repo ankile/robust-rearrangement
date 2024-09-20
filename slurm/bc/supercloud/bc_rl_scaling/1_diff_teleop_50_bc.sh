@@ -8,7 +8,7 @@
 
 python -m src.train.bc +experiment=image/diff_unet \
     demo_source=teleop \
-    furniture=one_leg \
+    task=one_leg \
     randomness='[med,med_perturb]' \
     wandb.mode=offline \
     rollout.rollouts=false \

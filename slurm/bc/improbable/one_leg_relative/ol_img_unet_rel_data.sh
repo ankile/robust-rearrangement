@@ -20,7 +20,7 @@ python -m src.train.bc +experiment=image/diff_unet \
     lr_scheduler.encoder_warmup_steps=100000 \
     rollout=rollout rollout.randomness=low rollout.every=50 \
     rollout.max_steps=700 rollout.num_envs=32 \
-    furniture=one_leg \
+    task=one_leg \
     training.ema.use=false \
     pred_horizon=32 training.batch_size=256 \
     control.control_mode=relative \

@@ -10,7 +10,7 @@ from src.behavior.diffusion import DiffusionPolicy  # noqa
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
-from src.common.tasks import furniture2idx, task_timeout
+from src.common.tasks import task2idx, task_timeout
 from src.common.files import trajectory_save_dir
 from src.gym import get_env, get_rl_env
 from src.eval.eval_utils import load_model_weights
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     parser.add_argument("--n-rollouts", type=int, default=1)
     parser.add_argument("--randomness", type=str, default="low")
     parser.add_argument(
-        "--furniture",
+        "--task",
         "-f",
         type=str,
         choices=[
@@ -134,7 +134,7 @@ if __name__ == "__main__":
             "square_table",
             "cabinet",
             "mug_rack",
-            "factory_peg_hole"
+            "factory_peg_hole",
         ],
         required=True,
     )
@@ -215,7 +215,7 @@ if __name__ == "__main__":
 
     # Set the timeout
     rollout_max_steps = (
-        task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+        task_timeout(args.task, n_parts=args.n_parts_assemble)
         if args.max_rollout_steps is None
         else args.max_rollout_steps
     )
@@ -227,7 +227,7 @@ if __name__ == "__main__":
     )
     env: Optional[FurnitureSimEnv] = None
 
-    f: str = args.furniture
+    f: str = args.task
 
     # Summary prefix, shoprtened to spf for brevity downstream
     spf = f"{f}/" + "" if args.multitask else ""
@@ -302,7 +302,7 @@ if __name__ == "__main__":
                 if env is None:
                     env = get_rl_env(
                         gpu_id=args.gpu,
-                        furniture=args.furniture,
+                        task=args.task,
                         num_envs=args.n_envs,
                         randomness=args.randomness,
                         observation_space=args.observation_space,
@@ -332,7 +332,7 @@ if __name__ == "__main__":
                 )
 
                 cfg = OmegaConf.create(run.config)
-                
+
                 # Check that we didn't set the wrong action type and pose representation
                 assert cfg.control.control_mode == args.action_type
                 assert (
@@ -363,7 +363,7 @@ if __name__ == "__main__":
                     trajectory_save_dir(
                         controller=args.controller,
                         domain="sim",
-                        task=args.furniture,
+                        task=args.task,
                         demo_source="rollout",
                         randomness=args.randomness,
                         suffix=args.save_rollouts_suffix,
@@ -385,7 +385,7 @@ if __name__ == "__main__":
 
                 # Perform the rollouts
                 print(f"Starting rollout of run: {run.name}")
-                actor.set_task(furniture2idx[args.furniture])
+                actor.set_task(task2idx[args.task])
                 rollout_stats = calculate_success_rate(
                     actor=actor,
                     env=env,

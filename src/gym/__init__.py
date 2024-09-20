@@ -83,7 +83,7 @@ from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 def get_rl_env(
     gpu_id,
-    furniture="one_leg",
+    task="one_leg",
     num_envs=1,
     randomness="low",
     max_env_steps=5_000,
@@ -120,7 +120,7 @@ def get_rl_env(
 
     with suppress_all_output(not verbose):
         env = FurnitureRLSimEnv(
-            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
+            furniture=task,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=False,  # If true, robot state is concatenated to the observation.

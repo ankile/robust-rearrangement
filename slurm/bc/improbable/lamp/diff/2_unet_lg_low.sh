@@ -16,7 +16,7 @@
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
-    furniture=lamp \
+    task=lamp \
     rollout.max_steps=1000 \
     wandb.project=lp-state-dr-low-1 \
     wandb.continue_run_id="zvhn9qul" \
