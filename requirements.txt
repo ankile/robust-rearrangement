@@ -39,7 +39,6 @@ fasteners==0.19
 filelock==3.13.1
 fonttools==4.49.0
 fsspec==2024.2.0
--e git+ssh://git@github.com/ankile/furniture-bench.git@2e2bc386839faf48a82af7c4bf955656c7b7d46e#egg=furniture_bench&subdirectory=../../furniture-bench
 fvcore==0.1.5.post20221221
 gdown==5.1.0
 gitdb==4.0.11
@@ -66,8 +65,6 @@ ipykernel==6.29.4
 ipython==8.12.3
 ipytree==0.2.2
 ipywidgets==8.1.2
-# Editable install with no version control (isaacgym==1.0rc4)
--e /data/scratch/ankile/isaacgym/python
 jax-jumpy==1.0.0
 jedi==0.19.1
 Jinja2==3.1.3
@@ -144,13 +141,11 @@ pytorch3d==0.3.0
 pytz==2023.3
 PyYAML==6.0.1
 pyzmq==25.1.2
--e git+ssh://git@github.com/ankile/furniture-bench.git@2e2bc386839faf48a82af7c4bf955656c7b7d46e#egg=r3m&subdirectory=../../furniture-bench/r3m
 rechunker==0.5.2
 regex==2023.12.25
 requests==2.31.0
 requests-oauthlib==1.3.1
 rich==13.7.0
--e git+https://github.com/ARISE-Initiative/robomimic.git@b4f2d173f8161a1bedf13b5f045f05b4d6d38d9e#egg=robomimic
 rsa==4.7.2
 s3transfer==0.10.2
 safetensors==0.4.2
@@ -163,8 +158,6 @@ shtab==1.6.4
 six==1.16.0
 smmap==5.0.1
 soupsieve==2.5
-spnav @ git+https://github.com/cheng-chi/spnav@c1c938ebe3cc542db4685e0d13850ff1abfdb943
--e git+ssh://git@github.com/ankile/robust-rearrangement.git@99094064367075d376a16101ccc195ab514145ad#egg=src
 stable-baselines3==2.0.0
 stack-data==0.6.3
 sympy==1.12
