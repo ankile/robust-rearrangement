@@ -202,21 +202,40 @@ _NOTE:_ We are also working on releasing our weights in a way that's independent
 
 To pre-train the models, please ensure that you've downloaded the relevant data and that the `DATA_DIR_PROCESSED` environment variable is set correctly.
 
-The pre-training runs can then be launched with one of these commands:
+The pre-training runs can then be launched with one of these commands (the `dryrun` flag is nice for debugging as it turns off WandB, loads less data, and makes epochs shorter):
 
 **`one_leg`**
 
 ```bash
-python -m src.train.bc +experiment=state/diff_unet \
-    task=one_leg \
-    rollout=rollout rollout.every=10 rollout.max_steps=700 rollout.num_envs=512 \
-    rollout.randomness=low \
-    pred_horizon=32 action_horizon=8 obs_horizon=1 control.controller=diffik \
-    demo_source=teleop randomness='[low,low_perturb]' \
-    training.batch_size=128 training.actor_lr=1e-4 training.num_epochs=10000 \
-    training.steps_per_epoch=1000 \
-    wandb.project=ol-state-low \
-    dryrun=false
+python -m src.train.bc +experiment=state/diff_unet task=one_leg randomness=low dryrun=false
+python -m src.train.bc +experiment=state/diff_unet task=one_leg randomness=med dryrun=false
+```
+
+**`lamp`**
+
+```bash
+python -m src.train.bc +experiment=state/diff_unet task=lamp randomness=low dryrun=false
+python -m src.train.bc +experiment=state/diff_unet task=lamp randomness=med dryrun=false
+```
+
+**`round_table`**
+
+```bash
+python -m src.train.bc +experiment=state/diff_unet task=round_table randomness=low dryrun=false
+python -m src.train.bc +experiment=state/diff_unet task=round_table randomness=med dryrun=false
+```
+
+**`mug_rack`**
+
+```bash
+python -m src.train.bc +experiment=state/diff_unet task=mug_rack randomness=low dryrun=false
+```
+```
+
+**`peg_hole`**
+
+```bash
+python -m src.train.bc +experiment=state/diff_unet task=factory_peg_hole randomness=low dryrun=false
 ```
 
 
