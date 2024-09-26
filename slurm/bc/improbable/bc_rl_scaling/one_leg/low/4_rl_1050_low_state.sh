@@ -13,4 +13,4 @@
 
 python -m src.train.bc +experiment=state/scaling_1k \
     wandb.continue_run_id=659bc152 \
-    dryrun=true
+    dryrun=false

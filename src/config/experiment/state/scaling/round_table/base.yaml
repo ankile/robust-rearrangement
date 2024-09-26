@@ -1,0 +1,27 @@
+# @package _global_
+defaults:
+  - override /actor: diffusion
+  - override /actor/diffusion_model: unet
+  - override /rollout: rollout
+
+rollout:
+  num_envs: 1024
+  every: 100
+  randomness: low
+  max_steps: 1000
+
+observation_type: state
+
+training:
+  num_epochs: 3000
+  batch_size: 1024
+  steps_per_epoch: 1000
+  checkpoint_interval: -1
+  eval_every: 10
+  store_last_model: true
+
+randomness: low
+task: round_table
+
+wandb:
+  project: rt-scaling-low-1

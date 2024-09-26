@@ -351,7 +351,7 @@ def calculate_success_rate(
             rewards = all_rewards[rollout_idx].numpy()
             parts_poses = all_parts_poses[rollout_idx].numpy()
             success = all_success[rollout_idx].item()
-            task = env.task_name
+            task = env.furniture_name
 
             if record_first_state_only:
                 first_robot_states.append(robot_states[0])

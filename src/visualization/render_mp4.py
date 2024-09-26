@@ -90,17 +90,21 @@ def mp4_from_data_dict_jupyter(data_dict: dict, filename, fps=10):
     return create_mp4_jupyter(ims, filename, fps)
 
 
-def create_mp4(np_images: np.ndarray, filename: Union[str, Path], fps=10) -> None:
+def create_mp4(
+    np_images: np.ndarray, filename: Union[str, Path], fps=10, verbose=False
+) -> None:
     # duration = 1000 / fps
     with imageio.get_writer(filename, fps=fps) as writer:
-        for img in tqdm(np_images):
+        for img in tqdm(np_images, disable=not verbose):
             writer.append_data(img)
-    print(f"File saved as {filename}")
+
+    if verbose:
+        print(f"File saved as {filename}")
 
 
-def mp4_from_pickle(pickle_path, filename=None):
-    ims = extract_numpy_frames(pickle_path)
-    create_mp4(ims, filename)
+def mp4_from_pickle(pickle_path, filename=None, fps=10, cameras=[1, 2]):
+    ims = extract_numpy_frames(pickle_path, cameras)
+    create_mp4(ims, filename, fps)
 
 
 def extract_numpy_frames(pickle_path: Union[str, Path], cameras=[1, 2]) -> np.ndarray:

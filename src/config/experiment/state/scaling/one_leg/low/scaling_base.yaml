@@ -8,7 +8,7 @@ defaults:
 rollout:
   num_envs: 1024
   every: 100
-  furniture: one_leg
+  furniture: factory_peg_hole
   randomness: low
 
 observation_type: state

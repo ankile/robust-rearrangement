@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - state/scaling/round_table/base
+  
+data:
+  data_paths_override:
+    - diffik/sim/round_table/teleop/low/success.zarr
+    - diffik/distillation/round_table/rollout/low/success/rppo_0.zarr
+

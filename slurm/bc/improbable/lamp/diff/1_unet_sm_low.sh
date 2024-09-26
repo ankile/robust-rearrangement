@@ -19,4 +19,4 @@ python -m src.train.bc +experiment=state/diff_unet \
     task=lamp \
     wandb.continue_run_id=null \
     wandb.project=lp-state-dr-low-1 \
-    dryrun=false
+    dryrun=true
