@@ -90,7 +90,6 @@ def get_rl_env(
     resize_img=True,
     observation_space="image",  # Observation space for the robot. Options are 'image' and 'state'.
     act_rot_repr="quat",
-    ctrl_mode: str = "diffik",
     action_type="pos",  # Action type for the robot. Options are 'delta' and 'pos'.
     april_tags=False,
     verbose=False,
@@ -137,7 +136,7 @@ def get_rl_env(
             record=record,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
-            ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
+            ctrl_mode="diffik",  # Control mode for the robot. Options are 'osc' and 'diffik'.
             action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
             verbose=verbose,  # If true, prints debug information.
             **kwargs,

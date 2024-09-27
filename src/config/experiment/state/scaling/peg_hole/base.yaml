@@ -6,7 +6,7 @@ defaults:
 
 rollout:
   num_envs: 1024
-  every: 100
+  every: 10
   randomness: low
   max_steps: 100
 
