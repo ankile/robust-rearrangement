@@ -240,6 +240,19 @@ python -m src.train.bc +experiment=state/diff_unet task=mug_rack randomness=low 
 python -m src.train.bc +experiment=state/diff_unet task=factory_peg_hole randomness=low dryrun=false
 ```
 
+You can run evaluations with a command like:
+
+```bash
+python -m src.eval.evaluate_model --n-envs 1024 --n-rollouts 1024 -f one_leg --if-exists append --max-rollout-steps 700 --action-type pos --observation-space image --randomness low --wt-type best_success_rate --run-id <wandb-project>/<wandb-run-id>
+```
+
+You can add the following flags to visualize in the viewer or store the rollouts:
+
+```bash
+--observation-space image --save-rollouts --visualize
+```
+
+
 
 #### Evaluate pre-trained checkpoints
 
@@ -250,6 +263,12 @@ _Our BC pre-trained weights are to be available for download shortly_
 ```
 https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/low/actor_chkpt.pt
 https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/med/actor_chkpt.pt
+```
+
+Once these are downloaded, you can run evaluation of the weights in a very similar manner to the above, except that you can substitute `--run-id` and `wt-type` with `wt-path`, like so:
+
+```bash
+python -m src.eval.evaluate_model --n-envs 1024 --n-rollouts 1024 -f one_leg --if-exists append --max-rollout-steps 1000 --action-type pos --randomness low --observation-space state --wt-path <path to checkpoints>/bc/one_leg/low/actor_chkpt.pt   
 ```
 
 
