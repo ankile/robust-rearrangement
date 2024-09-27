@@ -5,6 +5,8 @@ _**NOTE** (updated Sept 1, 2024): The repo is still under active development and
 
 _**Update Sept 20, 2024:**_ The data used to train the models in this project is now available in an [S3 bucket](https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/index.html). We also have a script to download data for the different tasks in the right places.
 
+_**Update Sept 27, 2024:**_ Commands for starting the BC pre-training on the data is added, as well as started adding the model weights from the paper.
+
 
 ## Installation Instructions
 
@@ -242,6 +244,13 @@ python -m src.train.bc +experiment=state/diff_unet task=factory_peg_hole randomn
 #### Evaluate pre-trained checkpoints
 
 _Our BC pre-trained weights are to be available for download shortly_
+
+`one_leg` BC pre-trained weights:
+
+```
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/low/actor_chkpt.pt
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/med/actor_chkpt.pt
+```
 
 
 ### RL Fine-tuning
