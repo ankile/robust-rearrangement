@@ -12,6 +12,9 @@ rollout:
 
 observation_type: state
 
+early_stopper:
+  patience: inf
+
 training:
   num_epochs: 3000
   batch_size: 1024

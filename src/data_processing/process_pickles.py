@@ -330,7 +330,7 @@ if __name__ == "__main__":
         "--domain",
         "-d",
         type=str,
-        choices=["sim", "real"],
+        choices=["sim", "real", "distillation"],
         required=True,
     )
     parser.add_argument(
@@ -487,7 +487,7 @@ if __name__ == "__main__":
     z.attrs["random_seed"] = args.random_seed
     z.attrs["demo_source"] = args.source
     z.attrs["controller"] = args.controller
-    z.attrs["domain"] = args.domain
+    z.attrs["domain"] = args.domain if args.domain == "real" else "sim"
     z.attrs["task"] = args.task
     z.attrs["randomness"] = args.randomness
     z.attrs["demo_outcome"] = args.demo_outcome

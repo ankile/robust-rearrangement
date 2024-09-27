@@ -77,11 +77,11 @@ def sample_sequence(
 class ImageDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dataset_paths: Union[List[str], str],
+        dataset_paths: Union[List[Path], Path],
         pred_horizon: int,
         obs_horizon: int,
         action_horizon: int,
-        data_subset: int = None,
+        data_subset: Optional[int] = None,
         predict_past_actions: bool = False,
         control_mode: ControlMode = ControlMode.delta,
         pad_after: bool = True,

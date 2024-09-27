@@ -1,3 +1,4 @@
+from git import Union
 import furniture_bench
 from collections import defaultdict
 from datetime import datetime
@@ -127,6 +128,8 @@ def main(cfg: DictConfig):
         run_path = f"{cfg.wandb.project}/{run_id}"
         wandb_mode = cfg.wandb.mode
 
+        data_paths_override = cfg.data.data_paths_override
+
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
@@ -140,6 +143,7 @@ def main(cfg: DictConfig):
         # Ensure we set the `continue_run_id` to the run_id
         cfg.wandb.continue_run_id = run_id
         cfg.wandb.mode = wandb_mode
+        cfg.data.data_paths_override = data_paths_override
 
         state_dict = torch.load(wts)
 
@@ -180,6 +184,8 @@ def main(cfg: DictConfig):
         data_path = path_override(cfg.data.data_paths_override)
 
     print(f"Using data from {data_path}")
+
+    dataset: Union[ImageDataset, StateDataset]
 
     if cfg.observation_type == "image":
         dataset = ImageDataset(
@@ -481,6 +487,7 @@ def main(cfg: DictConfig):
             "best_success_rate": best_success_rate,
             "epoch": epoch_idx,
             "global_step": global_step,
+            "config": OmegaConf.to_container(cfg, resolve=True),
         }
 
         # Add the optimizer and scheduler states to the save dict
