@@ -18,4 +18,4 @@ python -m src.train.ppo \
     num_env_steps=1000 \
     num_envs=1024 \
     wandb.project=lp-mlp-ppo-dr-low-1 \
-    debug=true
+    debug=false

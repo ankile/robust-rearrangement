@@ -114,3 +114,5 @@ multirun/
 tmp
 
 *.out
+
+*.csv

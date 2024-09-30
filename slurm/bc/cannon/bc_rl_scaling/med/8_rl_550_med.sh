@@ -8,7 +8,7 @@
 #SBATCH --account=parkes_low_priority
 #SBATCH --job-name=8_550_med
 
-# Run vision-based training on one_leg furniture with med randomness
+# Run vision-based training on one_leg task with med randomness
 # with the original 50 teleop demos plus 500 rollout demos from RL training
 
 python -m src.train.bc +experiment=image/scaling_med \

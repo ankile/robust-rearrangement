@@ -11,6 +11,6 @@ python -m src.train.bc +experiment=state/mlp_lg_si \
     data.data_subset=50 \
     wandb.project=ol-state-dr-high-1 \
     rollout.rollouts=false \
-    furniture=one_leg \
+    task=one_leg \
     wandb.mode=offline \
     dryrun=false

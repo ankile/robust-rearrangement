@@ -1,4 +1,7 @@
-from src.gym.furniture_sim_env import FurnitureRLSimEnv
+from typing import Dict
+import cv2
+import imageio
+import numpy as np
 import torch
 
 from ipdb import set_trace as bp
@@ -146,30 +149,37 @@ class NormalizeRewardWrapper(gym.core.Wrapper):
         return rews / torch.sqrt(self.return_rms.var + self.epsilon)
 
 
-class ActionChunkWrapper:
-    def __init__(self, env: FurnitureRLSimEnv, chunk_size: int):
-        self.env = env
-        self.chunk_size = chunk_size
+class VideoRecorder:
+    def __init__(self, output_path, fps, width, height, channel_first=True):
+        self.output_path = str(output_path)
+        print(f"Recording video to {output_path}")
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.channel_first = channel_first
+        self.writer = None
+        self.record = False
 
-        # Update the action space to have the correct shape, i.e., insert the chunk size
-        self.env.action_space = gym.spaces.Box(
-            low=env.action_space.low.repeat(chunk_size, axis=0),
-            high=env.action_space.high.repeat(chunk_size, axis=0),
-        )
+    def start_recording(self):
+        self.writer = imageio.get_writer(self.output_path, fps=self.fps)
+        self.record = True
 
-    def reset(self, env_idxs: torch.tensor = None):
-        return self.env.reset(env_idxs=env_idxs)
+    def stop_recording(self):
+        if self.writer is not None:
+            self.writer.close()
+        self.record = False
 
-    def step(self, action_chunk):
-        total_reward = torch.zeros(action_chunk.shape[0], device=action_chunk.device)
-        dones = torch.zeros(
-            action_chunk.shape[0], dtype=torch.bool, device=action_chunk.device
-        )
-        for i in range(self.chunk_size):
-            # The dimensions of the action_chunk are (num_envs, chunk_size, action_dim)
-            # bp()
-            obs, reward, done, info = self.env.step(action_chunk[:, i, :])
-            total_reward += reward.squeeze()
-            dones = dones | done.squeeze()
+    def restart_recording(self):
+        self.stop_recording()
+        self.start_recording()
 
-        return obs, total_reward, done, info
+    def record_frame(self, obs: Dict[str, torch.Tensor]):
+        if self.record:
+            record_images = []
+            for k in ["color_image1", "color_image2"]:
+                img: torch.Tensor = obs[k][0].cpu().numpy()
+                if self.channel_first:
+                    img = img.transpose(0, 2, 3, 1)
+                record_images.append(img.squeeze())
+            stacked_img = np.hstack(record_images)
+            self.writer.append_data(stacked_img)

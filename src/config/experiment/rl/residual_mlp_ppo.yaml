@@ -1,0 +1,4 @@
+# @package _global_
+defaults:
+  - rl/residual_ppo
+  - override /actor: residual_mlp

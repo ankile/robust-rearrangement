@@ -16,6 +16,6 @@ python -m src.train.bc +experiment=image/real_one_leg_insert \
     vision_encoder=r3m vision_encoder.model=r3m_34 \
     vision_encoder.pretrained=true vision_encoder.freeze=false \
     regularization.feature_layernorm=true \
-    furniture='[one_leg_insert,one_leg]' \
+    task='[one_leg_insert,one_leg]' \
     environment='[sim,real]' \
     dryrun=false

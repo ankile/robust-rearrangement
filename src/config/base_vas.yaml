@@ -1,0 +1,80 @@
+defaults:
+- _self_
+- actor: diffusion
+
+seed: null
+torch_deterministic: false
+headless: true
+reset_on_failure: false
+reset_every_iteration: true
+reset_on_success: true
+eval_interval: 5
+eval_first: true
+checkpoint_interval: 10
+truncation_as_done: true
+
+base_policy:
+  wandb_id: ol-state-dr-high-1/jukzzw0p
+  wt_type: best_success_rate
+
+observation_type: state
+
+critic:
+  hidden_size: 256
+  num_layers: 2
+  activation: ReLU
+  last_layer_bias_const: 0.25
+  last_layer_std: 0.25
+  last_layer_activation: null
+
+init_logstd: -4.0
+
+total_timesteps: 500_000_000
+num_envs: 1024
+num_minibatches: 1
+update_epochs: 1
+num_env_steps: 696
+data_collection_steps: ${eval:'${num_env_steps} // ${actor.action_horizon}'}
+
+env:
+  task: ???
+  randomness: low
+
+# Algorithm specific arguments
+gamma: 1.0
+gae_lambda: 1.0
+norm_adv: true
+normalize_reward: true
+clip_reward: 5.0
+clip_coef: 0.2
+clip_vloss: false
+ent_coef: 0.0
+vf_coef: 1.0
+max_grad_norm: 1.0
+bc_coef: 0.0
+kl_coef: 0.0
+learning_rate: 1e-4
+anneal_lr: false
+sigma: 0.0
+
+target_kl: 0.1
+n_iterations_train_only_value: 0
+
+# Calculate the batch size as the data collection steps times the number of environments
+batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
+minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
+num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
+
+
+control:
+  controller: diffik  # diffik
+  control_mode: pos
+  act_rot_repr: rot_6d
+
+
+wandb:
+  entity: robust-assembly
+  project: vas-dr-${env.randomness}-1
+  mode: online
+
+debug: false

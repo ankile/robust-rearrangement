@@ -60,6 +60,9 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
 
     def load_base_state_dict(self, path: str):
         base_state_dict = torch.load(path)
+        if "model_state_dict" in base_state_dict:
+            base_state_dict = base_state_dict["model_state_dict"]
+
         # Load the model weights
         base_model_state_dict = {
             key[len("model.") :]: value
@@ -76,9 +79,13 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         }
         self.normalizer.load_state_dict(base_normalizer_state_dict)
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def compute_loss(
+        self, batch: Dict[str, torch.Tensor], base_only: bool = True
+    ) -> torch.Tensor:
         # Cut off the unused observations before passing to the bc loss
         bc_loss, losses = super().compute_loss(batch)
+        if base_only:
+            return bc_loss, losses
 
         # Predict the action
         with torch.no_grad():
@@ -147,7 +154,7 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         return self.normalizer(naction + residual, "action", forward=False)
 
     @torch.no_grad()
-    def base_action_normalized(self, obs: Dict[str, torch.Tensor]):
+    def base_action_normalized(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         action = super().action(obs)
         return self.normalizer(action, "action", forward=True)
 
@@ -221,12 +228,31 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
     def action_normalized(self, obs: Dict[str, torch.Tensor]):
         raise NotImplementedError
 
+    def correct_action(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """
+        Predict the correction to the action given the observation and the action
+        """
+        nobs = self.process_obs(obs)
+        naction = self.normalizer(action, "action", forward=True)
+
+        residual_nobs = torch.cat([nobs, naction], dim=-1)
+
+        naction_corrected = (
+            naction
+            + self.residual_policy.actor_mean(residual_nobs)
+            * self.residual_policy.action_scale
+        )
+
+        return self.normalizer(naction_corrected, "action", forward=False)
+
     def reset(self):
         """
         Reset the actor
         """
         self.base_nactions.clear()
         self.observations.clear()
+        if self.actions is not None:
+            self.actions.clear()
 
     @property
     def actor_parameters(self):
@@ -237,3 +263,14 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
     @property
     def critic_parameters(self):
         return [p for n, p in self.residual_policy.named_parameters() if "critic" in n]
+
+    @property
+    def base_actor_parameters(self):
+        """
+        Return the parameters of the base model (actor only)
+        """
+        return [
+            p
+            for n, p in self.model.named_parameters()
+            if not (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]

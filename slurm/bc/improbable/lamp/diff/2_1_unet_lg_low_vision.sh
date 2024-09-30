@@ -12,7 +12,7 @@
 #SBATCH --job-name=2_lp_unet_lg_low_vision
 
 python -m src.train.bc +experiment=image/diff_unet \
-    furniture=lamp \
+    task=lamp \
     randomness='[low,low_perturb]' \
     rollout=rollout \
     rollout.randomness=low \

@@ -13,6 +13,6 @@
 python -m src.train.bc +experiment=state/diff_tran \
     randomness='[med,med_perturb]' \
     rollout.randomness=med \
-    furniture=round_table \
+    task=round_table \
     wandb.project=rt-state-dr-med-1 \
     dryrun=false

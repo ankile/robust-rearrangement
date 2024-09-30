@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
   - override /vision_encoder: r3m
+  - override /actor/diffusion_model: transformer
 
 observation_type: image
 
@@ -22,14 +23,22 @@ data:
 
 training:
   batch_size: 256
-  checkpoint_interval: 100
-  num_epochs: 2000
+  checkpoint_interval: 250
+  num_epochs: 5000
   steps_per_epoch: 100
   encoder_lr: 1e-5
+  eval_every: 50
+  sample_every: 100
+
+lr_scheduler:
+  name: cosine
+  warmup_steps: 2_000
+  encoder_warmup_steps: 50_000
 
 regularization:
   feature_layernorm: true
   front_camera_dropout: 0.1
+  weight_decay: 1e-3
 
 furniture: [one_leg,one_leg_simple]
 randomness: [med, med_perturb,low]

@@ -13,6 +13,7 @@ rollout:
 
 training:
   num_epochs: 10000
+  batch_size: 1024
 
 randomness: low
 furniture: one_leg

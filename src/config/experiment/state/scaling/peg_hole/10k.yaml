@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - state/scaling/peg_hole/base
+  
+data:
+  data_paths_override:
+    - diffik/sim/factory_peg_hole/teleop/low/success.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_0.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_1.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_2.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_3.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_4.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_5.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_6.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_7.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_8.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_9.zarr

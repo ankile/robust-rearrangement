@@ -12,7 +12,7 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=state/mlp_diffik_rollout furniture=one_leg \
+python -m src.train.bc +experiment=state/mlp_diffik_rollout task=one_leg \
     action_horizon=4 pred_horizon=4 \
     actor.hidden_dims='[1024, 1024]' \
     obs_horizon=3 actor.dropout=0.5 \

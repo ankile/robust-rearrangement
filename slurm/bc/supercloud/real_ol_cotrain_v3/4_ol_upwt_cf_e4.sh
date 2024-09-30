@@ -8,7 +8,7 @@
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     demo_source='[teleop,rollout]' \
-    furniture='[one_leg_render_rppo,one_leg_full,one_leg_highres]' \
+    task='[one_leg_render_rppo,one_leg_full,one_leg_highres]' \
     randomness='[low,med,med_perturb]' \
     environment='[real,sim]' \
     actor.confusion_loss_beta=1e-4 \

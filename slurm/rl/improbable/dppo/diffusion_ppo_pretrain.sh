@@ -14,8 +14,8 @@
 # git checkout diffusion-adapt
 
 cd /data/scratch/ankile/diffusion-adapt
-git checkout lars-furniture-tasks
+git checkout lars-task-tasks
 
 # source env.sh
 
-WANDB_ENTITY=ankile DIFF_BASE=/data/scratch/ankile WANDB_MODE=online python script/train_diffusion.py --config-name=pretrain_diffusion_unet_furniture --config-dir=cfg/robomimic/pretrain-state
+WANDB_ENTITY=ankile DIFF_BASE=/data/scratch/ankile WANDB_MODE=online python script/train_diffusion.py --config-name=pretrain_diffusion_unet_task --config-dir=cfg/robomimic/pretrain-state

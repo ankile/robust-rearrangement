@@ -14,7 +14,7 @@
 python -m src.train.bc +experiment=state/mlp_lg_ch \
     randomness='[med,med_perturb]' \
     rollout.randomness=med \
-    furniture=lamp \
+    task=lamp \
     rollout.max_steps=1000 \
     wandb.continue_run_id=d9mauuiw \
     wandb.project=lp-state-dr-med-1 \

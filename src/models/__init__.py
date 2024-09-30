@@ -18,6 +18,11 @@ def get_encoder(
         from src.models.vision import DinoV2Encoder
 
         return DinoV2Encoder(model_name=encoder_name, freeze=freeze, device=device)
+
+    if encoder_name.startswith("clip"):
+        from src.models.vision import ClipViTEncoder
+
+        return ClipViTEncoder(model_name=encoder_name, freeze=freeze, device=device)
     if encoder_name.startswith("r3m"):
         from src.models.vision import R3MEncoder
 

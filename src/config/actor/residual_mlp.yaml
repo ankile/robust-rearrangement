@@ -1,0 +1,19 @@
+defaults:
+  - mlp
+
+name: residual_mlp
+
+residual_policy:
+  _target_: src.models.residual.ResidualPolicy
+  init_logstd: -1.5
+  learn_std: true
+  action_head_std: 0.0
+  action_scale: 0.1
+  actor_hidden_size: 256
+  actor_num_layers: 2
+  critic_hidden_size: 256
+  critic_num_layers: 2
+  actor_activation: ReLU
+  critic_activation: ReLU
+  critic_last_layer_bias_const: 0.25
+  critic_last_layer_std: 0.25

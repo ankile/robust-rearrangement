@@ -67,6 +67,8 @@ class KeyboardInterface(DeviceInterface):
                 self._adjust_delta(k)
             elif k == "t":
                 self.key_enum = CollectEnum.SUCCESS
+            elif k == "y":
+                self.key_enum = CollectEnum.SUCCESS_RECORD
             elif k == "n":
                 self.key_enum = CollectEnum.FAIL
             elif k.isdigit():

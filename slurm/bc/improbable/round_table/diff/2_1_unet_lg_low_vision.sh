@@ -11,7 +11,7 @@
 #SBATCH --job-name=2_1_rt_low_vision
 
 python -m src.train.bc +experiment=image/diff_unet \
-    furniture=round_table \
+    task=round_table \
     randomness='[low,low_perturb]' \
     rollout=rollout \
     rollout.randomness=low \

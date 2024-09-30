@@ -1,9 +1,7 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from typing import Dict
 from src.dataset.normalizer import LinearNormalizer
-from src.gym.furniture_sim_env import (
-    FurnitureRLSimEnv,
-)
+from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 import torch
 import src.common.geometry as G
@@ -24,6 +22,8 @@ class FurnitureEnvRLWrapper:
         ee_dof=10,
         chunk_size=1,
         reset_on_success=False,
+        normalize_reward=False,
+        reward_clip=5.0,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
@@ -36,8 +36,7 @@ class FurnitureEnvRLWrapper:
         # Define a new action space of dim 3 (x, y, z)
         self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
 
-        # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
-        # and 16 + 35 for 6D proprioception
+        # Define a new observation space of dim 16 + 35 for 6D proprioception
         self.observation_space = gym.spaces.Box(
             -float("inf"),
             float("inf"),
@@ -46,6 +45,12 @@ class FurnitureEnvRLWrapper:
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
+
+        self.reward_normalizer = (
+            RunningMeanStdClip(shape=(1,), clip_value=reward_clip)
+            if normalize_reward
+            else None
+        )
 
         self.no_rotation_or_gripper = torch.tensor(
             [[0, 0, 0, 1, -1]], device=device, dtype=torch.float32
@@ -109,7 +114,7 @@ class FurnitureEnvRLWrapper:
             total_reward += reward.squeeze()
             dones = dones | done.squeeze()
 
-        return obs, total_reward, done, info
+        return obs, total_reward, dones, info
 
     def step(self, naction_chunk: torch.Tensor):
         assert naction_chunk.shape[-2:] == self.action_space.shape
@@ -128,9 +133,13 @@ class FurnitureEnvRLWrapper:
 
         done = terminated | truncated
 
+        if self.reward_normalizer is not None:
+            reward = self.reward_normalizer(reward)
+
+        # NOTE: We take this out to be safe as it's not currently compatible with the lamp task
         # Reset the envs that have reached the max number of steps or got reward
-        if self.reset_on_success and torch.any(done):
-            obs = self.env.reset(torch.nonzero(done).view(-1))
+        # if self.reset_on_success and torch.any(done):
+        #     obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 
@@ -176,37 +185,39 @@ class RunningMeanStdClip:
         return torch.clamp(x_normalized, -self.clip_value, self.clip_value)
 
 
-class ResidualPolicyEnvWrapper:
+class RLPolicyEnvWrapper:
 
     def __init__(
         self,
         env: FurnitureRLSimEnv,
         max_env_steps=300,
-        ee_dof=10,
-        task="oneleg",
         normalize_reward=False,
-        add_relative_pose=False,
         reset_on_success=True,
         reset_on_failure=False,
+        reward_clip=5.0,
+        sample_perturbations=False,
         device="cuda",
     ):
         # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
-        self.task = task
-        self.add_relative_pose = add_relative_pose
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
         self.device = device
         self.reward_normalizer = (
-            RunningMeanStdClip(shape=(1,), clip_value=5.0) if normalize_reward else None
+            RunningMeanStdClip(shape=(1,), clip_value=reward_clip)
+            if normalize_reward
+            else None
         )
+        self.sample_perturbations = sample_perturbations
 
         self.env_success = torch.zeros(
             self.env.num_envs, device=self.device, dtype=torch.bool
         )
 
         # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(ee_dof,))
+        self.action_space = gym.spaces.Box(
+            -1, 1, shape=(self.env.action_space.shape[-1],)
+        )
 
         # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
         # and 16 + 35 for 6D proprioception
@@ -231,26 +242,22 @@ class ResidualPolicyEnvWrapper:
         assert action.shape[1:] == self.action_space.shape
 
         # Move the robot
-        obs, reward, done, info = self.env.step(action)
+        obs, reward, termination, info = self.env.step(
+            action, sample_perturbations=self.sample_perturbations
+        )
         reward = reward.squeeze()
-        done = done.squeeze()
+        termination = termination.squeeze()
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
 
-        # Reset the envs that have reached the max number of steps or got reward
-        # if self.reset_on_success and torch.any(done):
-        #     obs = self.env.reset(torch.nonzero(done).view(-1))
-
-        # TODO - come back to think about truncation vs. termination in long horizon tasks
-        # Check if any envs have reached the max number of steps
-        done = self.env.env_steps >= self.max_env_steps
+        truncation = self.env.env_steps >= self.max_env_steps
 
         # Clip the obs
         obs["robot_state"] = torch.clamp(obs["robot_state"], -3, 3)
         obs["parts_poses"] = torch.clamp(obs["parts_poses"], -3, 3)
 
-        return obs, reward, done, False, info
+        return obs, reward, termination, truncation, info
 
     def increment_randomness(self):
         self.env.increment_randomness()

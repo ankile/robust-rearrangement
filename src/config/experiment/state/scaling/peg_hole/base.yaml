@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - override /actor: diffusion
+  - override /actor/diffusion_model: unet
+  - override /rollout: rollout
+
+rollout:
+  num_envs: 1024
+  every: 10
+  randomness: low
+  max_steps: 100
+
+observation_type: state
+
+early_stopper:
+  patience: inf
+
+training:
+  num_epochs: 3000
+  batch_size: 1024
+  steps_per_epoch: 1000
+  checkpoint_interval: -1
+  eval_every: 10
+  store_last_model: true
+
+randomness: low
+task: factory_peg_hole
+
+wandb:
+  project: fph-scaling-low-1

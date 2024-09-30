@@ -13,6 +13,12 @@ from src.common.types import (
     DemoStatus,
 )
 
+SCAN_ASSET_ROOT = Path(__file__).parent.parent.absolute() / "real2sim/assets"
+SCAN_ASSET_FB_ROOT = (
+    Path(__file__).parent.parent.parent.absolute()
+    / "furniture-bench/furniture_bench/assets_no_tags"
+)
+
 
 def add_subdir(path: Path, parts: Union[List[str], str, None]) -> Path:
     if parts is None:
@@ -55,7 +61,8 @@ def get_processed_path(
     path = add_subdir(path, demo_outcome)
 
     # We can mix suffixes
-    path = add_subdir(path, suffix)
+    if suffix is not None:
+        path = add_subdir(path, suffix)
 
     # Set the file extension
     path = path.with_suffix(".zarr")
@@ -136,7 +143,13 @@ def add_glob_part(paths, part) -> List[Path]:
     elif isinstance(part, str):
         return [path / part for path in paths]
     elif isinstance(part, list):
-        return [path / p for path in paths for p in part]
+        # Recursively add each part
+        ret = []
+
+        for p in part:
+            ret.extend(add_glob_part(paths, p))
+
+        return ret
     else:
         raise ValueError(f"Invalid part: {part}")
 
@@ -177,7 +190,8 @@ def get_raw_paths(
     paths = add_glob_part(paths, randomness)
 
     # Add the suffix pattern to all paths
-    paths = add_glob_part(paths, suffix)
+    if suffix is not None:
+        paths = add_glob_part(paths, suffix)
 
     # Add the demo outcome pattern to all paths
     paths = add_glob_part(paths, demo_outcome)

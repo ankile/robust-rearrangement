@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+  - image/real_ol_cotrain
+
+data:
+  data_paths_override:
+    - diffik/real/one_leg_full/teleop/low/success.zarr
+    - diffik/sim/one_leg_render_rppo_colors/rollout/med/success.zarr
+    - diffik/sim/one_leg_render_demos_colors/teleop/med/success.zarr
+    - diffik/sim/one_leg_render_demos_colors/teleop/med_perturb/success.zarr

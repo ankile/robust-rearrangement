@@ -9,7 +9,7 @@
 python -m src.train.bc +experiment=state/mlp_lg_ch \
     randomness='[low,low_perturb]' \
     wandb.project=ol-state-dr-low-1 \
-    furniture=one_leg \
+    task=one_leg \
     rollout.rollouts=false \
     wandb.mode=offline \
     dryrun=false

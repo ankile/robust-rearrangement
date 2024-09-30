@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - state/scaling_base
+
+data:
+  data_paths_override:
+    - diffik/sim/one_leg/teleop/low/success.zarr
+    - diffik/sim/one_leg/teleop/low_perturb/success.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_0.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_1000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_2000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_3000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_4000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_5000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_6000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_7000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_8000.zarr
+    - diffik/sim/one_leg_state_distill/rollout/low/success/rl_state_9000.zarr

@@ -1,7 +1,6 @@
 import random
 from typing import Dict, Tuple, Union
 from collections import deque
-from src.data_processing.utils import filter_and_concat_robot_state
 from omegaconf import DictConfig, OmegaConf
 from src.common.control import RotationMode
 from src.models.utils import PrintParamCountMixin
@@ -22,6 +21,7 @@ from pytorch3d.transforms import (
     matrix_to_rotation_6d,
     euler_angles_to_matrix,
 )
+import furniture_bench.controllers.control_utils as C
 
 
 # Update the PostInitCaller to be compatible
@@ -40,18 +40,21 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
     feature_noise: bool = False
     feature_dropout: bool = False
     feature_layernorm: bool = False
-    state_noise: bool = False
+    state_noise: float = 0.0
     proprioception_dropout: float = 0.0
     front_camera_dropout: float = 0.0
     wrist_camera_dropout: float = 0.0
     vib_front_feature_beta: float = 0.0
     confusion_loss_beta: float = 0.0
+    confusion_loss_centroid_formulation: bool = False
     rescale_loss_for_domain: bool = False
     confusion_loss_anchored: bool = False
     weight_confusion_loss_by_action: bool = False
 
     encoding_dim: int
     augment_image: bool
+
+    model: nn.Module
 
     camera1_transform = WristCameraTransform(mode="eval")
     camera2_transform = FrontCameraTransform(mode="eval")
@@ -86,11 +89,20 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         self.observation_type = cfg.observation_type
 
+        # Define what parts of the robot state to use
+        self.include_proprioceptive_pos = actor_cfg.get(
+            "include_proprioceptive_pos", True
+        )
+        self.include_proprioceptive_ori = actor_cfg.get(
+            "include_proprioceptive_ori", True
+        )
+
         # Regularization
         self.augment_image = cfg.data.augment_image
         self.confusion_loss_beta = actor_cfg.get("confusion_loss_beta", 0.0)
 
         self.device = device
+        self.action_type = cfg.control.control_mode
 
         # Convert the stats to tensors on the device
         if self.observation_type == "image":
@@ -99,7 +111,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             self.feature_noise = cfg.regularization.get("feature_noise", None)
             self.feature_dropout = cfg.regularization.get("feature_dropout", None)
             self.feature_layernorm = cfg.regularization.get("feature_layernorm", None)
-            self.state_noise = cfg.regularization.get("state_noise", False)
+            self.state_noise = cfg.regularization.get("state_noise", 0.0)
             self.proprioception_dropout = cfg.regularization.get(
                 "proprioception_dropout", 0.0
             )
@@ -121,6 +133,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             )
 
         elif self.observation_type == "state":
+            self.robot_state_dim = cfg.robot_state_dim
+            self.parts_poses_dim = cfg.parts_poses_dim
             self.timestep_obs_dim = cfg.robot_state_dim + cfg.parts_poses_dim
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
@@ -153,6 +167,26 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
                 self.camera_2_vib.to(self.device)
 
         self.print_model_params()
+
+    def actor_parameters(self):
+        """
+        Return the parameters of the actor by filtering out the encoder parameters
+        """
+        return [
+            p
+            for n, p in self.named_parameters()
+            if not (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
+
+    def encoder_parameters(self):
+        """
+        Return the parameters of the encoder
+        """
+        return [
+            p
+            for n, p in self.named_parameters()
+            if (n.startswith("encoder1.") or n.startswith("encoder2."))
+        ]
 
     def set_normalizer(self, normalizer: LinearNormalizer):
         self.normalizer.load_state_dict(normalizer.state_dict())
@@ -222,6 +256,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         # Convert the robot_state to use rot_6d instead of quaternion
         robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        robot_state[..., :3] *= int(self.include_proprioceptive_pos)
+        robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 
         # Normalize the robot_state
         nrobot_state = self.normalizer(robot_state, "robot_state", forward=True)
@@ -307,6 +343,31 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         # unnormalize action
         # (B, pred_horizon, action_dim)
         action_pred = self.normalizer(naction, "action", forward=False)
+        B = action_pred.shape[0]
+
+        # These actions may be `pos`, `delta`, or `relative`, if relative, we make them absolute
+        if self.action_type == "relative":
+            # Need the current EE position in the robot frame unnormalized
+            curr_pose = self.normalizer(
+                nobs.view(B, self.obs_horizon, -1)[:, -1, :16],
+                "robot_state",
+                forward=False,
+            )[:, :9]
+            curr_pos = curr_pose[:, :3]
+            curr_ori_6d = curr_pose[:, 3:9]
+            action_pred[:, :, :3] += curr_pos[:, None, :]
+
+            # Each action in the chunk will be relative to the current EE pose
+            curr_ori_quat = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
+
+            # Calculate the relative rot action
+            action_quat = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
+
+            # Apply the relative quat on top of the current quat to get the absolute quat
+            action_quat = C.quaternion_multiply(curr_ori_quat[:, None], action_quat)
+
+            # Convert the absolute quat to 6D rotation
+            action_pred[:, :, 3:9] = C.quaternion_to_rotation_6d(action_quat)
 
         # Add the actions to the queue
         # only take action_horizon number of actions
@@ -335,7 +396,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         return action
 
     @torch.no_grad()
-    def action(self, obs: Dict[str, torch.Tensor]):
+    def action(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
         Given a deque of observations, predict the action
 
@@ -466,9 +527,16 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         else:
             raise ValueError(f"Invalid observation type: {self.observation_type}")
 
+        # Take out the parts of the robot_state that we don't want
+        nobs[..., :3] *= int(self.include_proprioceptive_pos)
+        nobs[..., 3:9] *= int(self.include_proprioceptive_ori)
+
         if flatten:
             # (B, obs_horizon, obs_dim) --> (B, obs_horizon * obs_dim)
             nobs = nobs.flatten(start_dim=1)
+
+        # Add a little bit of noise to the observations
+        nobs = nobs + torch.randn_like(nobs) * self.state_noise
 
         return nobs
 
@@ -506,8 +574,11 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         return feature1, feature2
 
-    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def compute_loss(self, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, dict]:
         raise NotImplementedError
+
+    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+        return self.compute_loss(batch)
 
     def confusion_loss(self, batch, feature1, feature2):
         domain_idx: torch.Tensor = batch["domain"]
@@ -523,49 +594,58 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         sim_emb = torch.stack((sim_emb1, sim_emb2), dim=1)  # N1 x 2 x 128
         real_emb = torch.stack((real_emb1, real_emb2), dim=1)  # N2 x 2 x 128
 
-        # Randomly select the anchor domain (0 for sim, 1 for real)
-        if self.confusion_loss_anchored:
-            anchor_domain = random.randint(0, 1)
-            if anchor_domain == 0:
-                # Use sim embeddings as the anchor
-                sim_emb = sim_emb.detach()
-            else:
-                # Use real embeddings as the anchor
-                real_emb = real_emb.detach()
+        if self.confusion_loss_centroid_formulation:
+            # Find the centroids of the embeddings
+            sim_centroid = sim_emb.mean(dim=0)
+            real_centroid = real_emb.mean(dim=0)
 
-        sim_emb_expanded = sim_emb.unsqueeze(1)  # N1 x 1 x 2 x 128
-        real_emb_expanded = real_emb.unsqueeze(0)  # 1 x N2 x 2 x 128
+            # Compute the confusion loss using the centroids
+            loss = torch.norm((real_centroid - sim_centroid), dim=-1).mean()
 
-        # Compute the differences using broadcasting, N1 x N2 x 2
-        differences = torch.norm((real_emb_expanded - sim_emb_expanded), dim=-1)
+        else:
+            # Randomly select the anchor domain (0 for sim, 1 for real)
+            if self.confusion_loss_anchored:
+                anchor_domain = random.randint(0, 1)
+                if anchor_domain == 0:
+                    # Use sim embeddings as the anchor
+                    sim_emb = sim_emb.detach()
+                else:
+                    # Use real embeddings as the anchor
+                    real_emb = real_emb.detach()
 
-        if self.weight_confusion_loss_by_action:
+            sim_emb_expanded = sim_emb.unsqueeze(1)  # N1 x 1 x 2 x 128
+            real_emb_expanded = real_emb.unsqueeze(0)  # 1 x N2 x 2 x 128
 
-            actions = batch["action"]  # Shape: (B, T, D)
-            domain_idx = domain_idx.squeeze()  # Shape: (B,)
+            # Compute the differences using broadcasting, N1 x N2 x 2
+            differences = torch.norm((real_emb_expanded - sim_emb_expanded), dim=-1)
 
-            # Split the actions into the two domains (sim/real)
-            sim_actions = actions[domain_idx == 0]  # N1 x T x D
-            real_actions = actions[domain_idx == 1]  # N2 x T x D
+            if self.weight_confusion_loss_by_action:
 
-            # Compute the pairwise distances between actions
-            sim_actions_expanded = sim_actions.unsqueeze(1)  # N1 x 1 x T x D
-            real_actions_expanded = real_actions.unsqueeze(0)  # 1 x N2 x T x D
+                actions = batch["action"]  # Shape: (B, T, D)
+                domain_idx = domain_idx.squeeze()  # Shape: (B,)
 
-            # N1 x N2 x T
-            action_distances = torch.norm(
-                (real_actions_expanded - sim_actions_expanded), dim=-1
-            )
+                # Split the actions into the two domains (sim/real)
+                sim_actions = actions[domain_idx == 0]  # N1 x T x D
+                real_actions = actions[domain_idx == 1]  # N2 x T x D
 
-            # Compute the weights based on action distances
-            weights = torch.exp(-action_distances)  # N1 x N2 x T
-            weights = weights.mean(dim=-1)  # N1 x N2
+                # Compute the pairwise distances between actions
+                sim_actions_expanded = sim_actions.unsqueeze(1)  # N1 x 1 x T x D
+                real_actions_expanded = real_actions.unsqueeze(0)  # 1 x N2 x T x D
 
-            # Weight the differences using the computed weights
-            differences = differences * weights.unsqueeze(-1)  # N1 x N2 x 2
+                # N1 x N2 x T
+                action_distances = torch.norm(
+                    (real_actions_expanded - sim_actions_expanded), dim=-1
+                )
 
-        # Sum along all dimensions except the last to compute the accumulated loss
-        loss = differences.mean(dim=(0, 1, 2))
+                # Compute the weights based on action distances
+                weights = torch.exp(-action_distances)  # N1 x N2 x T
+                weights = weights.mean(dim=-1)  # N1 x N2
+
+                # Weight the differences using the computed weights
+                differences = differences * weights.unsqueeze(-1)  # N1 x N2 x 2
+
+            # Sum along all dimensions except the last to compute the accumulated loss
+            loss = differences.mean(dim=(0, 1, 2))
 
         return loss
 
@@ -593,9 +673,13 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         """
         Set models to eval mode
         """
-        super().eval()
+        super().train(mode=False)
         self.camera1_transform.eval()
         self.camera2_transform.eval()
+
+        # Verify we are in eval mode
+        for module in self.modules():
+            assert not module.training
 
     def set_task(self, task):
         """

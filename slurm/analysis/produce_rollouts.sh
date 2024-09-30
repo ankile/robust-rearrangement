@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=00-02:00
+#SBATCH --time=00-04:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=make_traj_bc_rt_low
 
@@ -47,6 +47,13 @@
 # randomness="med"
 # task="round_table"
 
+# Low RL run
+# run_id="rt-rppo-dr-low-1/np48i8wp"
+# randomness="low"
+# rollout_suffix="rppo"
+# task="round_table"
+# rollout_steps=1000
+
 
 # === Lamp ===
 # Low BC run
@@ -57,17 +64,31 @@
 # task="lamp"
 
 # Med BC run
-run_id="lp-state-dr-med-1/en9wdmzr"
-randomness="med"
-task="lamp"
+# run_id="lp-state-dr-med-1/en9wdmzr"
+# randomness="med"
+# task="lamp"
+
+# Low RL run
+# run_id="lp-rppo-dr-low-1/hd2i5gje"
+# randomness="low"
+# rollout_suffix="rppo"
+# task="lamp"
+# rollout_steps=1000
+
+
+# === Factory Peg Hole ===
+# Low RL run
+run_id="fph-rppo-dr-low-1/2kd9vgx9"
+randomness="low"
+rollout_suffix="rppo"
+task="factory_peg_hole"
+rollout_steps=100
 
 wt_type="best_success_rate"
-rollout_steps=1000
 
 while true; do
-    python -m src.eval.evaluate_model --run-id $run_id --n-envs 256 \
-        --n-rollouts 256 -f $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
+    python -m src.eval.evaluate_model --run-id $run_id --n-envs 1024 \
+        --n-rollouts 1024 --task $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
         --use-new-env --action-type pos --observation-space state --randomness $randomness --wt-type $wt_type \
-        --save-rollouts
-        # --save-rollouts-suffix $rollout_suffix
+        --save-rollouts --save-rollouts-suffix $rollout_suffix
 done

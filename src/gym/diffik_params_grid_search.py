@@ -6,7 +6,7 @@ import torch
 from omegaconf import OmegaConf, DictConfig
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
-from src.common.tasks import furniture2idx
+from src.common.tasks import task2idx
 from src.gym import get_env
 from src.dataset import get_normalizer
 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     actor.eval()
     actor.cuda()
 
-    actor.set_task(furniture2idx[furniture])
+    actor.set_task(task2idx[furniture])
     rollout_stats = calculate_success_rate(
         actor=actor,
         env=env,

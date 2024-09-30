@@ -34,4 +34,12 @@ def get_actor(cfg: DictConfig, device) -> Actor:
             cfg=cfg,
             device=device,
         )
+
+    elif actor_name == "attentionpool_diffusion":
+        from src.behavior.diffusion import AttentionPoolDiffusionPolicy
+
+        return AttentionPoolDiffusionPolicy(
+            cfg=cfg,
+            device=device,
+        )
     raise ValueError(f"Unknown actor type: {cfg.actor}")

@@ -16,6 +16,6 @@
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
-    furniture=round_table \
+    task=round_table \
     rollout.max_steps=1000 \
     dryrun=false

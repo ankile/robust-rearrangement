@@ -11,5 +11,5 @@
 #SBATCH --gres=gpu:1
 
 # Run your command with the provided arguments
-python -m src.train.bc +experiment=image/real_place_shade_mlp furniture=place_shade \
+python -m src.train.bc +experiment=image/real_place_shade_mlp task=place_shade \
     data.normalization=none dryrun=false training.ema.use=true training.ema.switch=true
