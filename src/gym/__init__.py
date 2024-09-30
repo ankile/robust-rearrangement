@@ -83,14 +83,13 @@ from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 
 def get_rl_env(
     gpu_id,
-    furniture="one_leg",
+    task="one_leg",
     num_envs=1,
     randomness="low",
     max_env_steps=5_000,
     resize_img=True,
     observation_space="image",  # Observation space for the robot. Options are 'image' and 'state'.
     act_rot_repr="quat",
-    ctrl_mode: str = "diffik",
     action_type="pos",  # Action type for the robot. Options are 'delta' and 'pos'.
     april_tags=False,
     verbose=False,
@@ -120,7 +119,7 @@ def get_rl_env(
 
     with suppress_all_output(not verbose):
         env = FurnitureRLSimEnv(
-            furniture=furniture,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
+            furniture=task,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
             num_envs=num_envs,  # Number of parallel environments.
             resize_img=resize_img,  # If true, images are resized to 224 x 224.
             concat_robot_state=False,  # If true, robot state is concatenated to the observation.
@@ -137,7 +136,7 @@ def get_rl_env(
             record=record,  # If true, videos of the wrist and front cameras' RGB inputs are recorded.
             max_env_steps=max_env_steps,  # Maximum number of steps per episode.
             act_rot_repr=act_rot_repr,  # Representation of rotation for action space. Options are 'quat' and 'axis'.
-            ctrl_mode=ctrl_mode,  # Control mode for the robot. Options are 'osc' and 'diffik'.
+            ctrl_mode="diffik",  # Control mode for the robot. Options are 'osc' and 'diffik'.
             action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
             verbose=verbose,  # If true, prints debug information.
             **kwargs,

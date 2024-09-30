@@ -59,7 +59,7 @@ def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online")
                     .download(exist_ok=True, replace=True, root=cache_dir)
                     .name
                 )
-            if wt_type is None:
+            elif wt_type is None:
                 model_path = None
             else:
                 model_path = (

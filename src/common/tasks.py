@@ -1,4 +1,4 @@
-furniture2idx = {
+task2idx = {
     "one_leg": 8,
     "square_table": 8,
     "lamp": 1,
@@ -59,7 +59,7 @@ def task_timeout(task, n_parts=None):
     return n_parts * timesteps_per_part
 
 
-idx2furniture = {v: k for k, v in furniture2idx.items()}
+idx2task = {v: k for k, v in task2idx.items()}
 
 # Here we can with have task descriptions in natural language as well
 complex_task_descriptions = {

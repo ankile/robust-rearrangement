@@ -17,7 +17,7 @@ torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/d
     vision_encoder=clip_vit \
     rollout=rollout rollout.randomness=low rollout.every=50 \
     randomness='[low,low_perturb]' \
-    furniture=one_leg regularization.weight_decay=0 \
+    task=one_leg regularization.weight_decay=0 \
     training.ema.use=false \
     training.encoder_lr=1e-5 \
     pred_horizon=32 training.batch_size=64 \

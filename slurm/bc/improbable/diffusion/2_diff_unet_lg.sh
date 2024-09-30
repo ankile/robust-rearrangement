@@ -13,7 +13,7 @@
 python -m src.train.bc +experiment=state/diff_unet \
     randomness='[low,low_perturb]' \
     rollout.randomness=low \
-    furniture=round_table \
+    task=round_table \
     rollout.max_steps=700 \
     wandb.project=ol-state-dr-low-1 \
     regularization.weight_decay=1e-5 \

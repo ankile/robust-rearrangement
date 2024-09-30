@@ -37,7 +37,7 @@ class ZarrSubsetView:
 
 def dataset_tuple(path: Path) -> Tuple[str, str, str, str]:
     """
-    Extract the furniture, source, randomness, and outcome from a zarr path.
+    Extract the task, source, randomness, and outcome from a zarr path.
     """
     return path.with_name(path.stem).parts[-4:]
 
@@ -99,7 +99,7 @@ def combine_zarr_datasets(
 
     combined_data = {
         "episode_ends": np.zeros(total_episodes, dtype=np.int64),
-        "furniture": [],
+        "task": [],
         "success": np.zeros(total_episodes, dtype=np.uint8),
         # Domain is 0 for sim, 1 for real
         "domain": np.zeros(total_episodes, dtype=np.uint8),
@@ -135,7 +135,8 @@ def combine_zarr_datasets(
         combined_data["episode_ends"][n_episodes : n_episodes + len(end_idxs)] = (
             end_idxs + last_episode_end
         )
-        combined_data["furniture"].extend(dataset["furniture"][:max_episodes])
+        task = dataset.get("task", dataset.get("furniture"))
+        combined_data["task"].extend(task[:max_episodes])
         combined_data["success"][n_episodes : n_episodes + len(end_idxs)] = dataset[
             "success"
         ][:max_episodes]
@@ -147,8 +148,12 @@ def combine_zarr_datasets(
             dataset.attrs["domain"][:max_episodes]
         ]
 
-        combined_data["zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = ii
-        combined_data["within_zarr_idx"][last_episode_end : last_episode_end + end_idxs[-1]] = np.arange(0, end_idxs[-1])
+        combined_data["zarr_idx"][
+            last_episode_end : last_episode_end + end_idxs[-1]
+        ] = ii
+        combined_data["within_zarr_idx"][
+            last_episode_end : last_episode_end + end_idxs[-1]
+        ] = np.arange(0, end_idxs[-1])
 
         # Upddate the counters
         last_episode_end += end_idxs[-1]

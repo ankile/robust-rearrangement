@@ -20,7 +20,7 @@ def save_raw_rollout(
     rewards: np.ndarray,
     parts_poses: np.ndarray,
     success: bool,
-    furniture: str,
+    task: str,
     action_type: str,
     rollout_save_dir: Path,
     compress_pickles: bool = False,
@@ -71,7 +71,7 @@ def save_raw_rollout(
         "actions": actions.tolist(),
         "rewards": rewards.tolist(),
         "success": success,
-        "furniture": furniture,
+        "task": task,
         "action_type": action_type,
     }
 

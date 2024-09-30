@@ -1,0 +1,28 @@
+# @package _global_
+defaults:
+  - base
+  - override /actor: diffusion
+  - override /actor/diffusion_model: unet
+  - override /rollout: rollout
+
+rollout:
+  num_envs: 1024
+  every: 100
+  furniture: factory_peg_hole
+  randomness: low
+
+observation_type: state
+
+training:
+  num_epochs: 2000
+  batch_size: 1024
+  steps_per_epoch: 1000
+  checkpoint_interval: 100
+  eval_every: 10
+  store_last_model: true
+
+randomness: low
+furniture: one_leg
+
+wandb:
+  project: ol-vision-scaling-low-1

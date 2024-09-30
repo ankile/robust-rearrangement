@@ -143,7 +143,13 @@ def add_glob_part(paths, part) -> List[Path]:
     elif isinstance(part, str):
         return [path / part for path in paths]
     elif isinstance(part, list):
-        return [path / p for path in paths for p in part]
+        # Recursively add each part
+        ret = []
+
+        for p in part:
+            ret.extend(add_glob_part(paths, p))
+
+        return ret
     else:
         raise ValueError(f"Invalid part: {part}")
 

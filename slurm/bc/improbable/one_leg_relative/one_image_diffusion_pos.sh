@@ -15,7 +15,7 @@ python -m src.train.bc +experiment=image/diff_unet \
     randomness='[low,low_perturb]' \
     rollout=rollout rollout.randomness=low rollout.every=50 \
     rollout.max_steps=700 rollout.num_envs=32 \
-    furniture=one_leg regularization.weight_decay=0 \
+    task=one_leg regularization.weight_decay=0 \
     training.ema.use=false \
     training.clip_grad_norm=true \
     control.control_mode=pos \

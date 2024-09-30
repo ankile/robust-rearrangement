@@ -234,7 +234,7 @@ parser.add_argument("--wandb", action="store_true")
 parser.add_argument("--leaderboard", action="store_true")
 parser.add_argument("--project-id", type=str, default=None)
 parser.add_argument(
-    "--action-type", type=str, default="delta", choices=["delta", "pos"]
+    "--action-type", type=str, default="pos", choices=["delta", "pos"]
 )
 parser.add_argument("--verbose", "-v", action="store_true")
 parser.add_argument("--multitask", action="store_true")
@@ -585,7 +585,7 @@ class SimpleDiffIKFrankaEnv:
         grasp = action[-1]
         grasp_cond1 = (torch.sign(grasp) != torch.sign(self.last_grasp)).item()
         grasp_cond2 = (torch.abs(grasp) > self.grasp_margin).item()
-        grasp_cond3 = self.last_grip_step > 10
+        grasp_cond3 = self.last_grip_step > 20
 
         if grasp_cond1 and grasp_cond2 and grasp_cond3:
             # if grasp != self.last_grasp and last_grip_step > 10:
@@ -599,6 +599,9 @@ class SimpleDiffIKFrankaEnv:
             self.gripper_open = not self.gripper_open
             self.last_grip_step = 0
             self.last_grasp = grasp
+
+            # Give some time in between gripper actions
+            time.sleep(1.5)
 
         if self.execute:
             # self.robot.update_desired_ee_pose(
@@ -702,7 +705,7 @@ def main():
 
     # Create the config object with the project name and make it read-only
     inference_steps = 8
-    action_horizon = 12
+    action_horizon = 8
     config: DictConfig = OmegaConf.create(
         {
             **run.config,
@@ -727,12 +730,23 @@ def main():
     if "model_state_dict" in state_dict:
         state_dict = state_dict["model_state_dict"]
 
+    if "model._dummy_variable" in state_dict:
+        del state_dict["model._dummy_variable"]
+
     actor.load_state_dict(state_dict)
     actor.eval()
     actor.cuda()
 
+    actor.encoder1.eval()
+    actor.encoder2.eval()
+    actor.model.eval()
+
+    assert actor.encoder1.training is False
+    assert actor.encoder2.training is False
+    assert actor.model.training is False
+
     # mc
-    actor.set_mc(mc_vis)
+    # actor.set_mc(mc_vis)
 
     part_poses_norm_mid = None
     if args.observation_type == "state":
@@ -761,12 +775,6 @@ def main():
     # Resize the images in the observation if they exist
     resize_image(obs, "color_image1")
     resize_crop_image(obs, "color_image2")
-
-    # keep a queue of observations
-    obs_deque = collections.deque(
-        [obs] * obs_horizon,
-        maxlen=obs_horizon,
-    )
 
     t_start = time.monotonic()
 
@@ -821,77 +829,13 @@ def main():
             time.sleep(1.0)
             continue
 
-        # Get the next actions from the actor
-        action_pred = actor.action(obs_deque)
-
-        pos_bounds_m = 0.025
-        ori_bounds_deg = 20
-
-        # This function expects the rotation to be a quat_xyzw
-        pos, rot_6d, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:9],
-            action_pred[:, 9:10],
-        )
-        quat_wxyz = pt.matrix_to_quaternion(pt.rotation_6d_to_matrix(rot_6d))
-
-        # Make it into a delta action
-        curr_pos, curr_quat_xyzw = (
-            obs["robot_state"][:, 0:3],
-            obs["robot_state"][:, 3:7],
-        )
-
-        delta_pos = pos - curr_pos
-
-        # Convert current quat to real first to be able to calculate on it
-        curr_quat_wxyz = quat_xyzw_to_quat_wxyz(curr_quat_xyzw)
-
-        delta_quat_wxyz = pt.quaternion_multiply(
-            pt.quaternion_invert(curr_quat_wxyz), quat_wxyz
-        )
-        delta_quat_xyzw = quat_wxyz_to_quat_xyzw(delta_quat_wxyz)
-
-        action_pred = torch.cat([delta_pos, delta_quat_xyzw, gripper], dim=-1)
-
-        action_pred = scale_scripted_action(
-            action_pred,
-            pos_bounds_m=pos_bounds_m,
-            ori_bounds_deg=ori_bounds_deg,
-        )
-
-        # Turn it back into using pos action
-        delta_pos, delta_quat_xyzw, gripper = (
-            action_pred[:, 0:3],
-            action_pred[:, 3:7],
-            action_pred[:, 7:8],
-        )
-
-        if (time.time() - start_time) > 5:
-            start_time = time.time()
-            print(f"Gripper: {gripper.cpu().squeeze().item()}")
-
-        pos = curr_pos + delta_pos
-
-        delta_quat_wxyz = quat_xyzw_to_quat_wxyz(delta_quat_xyzw)
-
-        quat_wxyz = pt.quaternion_multiply(curr_quat_wxyz, delta_quat_wxyz)
-
-        # Turn it back into using rot_6d
-        rot_6d = pt.matrix_to_rotation_6d(pt.quaternion_to_matrix(quat_wxyz))
-
-        action_pred = torch.cat([pos, rot_6d, gripper], dim=-1)
+        action_pred = actor.action(obs)
 
         obs, reward, done, _ = env.step(action_pred[0])
-
-        # NOTE: Should implement storage of rollouts for further training?
-        # video_obs = obs.copy()
 
         # Resize the images in the observation if they exist
         resize_image(obs, "color_image1")
         resize_crop_image(obs, "color_image2")
-
-        # Save observations for the policy
-        obs_deque.append(obs)
 
 
 if __name__ == "__main__":

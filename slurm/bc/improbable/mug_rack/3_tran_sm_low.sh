@@ -13,7 +13,7 @@
 python -m src.train.bc +experiment=state/diff_tran \
     randomness='[low]' \
     rollout.randomness=low \
-    furniture=mug_rack \
+    task=mug_rack \
     rollout.max_steps=1000 \
     wandb.project=mr-state-dr-low-1 \
     dryrun=false

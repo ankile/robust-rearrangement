@@ -9,7 +9,7 @@
 python -m src.train.bc +experiment=image/real_ol_cotrain \
     actor/diffusion_model=transformer \
     demo_source='[teleop,rollout]' \
-    furniture='[one_leg_render_demos_brighter,one_leg_render_rppo_brighter,one_leg_full]' \
+    task='[one_leg_render_demos_brighter,one_leg_render_rppo_brighter,one_leg_full]' \
     randomness='[low,med,med_perturb]' \
     actor.confusion_loss_beta=0.0 \
     environment='[real,sim]' \

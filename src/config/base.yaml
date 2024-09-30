@@ -21,8 +21,8 @@ obs_horizon: 1
 predict_past_actions: false
 parts_poses_in_robot_frame: false
 
+task: ???
 observation_type: ???
-furniture: ???
 environment: sim
 demo_source: teleop
 randomness: low
@@ -36,7 +36,7 @@ control:
 
 lr_scheduler:
   name: cosine
-  warmup_steps: 2000
+  warmup_steps: 10000
   encoder_warmup_steps: 10000
 
 wandb:

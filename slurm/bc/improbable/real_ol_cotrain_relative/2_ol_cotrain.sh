@@ -16,7 +16,7 @@ export HOME=/data/scratch/ankile
 
 torchrun --standalone --nproc_per_node=2 -m src.train.bc_ddp +experiment=image/real_ol_cotrain \
     demo_source='[teleop,rollout]' \
-    furniture='[one_leg_full,one_leg_render_rppo_brighter,one_leg_render_demos_brighter]' \
+    task='[one_leg_full,one_leg_render_rppo_brighter,one_leg_render_demos_brighter]' \
     randomness='[low,med,med_perturb]' \
     environment='[real,sim]' \
     training.batch_size=128 \

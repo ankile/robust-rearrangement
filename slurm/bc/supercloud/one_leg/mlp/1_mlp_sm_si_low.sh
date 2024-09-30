@@ -8,7 +8,7 @@
 
 python -m src.train.bc +experiment=state/mlp_sm_si \
     randomness='[low,low_perturb]' \
-    furniture=one_leg \
+    task=one_leg \
     wandb.project=ol-state-dr-low-1 \
     wandb.mode=offline \
     dryrun=false

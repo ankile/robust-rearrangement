@@ -11,5 +11,5 @@
 #SBATCH --gres=gpu:1
 
 python -m src.train.bc +experiment=state/residual_diffusion \
-    furniture=one_leg rollout=rollout \
+    task=one_leg rollout=rollout \
     dryrun=false

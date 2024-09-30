@@ -1,27 +1,83 @@
 import argparse
+import os
+from pathlib import Path
 import time
 
 import furniture_bench
 from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 import torch  # needs to be after isaac gym imports
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor  # noqa
 from src.behavior.diffusion import DiffusionPolicy  # noqa
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.eval.rollout import calculate_success_rate
 from src.behavior import get_actor
-from src.common.tasks import furniture2idx, task_timeout
+from src.common.tasks import task2idx, task_timeout
 from src.common.files import trajectory_save_dir
-from src.gym import get_env, get_rl_env
+from src.gym import get_rl_env
 from src.eval.eval_utils import load_model_weights
 
-from typing import List
+from typing import Any, List, Optional
 from ipdb import set_trace as bp  # noqa
 import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
-api = Api(overrides=dict(entity="robust-assembly"))
+api = Api(overrides=dict(entity=os.environ.get("WANDB_ENTITY")))
+
+
+class LocalCheckpointWrapper:
+    def __init__(self, checkpoint_path: str):
+        self.checkpoint_path = Path(checkpoint_path)
+
+        self.checkpoint = torch.load(self.checkpoint_path)
+
+        self.config: DictConfig = OmegaConf.create(self.checkpoint["config"])
+        self.name = self.checkpoint_path.stem
+        self.id = self.name
+        self.project = "local_evaluation"
+        self.entity = "local"
+        self.summary = {}
+
+    @property
+    def state(self):
+        return "finished"
+
+    def update(self):
+        # In a real WandB run, this would push updates to the server
+        # For local evaluation, we'll just save the summary to a JSON file
+        import json
+
+        summary_path = self.checkpoint_path.with_suffix(".summary.json")
+        with open(summary_path, "w") as f:
+            json.dump(self.summary, f, indent=2)
+        print(f"Updated summary saved to {summary_path}")
+
+    def file(self, name: str):
+        # This method would normally return a WandB file object
+        # For local evaluation, we'll return a dummy object with a download method
+        class DummyFile:
+            def __init__(self, path):
+                self.path = path
+                self.name = os.path.basename(path)
+
+            def download(self, replace=True):
+                # For local files, we don't need to download anything
+                pass
+
+        return DummyFile(self.checkpoint_path)
+
+    def files(self):
+        # This method would normally return an iterator of WandB file objects
+        # For local evaluation, we'll return an iterator with just the checkpoint file
+        yield self.file(self.checkpoint_path.name)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        # This method mimics the behavior of wandb.run.config.get()
+        return self.config.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        # This method allows accessing config items using square bracket notation
+        return self.config[key]
 
 
 def validate_args(args: argparse.Namespace):
@@ -31,6 +87,7 @@ def validate_args(args: argparse.Namespace):
                 args.run_id is not None,
                 args.sweep_id is not None,
                 args.project_id is not None,
+                args.wt_path is not None,
             ]
         )
         == 1
@@ -52,28 +109,27 @@ def validate_args(args: argparse.Namespace):
 
 def get_runs(args: argparse.Namespace) -> List[Run]:
     # Clear the cache to make sure we get the latest runs
-    api.flush()
-    if args.sweep_id:
-        runs: List[Run] = list(api.sweep(args.sweep_id).runs)
-    elif args.run_id:
-        runs: List[Run] = [api.run(run_id) for run_id in args.run_id]
-    elif args.project_id:
-        runs: List[Run] = list(api.runs(args.project_id))
+    if args.wt_path:
+
+        run = LocalCheckpointWrapper(args.wt_path)
+        runs = [run]
+
     else:
-        raise ValueError("Exactly one of run-id, sweep-id, project-id must be provided")
 
-    # Filter out the runs based on the run state
-    if args.run_state:
-        runs = [run for run in runs if run.state in args.run_state]
+        api.flush()
+        if args.sweep_id:
+            runs: List[Run] = list(api.sweep(args.sweep_id).runs)
+        elif args.run_id:
+            runs: List[Run] = [api.run(run_id) for run_id in args.run_id]
+        elif args.project_id:
+            runs: List[Run] = list(api.runs(args.project_id))
+        else:
+            raise ValueError
 
-    # Filter out runs based on action type
-    # run.config.control.control_mode == args.action_type
-    # runs = [
-    #     run
-    #     for run in runs
-    #     if run.config.get("control", {}).get("control_mode", "delta")
-    #     == args.action_type
-    # ]
+        # Filter out the runs based on the run state
+        if args.run_state:
+            runs = [run for run in runs if run.state in args.run_state]
+
     return runs
 
 
@@ -118,12 +174,14 @@ def convert_state_dict(state_dict):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", type=str, required=False, nargs="*")
+    parser.add_argument("--wt-path", type=str, default=None)
+
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--n-envs", type=int, default=1)
     parser.add_argument("--n-rollouts", type=int, default=1)
     parser.add_argument("--randomness", type=str, default="low")
     parser.add_argument(
-        "--furniture",
+        "--task",
         "-f",
         type=str,
         choices=[
@@ -134,6 +192,7 @@ if __name__ == "__main__":
             "square_table",
             "cabinet",
             "mug_rack",
+            "factory_peg_hole",
         ],
         required=True,
     )
@@ -186,20 +245,17 @@ if __name__ == "__main__":
     parser.add_argument("--max-rollouts", type=int, default=None)
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--max-rollout-steps", type=int, default=None)
-    parser.add_argument("--no-april-tags", action="store_true")
+    parser.add_argument("--april-tags", action="store_true")
 
-    parser.add_argument("--controller", choices=["osc", "diffik"], default="diffik")
     parser.add_argument(
         "--observation-space", choices=["image", "state"], default="state"
     )
-    parser.add_argument("--use-new-env", action="store_true")
     parser.add_argument("--action-horizon", type=int, default=None)
     parser.add_argument("--wt-type", type=str, default="best_success_rate")
 
     parser.add_argument("--stop-after-n-success", type=int, default=0)
     parser.add_argument("--break-on-n-success", action="store_true")
     parser.add_argument("--record-for-coverage", action="store_true")
-    parser.add_argument("--parts-poses-in-robot-frame", action="store_true")
 
     parser.add_argument("--save-rollouts-suffix", type=str, default="")
 
@@ -214,7 +270,7 @@ if __name__ == "__main__":
 
     # Set the timeout
     rollout_max_steps = (
-        task_timeout(args.furniture, n_parts=args.n_parts_assemble)
+        task_timeout(args.task, n_parts=args.n_parts_assemble)
         if args.max_rollout_steps is None
         else args.max_rollout_steps
     )
@@ -224,9 +280,9 @@ if __name__ == "__main__":
     print(
         f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env: FurnitureSimEnv = None
+    env: Optional[FurnitureSimEnv] = None
 
-    f: str = args.furniture
+    f: str = args.task
 
     # Summary prefix, shoprtened to spf for brevity downstream
     spf = f"{f}/" + "" if args.multitask else ""
@@ -235,7 +291,6 @@ if __name__ == "__main__":
     print(f"Starting evaluation loop in continuous mode: {args.continuous_mode}")
     try:
         while True:
-            api.flush()
             # Get the run(s) to test
             runs = get_runs(args)
 
@@ -261,8 +316,9 @@ if __name__ == "__main__":
                 )
             for run in runs:
                 # First, we must flush the api and request the run again in case the information is stale
-                api.flush()
-                run = api.run("/".join([run.project, run.id]))
+                if not args.wt_path:
+                    api.flush()
+                    run = api.run("/".join([run.project, run.id]))
 
                 # Check if the run is currently being evaluated
                 if (
@@ -297,25 +353,6 @@ if __name__ == "__main__":
                         print(f"Run: {run.name} has already been evaluated, appending")
                         how_update = "append"
 
-                # Only actually load the environment after we know we've got at least one run to evaluate
-                if env is None:
-                    env: FurnitureRLSimEnv = get_rl_env(
-                        gpu_id=args.gpu,
-                        furniture=args.furniture,
-                        num_envs=args.n_envs,
-                        randomness=args.randomness,
-                        observation_space=args.observation_space,
-                        max_env_steps=5_000,
-                        resize_img=False,
-                        act_rot_repr="rot_6d",
-                        ctrl_mode=args.controller,
-                        action_type=args.action_type,
-                        april_tags=not args.no_april_tags,
-                        parts_poses_in_robot_frame=args.parts_poses_in_robot_frame,
-                        verbose=args.verbose,
-                        headless=not args.visualize,
-                    )
-
                 # If in overwrite set the currently_evaluating flag to true runs can cooperate better in skip mode
                 if args.wandb:
                     print(
@@ -334,10 +371,6 @@ if __name__ == "__main__":
 
                 # Check that we didn't set the wrong action type and pose representation
                 assert cfg.control.control_mode == args.action_type
-                assert (
-                    cfg.get("parts_poses_in_robot_frame", False)
-                    == args.parts_poses_in_robot_frame
-                )
 
                 print(OmegaConf.to_yaml(cfg))
 
@@ -348,19 +381,27 @@ if __name__ == "__main__":
                 if isinstance(actor, DiffusionPolicy):
                     actor.inference_steps = 4
 
-                actor = load_model_weights(run=run, actor=actor, wt_type=args.wt_type)
+                if args.wt_path:
+                    actor.load_state_dict(run.checkpoint["model_state_dict"])
+                    actor.eval()
+                    actor.to(device)
+
+                else:
+                    actor: Optional[Actor] = load_model_weights(
+                        run=run, actor=actor, wt_type=args.wt_type
+                    )
 
                 if actor is None:
                     print(
-                        f"Skipping run: {run.name} as no weights for wt_type: {args.wt_type} was found"
+                        f"Skipping run: {run.name} as no weights for wt_type: {args.wt_type} was not found"
                     )
                     continue
 
                 save_dir = (
                     trajectory_save_dir(
-                        controller=args.controller,
+                        controller="diffik",
                         domain="sim",
-                        task=args.furniture,
+                        task=args.task,
                         demo_source="rollout",
                         randomness=args.randomness,
                         suffix=args.save_rollouts_suffix,
@@ -380,9 +421,26 @@ if __name__ == "__main__":
                         resume="allow",
                     )
 
+                # Only actually load the environment after we know we've got at least one run to evaluate
+                if env is None:
+                    env = get_rl_env(
+                        gpu_id=args.gpu,
+                        task=args.task,
+                        num_envs=args.n_envs,
+                        randomness=args.randomness,
+                        observation_space=args.observation_space,
+                        max_env_steps=5_000,
+                        resize_img=False,
+                        act_rot_repr="rot_6d",
+                        action_type=args.action_type,
+                        april_tags=args.april_tags,
+                        verbose=args.verbose,
+                        headless=not args.visualize,
+                    )
+
                 # Perform the rollouts
                 print(f"Starting rollout of run: {run.name}")
-                actor.set_task(furniture2idx[args.furniture])
+                actor.set_task(task2idx[args.task])
                 rollout_stats = calculate_success_rate(
                     actor=actor,
                     env=env,

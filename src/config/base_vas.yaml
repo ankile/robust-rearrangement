@@ -1,6 +1,6 @@
 defaults:
 - _self_
-- actor: mlp
+- actor: diffusion
 
 seed: null
 torch_deterministic: false
@@ -16,7 +16,6 @@ truncation_as_done: true
 base_policy:
   wandb_id: ol-state-dr-high-1/jukzzw0p
   wt_type: best_success_rate
-  #wt_type: best_test_loss
 
 observation_type: state
 
@@ -30,18 +29,16 @@ critic:
 
 init_logstd: -4.0
 
-# agent: residual-separate
-# chunk_size: 8
-
 total_timesteps: 500_000_000
-num_envs: 128
+num_envs: 1024
 num_minibatches: 1
 update_epochs: 1
 num_env_steps: 696
 data_collection_steps: ${eval:'${num_env_steps} // ${actor.action_horizon}'}
 
 env:
-  randomness: high
+  task: ???
+  randomness: low
 
 # Algorithm specific arguments
 gamma: 1.0

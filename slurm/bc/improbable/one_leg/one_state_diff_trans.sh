@@ -10,6 +10,6 @@
 #SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
 
-python -m src.train.bc +experiment=state/diffusion furniture=one_leg \
+python -m src.train.bc +experiment=state/diffusion task=one_leg \
     obs_horizon=2 \
     dryrun=false

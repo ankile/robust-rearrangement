@@ -11,7 +11,7 @@ reset_on_success: true
 sample_perturbations: false
 eval_interval: 5
 eval_first: true
-checkpoint_interval: 10
+checkpoint_interval: -1
 truncation_as_done: true
 base_policy:
   wandb_id: ???
@@ -36,10 +36,13 @@ actor:
 
 # Learning rates
 learning_rate_actor: 3e-4
+optimizer_betas_actor: [0.9, 0.999]
+
 learning_rate_critic: 5e-3
 lr_scheduler:
   name: cosine
-  warmup_steps: 5
+  actor_warmup_steps: 5
+  critic_warmup_steps: 0
 
 # Residual specific arguments
 residual_l1: 0.0

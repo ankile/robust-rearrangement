@@ -7,7 +7,7 @@
 #SBATCH --job-name=4a_ol_color_40_hist2
 
 python -m src.train.bc +experiment=image/real_ol_cotrain_color \
-    furniture=one_leg \
+    task=one_leg \
     randomness='[low,med]' \
     environment='[real,sim]' \
     actor.confusion_loss_beta=0.0 \

@@ -14,6 +14,6 @@ python -m src.train.bc +experiment=state/diff_unet \
     actor.diffusion_model.down_dims='[64,128,256]' \
     randomness='[med,med_perturb]' \
     rollout.randomness=med \
-    furniture=round_table \
+    task=round_table \
     wandb.project=rt-state-dr-med-1 \
     dryrun=false

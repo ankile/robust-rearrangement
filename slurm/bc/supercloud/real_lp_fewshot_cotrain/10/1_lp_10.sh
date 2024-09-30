@@ -7,7 +7,7 @@
 #SBATCH --job-name=1_lp_10
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
-    furniture=lamp \
+    task=lamp \
     randomness=low \
     environment=real \
     data.data_paths_override='[diffik/real/lamp/teleop/low/success.zarr]' \

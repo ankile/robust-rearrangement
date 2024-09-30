@@ -11,12 +11,11 @@
 #SBATCH --job-name=ol_rppo_low_10_demos
 
 python -m src.train.residual_ppo +experiment=rl/residual_ppo \
-    base_policy.wandb_id=ol-state-dr-1/runs/a3pme4fu \
+    base_policy.wandb_id=ol-state-dr-1/9same2wv \
     base_policy.wt_type=best_success_rate \
     env.randomness=low \
     actor.residual_policy.init_logstd=-1.0 \
     actor.residual_policy.learn_std=false \
     actor.residual_policy.action_scale=0.1 \
     sample_perturbations=false \
-    wandb.continue_run_id=rp5xhh37 \
     debug=false

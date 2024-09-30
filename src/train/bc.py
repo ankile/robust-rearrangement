@@ -1,3 +1,5 @@
+from git import Union
+import furniture_bench
 from collections import defaultdict
 from datetime import datetime
 import os
@@ -9,16 +11,13 @@ from src.eval.eval_utils import get_model_from_api_or_cached
 from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.train.residual_ppo_w_bc import to_native
 
-with suppress_stdout():
-    import furniture_bench
-
 import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
 from src.dataset.dataset import (
-    FurnitureImageDataset,
-    FurnitureStateDataset,
+    ImageDataset,
+    StateDataset,
 )
 from src.eval.rollout import do_rollout_evaluation
 from src.gym import get_rl_env
@@ -81,12 +80,13 @@ def set_dryrun_params(cfg: DictConfig):
         cfg.data.data_subset = 5
         cfg.data.dataloader_workers = 0
         cfg.training.sample_every = 1
+        cfg.training.eval_every = 1
 
         if cfg.rollout.rollouts:
             cfg.rollout.every = 1
-            cfg.rollout.num_rollouts = 1
+            # cfg.rollout.num_rollouts = 1
             cfg.rollout.loss_threshold = float("inf")
-            cfg.rollout.max_steps = 10
+            # cfg.rollout.max_steps = 10
 
         cfg.wandb.mode = "disabled"
 
@@ -111,6 +111,7 @@ def main(cfg: DictConfig):
     state_dict = None
 
     # Check if we are continuing a run
+    run_exists = False
     if cfg.wandb.continue_run_id is not None:
         try:
             run: Run = wandb.Api().run(
@@ -118,26 +119,36 @@ def main(cfg: DictConfig):
             )
             run_exists = True
         except (ValueError, CommError):
-            run_exists = False
+            pass
 
     if run_exists:
         print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
 
-        cfg.training.start_epoch = run.summary.get("epoch", 0)
+        run_id = cfg.wandb.continue_run_id
+        run_path = f"{cfg.wandb.project}/{run_id}"
+        wandb_mode = cfg.wandb.mode
 
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+        data_paths_override = cfg.data.data_paths_override
 
         # Load the weights from the run and override the config with the one from the run
         try:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "last", wandb_mode=cfg.wandb.mode
+                run_path, "last", wandb_mode=wandb_mode
             )
         except:
             cfg, wts = get_model_from_api_or_cached(
-                run_id, "latest", wandb_mode=cfg.wandb.mode
+                run_path, "latest", wandb_mode=wandb_mode
             )
 
+        # Ensure we set the `continue_run_id` to the run_id
+        cfg.wandb.continue_run_id = run_id
+        cfg.wandb.mode = wandb_mode
+        cfg.data.data_paths_override = data_paths_override
+
         state_dict = torch.load(wts)
+
+        epoch_idx = state_dict.get("epoch", run.summary.get("epoch", 0))
+        cfg.training.start_epoch = epoch_idx
 
         # Set the best test loss and success rate to the one from the run
         best_test_loss = state_dict.get(
@@ -163,7 +174,7 @@ def main(cfg: DictConfig):
         data_path = get_processed_paths(
             controller=to_native(cfg.control.controller),
             domain=to_native(cfg.data.environment),
-            task=to_native(cfg.data.furniture),
+            task=to_native(cfg.data.task),
             demo_source=to_native(cfg.data.demo_source),
             randomness=to_native(cfg.data.randomness),
             demo_outcome=to_native(cfg.data.demo_outcome),
@@ -174,8 +185,10 @@ def main(cfg: DictConfig):
 
     print(f"Using data from {data_path}")
 
+    dataset: Union[ImageDataset, StateDataset]
+
     if cfg.observation_type == "image":
-        dataset = FurnitureImageDataset(
+        dataset = ImageDataset(
             dataset_paths=data_path,
             pred_horizon=cfg.data.pred_horizon,
             obs_horizon=cfg.data.obs_horizon,
@@ -186,9 +199,10 @@ def main(cfg: DictConfig):
             pad_after=cfg.data.get("pad_after", True),
             max_episode_count=cfg.data.get("max_episode_count", None),
             minority_class_power=cfg.data.get("minority_class_power", False),
+            load_into_memory=cfg.data.get("load_into_memory", True),
         )
     elif cfg.observation_type == "state":
-        dataset = FurnitureStateDataset(
+        dataset = StateDataset(
             dataset_paths=data_path,
             pred_horizon=cfg.data.pred_horizon,
             obs_horizon=cfg.data.obs_horizon,
@@ -210,6 +224,9 @@ def main(cfg: DictConfig):
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
     OmegaConf.set_struct(cfg, False)
+    if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
+        cfg.slurm_job_id = job_id
+
     cfg.robot_state_dim = dataset.robot_state_dim
 
     if cfg.observation_type == "state":
@@ -338,6 +355,7 @@ def main(cfg: DictConfig):
         smooth_factor=cfg.early_stopper.smooth_factor,
     )
     config_dict = OmegaConf.to_container(cfg, resolve=True)
+
     # Init wandb
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
@@ -389,7 +407,7 @@ def main(cfg: DictConfig):
 
     early_stop = False
 
-    pbar_desc = f"Epoch ({cfg.furniture}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
+    pbar_desc = f"Epoch ({cfg.task}, {cfg.observation_type}{f', {cfg.vision_encoder.model}' if cfg.observation_type == 'image' else ''})"
 
     tglobal = trange(
         cfg.training.start_epoch,
@@ -398,6 +416,7 @@ def main(cfg: DictConfig):
         total=cfg.training.num_epochs,
         desc=pbar_desc,
     )
+
     for epoch_idx in tglobal:
         epoch_loss = list()
         test_loss = list()
@@ -468,6 +487,7 @@ def main(cfg: DictConfig):
             "best_success_rate": best_success_rate,
             "epoch": epoch_idx,
             "global_step": global_step,
+            "config": OmegaConf.to_container(cfg, resolve=True),
         }
 
         # Add the optimizer and scheduler states to the save dict
@@ -522,7 +542,7 @@ def main(cfg: DictConfig):
                 if env is None:
                     env = get_rl_env(
                         cfg.training.gpu_id,
-                        furniture=cfg.rollout.furniture,
+                        task=cfg.rollout.task,
                         num_envs=cfg.rollout.num_envs,
                         randomness=cfg.rollout.randomness,
                         observation_space=cfg.observation_type,

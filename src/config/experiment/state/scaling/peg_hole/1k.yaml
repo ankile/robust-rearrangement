@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - state/scaling/peg_hole/base
+  
+data:
+  data_paths_override:
+    - diffik/sim/factory_peg_hole/teleop/low/success.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_0.zarr
+

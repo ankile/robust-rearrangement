@@ -1,0 +1,60 @@
+seed: null
+torch_deterministic: false
+gpu_id: 0
+headless: true
+sample_perturbations: false
+eval_interval: 5
+eval_first: false
+checkpoint_interval: 10
+truncation_as_done: true
+
+student_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
+
+teacher_policy:
+  wandb_id: ???
+  wt_type: best_success_rate
+
+observation_type: state
+
+num_envs: 1024
+num_env_steps: 600
+num_epochs: 1
+batch_size: 1024
+num_iterations: 100
+max_steps_per_epoch: 10
+replay_buffer_size: 1000000
+clip_grad_norm: true
+
+beta: 0.5
+teacher_only_iters: 0
+beta_decay_ref_sr_ratio: 0.8
+beta_linear_decay: 0.1
+beta_min: 0.5
+correct_student_action_only: false
+
+env:
+  randomness: low
+  task: one_leg
+
+# Learning rates
+learning_rate_student: 1e-6
+lr_scheduler:
+  name: cosine
+  warmup_steps: 5
+  min_lr: 1e-7
+
+control:
+  controller: diffik  # diffik
+  control_mode: pos
+  act_rot_repr: rot_6d
+
+wandb:
+  entity: robust-assembly
+  project: ol-dagger-low-1
+  mode: online
+  notes: null
+  continue_run_id: null
+
+debug: false

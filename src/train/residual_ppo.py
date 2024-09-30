@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import furniture_bench  # noqa
 
@@ -17,7 +18,7 @@ from src.eval.eval_utils import get_model_from_api_or_cached
 from diffusers.optimization import get_scheduler
 
 
-from src.gym.env_rl_wrapper import ResidualPolicyEnvWrapper
+from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
 
 
@@ -31,6 +32,8 @@ import torch.optim as optim
 from tqdm import trange
 
 import wandb
+from wandb.apis.public.runs import Run
+from wandb.errors.util import CommError
 
 from src.gym import turn_off_april_tags
 
@@ -76,9 +79,75 @@ def main(cfg: DictConfig):
 
     OmegaConf.set_struct(cfg, False)
 
-    # TRY NOT TO MODIFY: seeding
-    if cfg.seed is None:
-        cfg.seed = random.randint(0, 2**32 - 1)
+    if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
+        cfg.slurm_job_id = job_id
+
+    run_state_dict = None
+
+    # Check if we are continuing a run
+    run_exists = False
+    if cfg.wandb.continue_run_id is not None:
+        try:
+            run: Run = wandb.Api().run(
+                f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
+            )
+            run_exists = True
+        except (ValueError, CommError):
+            pass
+
+    if run_exists:
+        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
+
+        run_id = cfg.wandb.continue_run_id
+        run_path = f"{cfg.wandb.project}/{run_id}"
+
+        # Load the weights from the run
+        cfg, wts = get_model_from_api_or_cached(
+            run_path, "latest", wandb_mode=cfg.wandb.mode
+        )
+
+        # Update the cfg.continue_run_id to the run_id
+        cfg.wandb.continue_run_id = run_id
+
+        base_cfg = cfg.base_policy
+        merge_base_bc_config_with_root_config(cfg, base_cfg)
+
+        print(f"Loading weights from {wts}")
+
+        run_state_dict = torch.load(wts)
+
+        # Set the best test loss and success rate to the one from the run
+        try:
+            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
+        except KeyError:
+            best_eval_success_rate = run.summary["eval/success_rate"]
+
+        iteration = run.summary["iteration"]
+        global_step = run.lastHistoryStep
+        sps = run.summary.get("charts/SPS", run.summary.get("training/SPS", 0))
+        training_cum_time = sps * global_step
+        run_name = run.name
+
+    else:
+        global_step = 0
+        iteration = 0
+        best_eval_success_rate = 0.0
+        training_cum_time = 0
+
+        # Load the behavior cloning actor
+        base_cfg, base_wts = get_model_from_api_or_cached(
+            cfg.base_policy.wandb_id,
+            wt_type=cfg.base_policy.wt_type,
+            wandb_mode=cfg.wandb.mode,
+        )
+
+        merge_base_bc_config_with_root_config(cfg, base_cfg)
+        cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
+
+        if cfg.seed is None:
+            cfg.seed = random.randint(0, 2**32 - 1)
+
+        run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
 
     if "task" not in cfg.env:
         cfg.env.task = "one_leg"
@@ -113,17 +182,6 @@ def main(cfg: DictConfig):
 
     n_parts_to_assemble = len(env.pairs_to_assemble)
 
-    # Load the behavior cloning actor
-    base_cfg, base_wts = get_model_from_api_or_cached(
-        cfg.base_policy.wandb_id,
-        wt_type=cfg.base_policy.wt_type,
-        wandb_mode=cfg.wandb.mode,
-    )
-
-    merge_base_bc_config_with_root_config(cfg, base_cfg)
-    cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
-    run_name = f"{int(time.time())}__{cfg.actor_name}_ppo__{cfg.seed}"
-
     if cfg.base_policy.actor.name == "diffusion":
         agent = ResidualDiffusionPolicy(device, base_cfg)
     elif cfg.base_policy.actor.name == "mlp":
@@ -131,17 +189,14 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f"Unknown actor type: {cfg.base_policy.actor}")
 
-    agent.load_base_state_dict(base_wts)
     agent.to(device)
     agent.eval()
-
-    residual_policy = agent.residual_policy
 
     # Set the inference steps of the actor
     if isinstance(agent, DiffusionPolicy):
         agent.inference_steps = 4
 
-    env: ResidualPolicyEnvWrapper = ResidualPolicyEnvWrapper(
+    env: RLPolicyEnvWrapper = RLPolicyEnvWrapper(
         env,
         max_env_steps=cfg.num_env_steps,
         normalize_reward=cfg.normalize_reward,
@@ -155,6 +210,7 @@ def main(cfg: DictConfig):
     optimizer_actor = optim.AdamW(
         agent.actor_parameters,
         lr=cfg.learning_rate_actor,
+        betas=cfg.get("optimizer_betas_actor", (0.9, 0.999)),
         eps=1e-5,
         weight_decay=1e-6,
     )
@@ -162,7 +218,7 @@ def main(cfg: DictConfig):
     lr_scheduler_actor = get_scheduler(
         name=cfg.lr_scheduler.name,
         optimizer=optimizer_actor,
-        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_warmup_steps=cfg.lr_scheduler.actor_warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
 
@@ -176,9 +232,26 @@ def main(cfg: DictConfig):
     lr_scheduler_critic = get_scheduler(
         name=cfg.lr_scheduler.name,
         optimizer=optimizer_critic,
-        num_warmup_steps=cfg.lr_scheduler.warmup_steps,
+        num_warmup_steps=cfg.lr_scheduler.critic_warmup_steps,
         num_training_steps=cfg.num_iterations,
     )
+
+    if run_state_dict is not None:
+        if "actor_logstd" in run_state_dict["model_state_dict"]:
+            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
+        else:
+            agent.load_state_dict(run_state_dict["model_state_dict"])
+
+        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
+        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
+        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
+        lr_scheduler_critic.load_state_dict(
+            run_state_dict["scheduler_critic_state_dict"]
+        )
+    else:
+        agent.load_base_state_dict(base_wts)
+
+    residual_policy = agent.residual_policy
 
     if (
         "pretrained_wts" in cfg.actor.residual_policy
@@ -211,7 +284,7 @@ def main(cfg: DictConfig):
 
     run = wandb.init(
         id=cfg.wandb.continue_run_id,
-        resume=None if cfg.wandb.continue_run_id is None else "must",
+        resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
         entity=cfg.wandb.entity,
         config=OmegaConf.to_container(cfg, resolve=True),
@@ -219,48 +292,6 @@ def main(cfg: DictConfig):
         save_code=True,
         mode=cfg.wandb.mode if not cfg.debug else "disabled",
     )
-
-    if cfg.wandb.continue_run_id is not None:
-        print(f"Continuing run {cfg.wandb.continue_run_id}, {run.name}")
-
-        run_id = f"{cfg.wandb.project}/{cfg.wandb.continue_run_id}"
-
-        # Load the weights from the run
-        _, wts = get_model_from_api_or_cached(
-            run_id, "latest", wandb_mode=cfg.wandb.mode
-        )
-
-        print(f"Loading weights from {wts}")
-
-        run_state_dict = torch.load(wts)
-
-        if "actor_logstd" in run_state_dict["model_state_dict"]:
-            agent.residual_policy.load_state_dict(run_state_dict["model_state_dict"])
-        else:
-            agent.load_state_dict(run_state_dict["model_state_dict"])
-
-        optimizer_actor.load_state_dict(run_state_dict["optimizer_actor_state_dict"])
-        optimizer_critic.load_state_dict(run_state_dict["optimizer_critic_state_dict"])
-        lr_scheduler_actor.load_state_dict(run_state_dict["scheduler_actor_state_dict"])
-        lr_scheduler_critic.load_state_dict(
-            run_state_dict["scheduler_critic_state_dict"]
-        )
-
-        # Set the best test loss and success rate to the one from the run
-        try:
-            best_eval_success_rate = run.summary["eval/best_eval_success_rate"]
-        except KeyError:
-            best_eval_success_rate = run.summary["eval/success_rate"]
-
-        iteration = run.summary["iteration"]
-        global_step = run.step
-        training_cum_time = run.summary["charts/SPS"] * global_step
-
-    else:
-        global_step = 0
-        iteration = 0
-        best_eval_success_rate = 0.0
-        training_cum_time = 0
 
     obs: torch.Tensor = torch.zeros(
         (
@@ -276,7 +307,6 @@ def main(cfg: DictConfig):
     values = torch.zeros((steps_per_iteration, cfg.num_envs))
 
     start_time = time.time()
-    running_mean_success_rate = 0.0
 
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
@@ -348,23 +378,35 @@ def main(cfg: DictConfig):
         env_success = (rewards > 0).sum(dim=0) >= n_parts_to_assemble
         success_rate = env_success.float().mean().item()
 
-        # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
-        # Count total timesteps in successful trajectories
-        timesteps_in_success = rewards[:, env_success]
+        if success_rate > 0:
+            # Calculate the share of timesteps that come from successful trajectories that account for the success rate and the varying number of timesteps per trajectory
+            # Count total timesteps in successful trajectories
+            timesteps_in_success = rewards[:, env_success]
 
-        # Find index of last reward in each trajectory
-        last_reward_idx = torch.argmax(timesteps_in_success, dim=0)
+            # Find index of last reward in each trajectory
+            # This has all timesteps including and after episode is done
+            success_dones = timesteps_in_success.cumsum(dim=0) >= n_parts_to_assemble
+            last_reward_idx = success_dones.int().argmax(dim=0)
 
-        # Calculate the total number of timesteps in successful trajectories
-        total_timesteps_in_success = last_reward_idx.sum().item()
+            # Calculate the total number of timesteps in successful trajectories
+            total_timesteps_in_success = (last_reward_idx + 1).sum().item()
 
-        # Calculate the share of successful timesteps
-        success_timesteps_share = total_timesteps_in_success / rewards.numel()
+            # Calculate the share of successful timesteps
+            success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
-        running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
+            # Mean successful episode length
+            mean_success_episode_length = (
+                total_timesteps_in_success / env_success.sum().item()
+            )
+            max_success_episode_length = last_reward_idx.max().item()
+        else:
+            success_timesteps_share = 0
+            mean_success_episode_length = 0
+            max_success_episode_length = 0
 
         print(
-            f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f"SR: {success_rate:.4%}, SPS: {steps_per_iteration * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f", STS: {success_timesteps_share:.4%}, MSEL: {mean_success_episode_length:.2f}"
         )
 
         if eval_mode:
@@ -549,12 +591,14 @@ def main(cfg: DictConfig):
 
         wandb.log(
             {
-                "charts/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
-                "charts/learning_rate_critic": optimizer_critic.param_groups[0]["lr"],
-                "charts/SPS": sps,
+                "training/learning_rate_actor": optimizer_actor.param_groups[0]["lr"],
+                "training/learning_rate_critic": optimizer_critic.param_groups[0]["lr"],
+                "training/SPS": sps,
                 "charts/rewards": rewards.sum().item(),
                 "charts/success_rate": success_rate,
                 "charts/success_timesteps_share": success_timesteps_share,
+                "charts/mean_success_episode_length": mean_success_episode_length,
+                "charts/max_success_episode_length": max_success_episode_length,
                 "charts/action_norm_mean": action_norms.mean(),
                 "charts/action_norm_std": action_norms.std(),
                 "values/advantages": b_advantages.mean().item(),
@@ -586,7 +630,7 @@ def main(cfg: DictConfig):
         lr_scheduler_critic.step()
 
         # Checkpoint every cfg.checkpoint_interval steps
-        if iteration % cfg.checkpoint_interval == 0:
+        if cfg.checkpoint_interval > 0 and iteration % cfg.checkpoint_interval == 0:
             model_path = str(model_save_dir / f"actor_chkpt_{iteration}.pt")
             torch.save(
                 {

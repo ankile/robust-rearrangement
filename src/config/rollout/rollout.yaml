@@ -1,12 +1,12 @@
 rollouts: true
 every: 10
 loss_threshold: 0.1
-max_steps: 750
+max_steps: 1000
 num_envs: 256
 count: ${rollout.num_envs}
 save_rollouts: false
 save_failures: false
-randomness: low
-furniture: ${furniture}
+randomness: ${randomness}
+task: ${task}
 n_parts_assemble: null
 parts_poses_in_robot_frame: ${parts_poses_in_robot_frame}

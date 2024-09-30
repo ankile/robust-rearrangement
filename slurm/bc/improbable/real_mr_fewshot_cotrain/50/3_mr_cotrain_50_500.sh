@@ -11,7 +11,7 @@
 #SBATCH --job-name=1_mr_50_cotrain_500
 
 python -m src.train.bc +experiment=image/real_ol_cotrain \
-    furniture=mug_rack \
+    task=mug_rack \
     randomness=low \
     environment='[real,sim]' \
     data.data_paths_override='[diffik/real/mug_rack_handle/teleop/low/success.zarr,diffik/sim/mug_rack_render_rppo_fixed_part_colors/rollout/low/success.zarr]' \

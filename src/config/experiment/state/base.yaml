@@ -11,8 +11,6 @@ action_horizon: 8
 pred_horizon: 32
 obs_horizon: 1
 
-furniture: ???
-randomness: ???
 demo_source: teleop
 
 early_stopper:
@@ -20,17 +18,10 @@ early_stopper:
 
 training:
   batch_size: 256
-  steps_per_epoch: -1
+  steps_per_epoch: 1000
   checkpoint_interval: 500
   num_epochs: 5000
 
-rollout:
-  every: 100
-  max_steps: 750
-  num_envs: 128
-  loss_threshold: 0.1
-  randomness: low
-
 wandb:
-  project: ???
+  project: ${task}-state-${randomness}
   entity: robust-assembly

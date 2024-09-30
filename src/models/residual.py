@@ -1,7 +1,9 @@
 from typing import Tuple
 
+from furniture_bench.controllers.control_utils import proprioceptive_quat_to_6d_rotation
 import numpy as np
 
+from src.dataset.normalizer import LinearNormalizer
 from src.models.utils import PrintParamCountMixin
 import torch
 import torch.nn as nn
@@ -128,6 +130,8 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
             requires_grad=kwargs.get("learn_std", True),
         )
 
+        self.normalizer = None
+
         self.print_model_params()
 
     def get_value(self, nobs: torch.Tensor) -> torch.Tensor:
@@ -173,14 +177,10 @@ class ResidualPolicy(nn.Module, PrintParamCountMixin):
         action_mean: torch.Tensor = self.actor_mean(res_nobs)
         gt_res_action_scaled = gt_res_action / self.action_scale
         return torch.nn.functional.mse_loss(action_mean, gt_res_action_scaled)
-        # action_logstd = self.actor_logstd.expand_as(action_mean)
-        # action_std = torch.exp(action_logstd)
-        # probs = Normal(action_mean, action_std)
 
-        # gt_res_action_scaled = gt_res_action / self.action_scale
-
-        # # Sum over the action dimension (last dimension)
-        # return -probs.log_prob(gt_res_action_scaled).sum(dim=-1).mean()
+    def set_normalizer(self, normalizer: LinearNormalizer):
+        self.normalizer = LinearNormalizer()
+        self.normalizer.load_state_dict(normalizer.state_dict())
 
 
 class BiggerResidualPolicy(ResidualPolicy):
