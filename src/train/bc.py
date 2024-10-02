@@ -548,7 +548,6 @@ def main(cfg: DictConfig):
                         observation_space=cfg.observation_type,
                         resize_img=False,
                         act_rot_repr=cfg.control.act_rot_repr,
-                        ctrl_mode=cfg.control.controller,
                         action_type=cfg.control.control_mode,
                         parts_poses_in_robot_frame=cfg.rollout.parts_poses_in_robot_frame,
                         headless=True,
