@@ -133,7 +133,9 @@ def combine_zarr_datasets(
         combined_data["episode_ends"][n_episodes : n_episodes + len(end_idxs)] = (
             end_idxs + last_episode_end
         )
-        combined_data["furniture"].extend(dataset["furniture"][:max_episodes])
+        furniture = dataset.get("furniture", dataset.get("task"))
+        assert furniture is not None
+        combined_data["furniture"].extend(furniture[:max_episodes])
         combined_data["success"][n_episodes : n_episodes + len(end_idxs)] = dataset[
             "success"
         ][:max_episodes]
