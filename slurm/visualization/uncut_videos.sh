@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=128GB
-#SBATCH --time=00-04:00
+#SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=uncut_videos
 
@@ -15,11 +15,11 @@
 # === One Leg ===
 
 # Low BC run
-run_id="ol-state-dr-1/e3d4a367"
-rollout_suffix="bc"
-randomness="low"
-rollout_steps=700
-task="one_leg"
+# task="one_leg"
+# run_id="ol-state-dr-1/e3d4a367"
+# rollout_suffix="bc"
+# randomness="low"
+# rollout_steps=700
 
 # Low RL run
 # run_id="ol-rppo-dr-low-1/k8tg86rc"
@@ -27,6 +27,23 @@ task="one_leg"
 # randomness="low"
 # rollout_steps=700
 # task="one_leg"
+
+
+# === Round Table ===
+
+# Med BC run
+# run_id="rt-state-dr-med-1/pb4urpt5"
+# randomness="med"
+# task="round_table"
+# rollout_suffix="bc"
+# rollout_steps=1000
+
+# Med RL run
+run_id="rt-rppo-dr-med-1/k737s8lj"
+randomness="med"
+task="round_table"
+rollout_suffix="rppo"
+rollout_steps=1000
 
 
 while true; do

@@ -6,11 +6,14 @@ defaults:
 
 rollout:
   num_envs: 1024
-  every: 100
+  every: 25
   randomness: low
   max_steps: 1000
 
 observation_type: state
+
+early_stopper:
+  patience: inf
 
 training:
   num_epochs: 3000

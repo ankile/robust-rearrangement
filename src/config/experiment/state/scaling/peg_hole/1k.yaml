@@ -5,5 +5,5 @@ defaults:
 data:
   data_paths_override:
     - diffik/sim/factory_peg_hole/teleop/low/success.zarr
-    - diffik/sim/factory_peg_hole_state_distill/rollout/low/success/rppo_0.zarr
+    - diffik/distillation/factory_peg_hole/rollout/low/success/rppo_0.zarr
 

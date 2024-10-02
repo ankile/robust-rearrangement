@@ -5,6 +5,8 @@ _**NOTE** (updated Sept 1, 2024): The repo is still under active development and
 
 _**Update Sept 20, 2024:**_ The data used to train the models in this project is now available in an [S3 bucket](https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/index.html). We also have a script to download data for the different tasks in the right places.
 
+_**Update Sept 27, 2024:**_ Commands for starting the BC pre-training on the data is added, as well as started adding the model weights from the paper.
+
 
 ## Installation Instructions
 
@@ -230,7 +232,7 @@ python -m src.train.bc +experiment=state/diff_unet task=round_table randomness=m
 ```bash
 python -m src.train.bc +experiment=state/diff_unet task=mug_rack randomness=low dryrun=false
 ```
-```
+
 
 **`peg_hole`**
 
@@ -238,10 +240,36 @@ python -m src.train.bc +experiment=state/diff_unet task=mug_rack randomness=low 
 python -m src.train.bc +experiment=state/diff_unet task=factory_peg_hole randomness=low dryrun=false
 ```
 
+You can run evaluations with a command like:
+
+```bash
+python -m src.eval.evaluate_model --n-envs 128 --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 700 --action-type pos --observation-space image --randomness low --wt-type best_success_rate --run-id <wandb-project>/<wandb-run-id>
+```
+
+You can add the following flags to visualize in the viewer or store the rollouts:
+
+```bash
+--observation-space image --save-rollouts --visualize
+```
+
+
 
 #### Evaluate pre-trained checkpoints
 
 _Our BC pre-trained weights are to be available for download shortly_
+
+`one_leg` BC pre-trained weights:
+
+```
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/low/actor_chkpt.pt
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/med/actor_chkpt.pt
+```
+
+Once these are downloaded, you can run evaluation of the weights in a very similar manner to the above, except that you can substitute `--run-id` and `wt-type` with `wt-path`, like so:
+
+```bash
+python -m src.eval.evaluate_model --n-envs 128 --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 1000 --action-type pos --randomness low --observation-space state --wt-path <path to checkpoints>/bc/one_leg/low/actor_chkpt.pt   
+```
 
 
 ### RL Fine-tuning
