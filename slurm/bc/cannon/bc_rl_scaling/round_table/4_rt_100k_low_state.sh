@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p seas_gpu
-#SBATCH -t 4-00:00
+#SBATCH -t 7-00:00
 #SBATCH --mem=256G
 #SBATCH --gres=gpu:nvidia_a100-sxm4-80gb:1
 #SBATCH -c 16
