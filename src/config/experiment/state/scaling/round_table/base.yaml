@@ -22,6 +22,7 @@ training:
   checkpoint_interval: -1
   eval_every: 10
   store_last_model: true
+  actor_lr: 2e-4
 
 randomness: low
 task: round_table
