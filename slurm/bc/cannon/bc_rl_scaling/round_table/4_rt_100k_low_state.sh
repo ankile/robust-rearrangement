@@ -9,4 +9,4 @@
 #SBATCH --job-name=4_rt_100k_low_state
 
 python -m src.train.bc +experiment=state/scaling/round_table/100k \
-    dryrun=true
+    dryrun=false
