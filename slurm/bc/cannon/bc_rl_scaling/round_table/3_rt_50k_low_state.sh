@@ -2,7 +2,7 @@
 
 #SBATCH -p seas_gpu
 #SBATCH -t 7-00:00
-#SBATCH --mem=128G
+#SBATCH --mem=64GB
 #SBATCH --gres=gpu:nvidia_a100-sxm4-80gb:1
 #SBATCH -c 16
 #SBATCH --account=parkes_low_priority
