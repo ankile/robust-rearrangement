@@ -11,4 +11,5 @@
 #SBATCH --job-name=8_rl_100050_low_state
 
 python -m src.train.bc +experiment=state/scaling_100k_rt \
+    wandb.continue_run_id=h1u90k07 \
     dryrun=false
