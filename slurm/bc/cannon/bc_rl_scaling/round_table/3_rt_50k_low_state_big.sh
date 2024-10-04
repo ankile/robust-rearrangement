@@ -10,4 +10,4 @@
 
 python -m src.train.bc +experiment=state/scaling/round_table/50k \
     actor.diffusion_model.down_dims='[512, 1024, 2048]' \
-    dryrun=true
+    dryrun=false
