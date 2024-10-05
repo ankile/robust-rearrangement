@@ -11,4 +11,5 @@
 #SBATCH --job-name=4_fph_100k_low_state
 
 python -m src.train.bc +experiment=state/scaling/peg_hole/100k \
+    wandb.continue_run_id=l3vyvd07 \
     dryrun=false
