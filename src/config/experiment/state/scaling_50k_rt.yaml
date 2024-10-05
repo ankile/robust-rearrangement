@@ -10,7 +10,7 @@ rollout:
   every: 50
   furniture: round_table
   randomness: low
-  max_steps: 1
+  max_steps: 1000
 
 observation_type: state
 

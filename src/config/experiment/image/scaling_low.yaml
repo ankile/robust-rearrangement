@@ -8,8 +8,6 @@ defaults:
 rollout:
   num_envs: 128
   every: 50
-  furniture: one_leg
-  randomness: low
 
 training:
   num_epochs: 10000
