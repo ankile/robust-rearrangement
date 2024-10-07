@@ -32,25 +32,23 @@
 # === Round Table ===
 
 # Med BC run
-# run_id="rt-state-dr-med-1/pb4urpt5"
-# randomness="med"
-# task="round_table"
-# rollout_suffix="bc"
-# rollout_steps=1000
+run_id="rt-state-dr-med-1/pb4urpt5"
+rollout_suffix="bc"
+wt_type="best_success_rate"
 
 # Med RL run
-run_id="rt-rppo-dr-med-1/k737s8lj"
+# run_id="rt-rppo-dr-med-1/k737s8lj"
+# rollout_suffix="rppo"
+# wt_type="latest"
+
 randomness="med"
 task="round_table"
-rollout_suffix="rppo"
 rollout_steps=1000
-
 
 while true; do
     DATA_DIR_RAW=/data/scratch/ankile/robust-assembly-video-data python -m src.eval.evaluate_model \
-        --n-envs 32 --n-rollouts 32 -f one_leg --if-exists append --max-rollout-steps 700 --controller diffik \
-        --use-new-env --action-type pos --randomness low --wt-type best_success_rate --run-id $run_id \
+        --n-envs 32 --n-rollouts 32 -f $task --if-exists append --max-rollout-steps $rollout_steps \
+        --action-type pos --randomness $randomness --wt-type $wt_type --run-id $run_id \
         --observation-space image --save-rollouts --save-failures --save-rollouts-suffix $rollout_suffix \
         --compress-pickles
-
 done

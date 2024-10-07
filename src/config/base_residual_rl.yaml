@@ -1,4 +1,5 @@
 defaults:
+- _self_
 - actor: residual_diffusion
 
 seed: null
@@ -14,12 +15,14 @@ eval_first: true
 checkpoint_interval: -1
 truncation_as_done: true
 base_policy:
-  wandb_id: ???
+  wandb_id: null  # If starting with a base policy from a WandB run (typical)
   wt_type: best_success_rate
+  wt_path: null  # If starting with a base policy stored on file 
 
 observation_type: state
 
-total_timesteps: 500_000_000
+total_timesteps: 1_000_000_000
+
 num_envs: 1024
 num_minibatches: 1
 update_epochs: 50
@@ -27,12 +30,14 @@ num_env_steps: 700
 data_collection_steps: ${num_env_steps}
 
 env:
-  randomness: med
+  randomness: low
   task: one_leg
 
 actor:
   residual_policy:
     pretrained_wts: null
+    init_logstd: -1.0
+    learn_std: false
 
 # Learning rates
 learning_rate_actor: 3e-4
@@ -76,9 +81,9 @@ control:
   act_rot_repr: rot_6d
 
 wandb:
-  entity: robust-assembly
-  project: ???
+  project: ${env.task}-residual-rl
   mode: online
+  entity: null
   notes: null
   continue_run_id: null
 

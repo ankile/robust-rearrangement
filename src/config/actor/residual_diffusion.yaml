@@ -5,8 +5,8 @@ name: residual_diffusion
 
 residual_policy:
   _target_: src.models.residual.ResidualPolicy
-  init_logstd: -1.5
-  learn_std: true
+  init_logstd: -1.0
+  learn_std: false
   action_head_std: 0.0
   action_scale: 0.1
   actor_hidden_size: 256

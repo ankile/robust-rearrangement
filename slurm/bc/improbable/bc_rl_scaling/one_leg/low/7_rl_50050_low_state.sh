@@ -11,6 +11,7 @@
 #SBATCH --job-name=7_rl_50050_low_state
 #SBATCH --requeue
 
-python -m src.train.bc +experiment=state/scaling_50k \
-    wandb.continue_run_id=shc03kek \
+python -m src.train.bc +experiment=state/scaling/one_leg/low/50k \
+    wandb.name=state-rl-50050-30 \
+    wandb.continue_run_id=0b6b6842 \
     dryrun=false

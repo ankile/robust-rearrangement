@@ -82,6 +82,17 @@ def main(cfg: DictConfig):
     if (job_id := os.environ.get("SLURM_JOB_ID")) is not None:
         cfg.slurm_job_id = job_id
 
+    # Ensure exactly one of cfg.base_policy.wandb_id or cfg.base_policy.wt_path is set
+    assert (
+        sum(
+            [
+                cfg.base_policy.wandb_id is not None,
+                cfg.base_policy.wt_path is not None,
+            ]
+        )
+        == 1
+    ), "Exactly one of base_policy.wandb_id or base_policy.wt_path must be set"
+
     run_state_dict = None
 
     # Check if we are continuing a run
@@ -135,11 +146,17 @@ def main(cfg: DictConfig):
         training_cum_time = 0
 
         # Load the behavior cloning actor
-        base_cfg, base_wts = get_model_from_api_or_cached(
-            cfg.base_policy.wandb_id,
-            wt_type=cfg.base_policy.wt_type,
-            wandb_mode=cfg.wandb.mode,
-        )
+        if cfg.base_policy.wandb_id is not None:
+            base_cfg, base_wts = get_model_from_api_or_cached(
+                cfg.base_policy.wandb_id,
+                wt_type=cfg.base_policy.wt_type,
+                wandb_mode=cfg.wandb.mode,
+            )
+        elif cfg.base_policy.wt_path is not None:
+            base_wts = cfg.base_policy.wt_path
+            base_cfg: DictConfig = OmegaConf.create(torch.load(base_wts)["config"])
+        else:
+            raise ValueError("No base policy provided")
 
         merge_base_bc_config_with_root_config(cfg, base_cfg)
         cfg.actor_name = f"residual_{cfg.base_policy.actor.name}"
@@ -286,7 +303,7 @@ def main(cfg: DictConfig):
         id=cfg.wandb.continue_run_id,
         resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
-        entity=cfg.wandb.entity,
+        entity=cfg.wandb.get("entity", None),
         config=OmegaConf.to_container(cfg, resolve=True),
         name=run_name,
         save_code=True,

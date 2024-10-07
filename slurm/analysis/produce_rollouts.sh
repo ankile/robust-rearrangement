@@ -6,9 +6,9 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64GB
-#SBATCH --time=00-04:00
+#SBATCH --time=01-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=make_traj_bc_rt_low
+#SBATCH --job-name=make_traj_bc_lp_rppo_low
 
 # Make an infinite loop that runs the rollout script
 
@@ -69,26 +69,25 @@
 # task="lamp"
 
 # Low RL run
-# run_id="lp-rppo-dr-low-1/hd2i5gje"
-# randomness="low"
-# rollout_suffix="rppo"
-# task="lamp"
-# rollout_steps=1000
-
+run_id="lp-rppo-dr-low-1/hd2i5gje"
+randomness="low"
+rollout_suffix="rppo"
+task="lamp"
+rollout_steps=1000
 
 # === Factory Peg Hole ===
 # Low RL run
-run_id="fph-rppo-dr-low-1/2kd9vgx9"
-randomness="low"
-rollout_suffix="rppo"
-task="factory_peg_hole"
-rollout_steps=100
+# run_id="fph-rppo-dr-low-1/2kd9vgx9"
+# randomness="low"
+# rollout_suffix="rppo"
+# task="factory_peg_hole"
+# rollout_steps=100
 
 wt_type="best_success_rate"
 
 while true; do
     python -m src.eval.evaluate_model --run-id $run_id --n-envs 1024 \
-        --n-rollouts 1024 --task $task --if-exists append --max-rollout-steps $rollout_steps --controller diffik \
-        --use-new-env --action-type pos --observation-space state --randomness $randomness --wt-type $wt_type \
+        --n-rollouts 1024 --task $task --if-exists append --max-rollout-steps $rollout_steps \
+        --action-type pos --observation-space state --randomness $randomness --wt-type $wt_type \
         --save-rollouts --save-rollouts-suffix $rollout_suffix
 done

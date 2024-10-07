@@ -7,6 +7,8 @@ _**Update Sept 20, 2024:**_ The data used to train the models in this project is
 
 _**Update Sept 27, 2024:**_ Commands for starting the BC pre-training on the data is added, as well as started adding the model weights from the paper.
 
+**Update Oct 7, 2024:** The model weights of pre-trained and fine-tuned models are now available for download. The commands for evaluating the fine-tuned models are the same as the pre-trained models. COmmands for starting the RL fine-tuning are added.
+
 
 ## Installation Instructions
 
@@ -256,8 +258,6 @@ You can add the following flags to visualize in the viewer or store the rollouts
 
 #### Evaluate pre-trained checkpoints
 
-_Our BC pre-trained weights are to be available for download shortly_
-
 `one_leg` BC pre-trained weights:
 
 ```
@@ -265,16 +265,60 @@ https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_l
 https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/bc/one_leg/med/actor_chkpt.pt
 ```
 
+The rest of the weights are available in the same bucket, just substitute `one_leg` with the respective task name and `low` with `med` for the medium randomness level.
+
 Once these are downloaded, you can run evaluation of the weights in a very similar manner to the above, except that you can substitute `--run-id` and `wt-type` with `wt-path`, like so:
 
 ```bash
-python -m src.eval.evaluate_model --n-envs 128 --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 1000 --action-type pos --randomness low --observation-space state --wt-path <path to checkpoints>/bc/one_leg/low/actor_chkpt.pt   
+python -m src.eval.evaluate_model --n-envs 128 --n-rollouts 128 -f one_leg --if-exists append --max-rollout-steps 700 --action-type pos --randomness low --observation-space state --wt-path <path to checkpoints>/bc/one_leg/low/actor_chkpt.pt
 ```
+
+Also, we used the following `--max-rollout-steps` for the different tasks:
+
+- `one_leg`: 700
+- `lamp`: 1000
+- `round_table`: 1000
+- `mug_rack`: 400
+- `peg_hole`: 200
+
+
 
 
 ### RL Fine-tuning
 
 #### Run full fine-tuning
+
+Running the residual RL finet-tuning looks like the following:
+
+```bash
+python -m src.train.residual_ppo \
+    base_policy.wandb_id=<wandb-project>/<run-id> \
+    base_policy.wt_type=best_success_rate \
+    env.task=one_leg env.randomness=low \
+    num_env_steps=700 \
+    debug=false
+```
+
+if you want to run the fine-tuning from a pre-training run you've run in a WandB project, or like this:
+
+```bash
+python -m src.train.residual_ppo \
+    base_policy.wt_path=/path/to/actor_chkpt.pt \
+    env.task=one_leg env.randomness=low \
+    num_env_steps=700 \
+    debug=false
+```
+
+Of course, to fine-tune the rest of the tasks, you can substitute `one_leg` with the respective task name and `low` with `med` for the medium randomness level.
+
+Also, we used the following `num_env_steps` for the different tasks:
+
+- `one_leg`: 700
+- `lamp`: 1000
+- `round_table`: 1000
+- `mug_rack`: 400
+- `peg_hole`: 200
+
 
 
 #### Evaluate trained checkpoints
@@ -282,8 +326,16 @@ python -m src.eval.evaluate_model --n-envs 128 --n-rollouts 128 -f one_leg --if-
 _Our RL fine-tuned weights are to be available for download shortly_
 
 
+`one_leg` residual RL fine-tuned weights:
 
+```
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/rppo/one_leg/low/actor_chkpt.pt
+https://iai-robust-rearrangement.s3.us-east-2.amazonaws.com/checkpoints/rppo/one_leg/med/actor_chkpt.pt
+```
 
+The rest of the weights are available in the same bucket, just substitute `one_leg` with the respective task name and `low` with `med` for the medium randomness level.
+
+To evaluate the weights, you can run the evaluation script just like for the BC weights.
 
 
 ## Notes on sim-to-real (in development)

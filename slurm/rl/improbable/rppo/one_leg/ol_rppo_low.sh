@@ -10,12 +10,9 @@
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
 
-python -m src.train.residual_ppo +experiment=rl/residual_ppo \
+python -m src.train.residual_ppo \
     base_policy.wandb_id=ol-state-dr-1/e3d4a367 \
     base_policy.wt_type=best_success_rate \
+    env.task=one_leg \
     env.randomness=low \
-    actor.residual_policy.init_logstd=-0.9 \
-    actor.residual_policy.learn_std=true \
-    ent_coef=0.001 \
-    sample_perturbations=false \
     debug=false
