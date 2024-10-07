@@ -6,7 +6,9 @@
 #SBATCH --gres=gpu:nvidia_a100-sxm4-80gb:1
 #SBATCH -c 16
 #SBATCH --account=parkes_low_priority
-#SBATCH --job-name=1_rt_1k_low_state
+#SBATCH --job-name=0b_lp_1k_low_state
 
-python -m src.train.bc +experiment=state/scaling/round_table/1k \
+python -m src.train.bc +experiment=state/scaling/lamp/1k \
+    data.data_subset=100 \
+    wandb.name=lp-150-1 \
     dryrun=false

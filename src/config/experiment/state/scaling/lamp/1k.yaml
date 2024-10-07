@@ -1,0 +1,9 @@
+# @package _global_
+defaults:
+  - state/scaling/lamp/base
+  
+data:
+  data_paths_override:
+    - diffik/sim/lamp/teleop/low/success.zarr
+    - diffik/distillation/lamp/rollout/low/success/rppo_0.zarr
+
