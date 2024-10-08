@@ -119,17 +119,26 @@ def combine_zarr_datasets(
 
         # Add the frame-based data
         for key in tqdm(keys, desc="Loading data", position=1, leave=False):
-            for i in tqdm(
-                range(0, end_idxs[-1], batch_size),
-                desc=f"Loading batches for {key}",
-                leave=False,
-                position=2,
-            ):
-                end = min(i + batch_size, end_idxs[-1])
-                batch = dataset[key][i:end]
+
+            # For the image data, we load in batches
+            if key.startswith("color_image"):
+                for i in tqdm(
+                    range(0, end_idxs[-1], batch_size),
+                    desc=f"Loading batches for {key}",
+                    leave=False,
+                    position=2,
+                ):
+                    end = min(i + batch_size, end_idxs[-1])
+                    batch = dataset[key][i:end]
+                    combined_data[key][
+                        last_episode_end + i : last_episode_end + end
+                    ] = batch
+
+            # For the other data, we can load it all at once
+            else:
                 combined_data[key][
-                    last_episode_end + i : last_episode_end + end
-                ] = batch
+                    last_episode_end : last_episode_end + end_idxs[-1]
+                ] = dataset[key][: end_idxs[-1]]
 
         # Add the episode-based data
         combined_data["episode_ends"][n_episodes : n_episodes + len(end_idxs)] = (

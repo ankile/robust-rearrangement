@@ -51,15 +51,15 @@ def initialize_zarr_store(out_path, full_data_shapes, chunksize=32):
             )
         elif dtype == object:
             z.create_dataset(
-                name,
-                shape=shape,
-                dtype=dtype,
-                chunks=(chunksize,),
-                object_codec=JSON(),
+            name,
+            shape=shape,
+            dtype=dtype,
+            chunks=shape,
+            object_codec=JSON(),
             )
         else:
             z.create_dataset(
-                name, shape=shape, dtype=dtype, chunks=(chunksize,) + shape[1:]
+            name, shape=shape, dtype=dtype, chunks=shape
             )
 
     return z
