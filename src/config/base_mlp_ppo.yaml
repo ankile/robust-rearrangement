@@ -14,7 +14,7 @@ checkpoint_interval: 10
 truncation_as_done: true
 
 base_policy:
-  wandb_id: ol-state-dr-low-1/173hhnou
+  wandb_id: ???
   wt_type: best_success_rate
 
 observation_type: state

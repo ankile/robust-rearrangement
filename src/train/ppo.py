@@ -147,7 +147,7 @@ def main(cfg: DictConfig):
     run_name = f"{int(time.time())}__mlp_ppo__{cfg.seed}"
 
     run_directory = f"runs/mlp-ppo"
-    run_directory += "-delete" if cfg.debug else ""
+    run_directory += "-debug" if cfg.debug else ""
     print(f"Run directory: {run_directory}")
 
     random.seed(cfg.seed)
@@ -241,7 +241,6 @@ def main(cfg: DictConfig):
         f"Mini-batch size: {cfg.minibatch_size}, num iterations: {cfg.num_iterations}"
     )
 
-    running_mean_success_rate = 0.0
     best_eval_success_rate = 0.0
 
     obs = torch.zeros((num_steps, cfg.num_envs) + env.observation_space.shape)
@@ -269,7 +268,7 @@ def main(cfg: DictConfig):
     training_cum_time = 0
 
     start_time = time.time()
-    # bp()
+
     next_done = torch.zeros(cfg.num_envs)
     next_obs = env.reset()
 
@@ -344,10 +343,8 @@ def main(cfg: DictConfig):
         # Calculate the share of successful timesteps
         success_timesteps_share = total_timesteps_in_success / rewards.numel()
 
-        running_mean_success_rate = 0.5 * running_mean_success_rate + 0.5 * success_rate
-
         print(
-            f"SR: {success_rate:.4%}, SR mean: {running_mean_success_rate:.4%}, SPS: {cfg.num_env_steps * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
+            f"SR: {success_rate:.4%}, SPS: {cfg.num_env_steps * cfg.num_envs / (time.time() - iteration_start_time):.2f}"
         )
 
         if eval_mode:
@@ -578,8 +575,6 @@ def main(cfg: DictConfig):
             },
             step=global_step,
         )
-
-        # Step the learning rate scheduler
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:
