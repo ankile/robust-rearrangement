@@ -362,7 +362,7 @@ def main(cfg: DictConfig):
         name=cfg.wandb.name,
         resume=None if cfg.wandb.continue_run_id is None else "allow",
         project=cfg.wandb.project,
-        entity=cfg.wandb.get("entity", "robust-assembly"),
+        entity=cfg.wandb.get("entity"),
         config=config_dict,
         mode=cfg.wandb.mode,
         notes=cfg.wandb.notes,
