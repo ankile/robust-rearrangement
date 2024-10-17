@@ -43,7 +43,7 @@ def get_model_from_api_or_cached(run_id: str, wt_type: str, wandb_mode="online")
     else:
         try:
             # Try to fetch the data using the Weights and Biases API
-            api = wandb.Api(overrides=dict(entity="robust-assembly"))
+            api = wandb.Api()
             run = api.run(run_id)
 
             cfg: DictConfig = OmegaConf.create(run.config)
