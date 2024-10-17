@@ -6,11 +6,12 @@ defaults:
 
 rollout:
   num_envs: 1024
-  every: 10
+  every: 1
   randomness: low
-  max_steps: 100
+  max_steps: 200
 
 observation_type: state
+pred_horizon: 16
 
 early_stopper:
   patience: inf
@@ -20,12 +21,16 @@ training:
   batch_size: 1024
   steps_per_epoch: 1000
   checkpoint_interval: -1
-  eval_every: 10
+  eval_every: 5
   store_last_model: true
   actor_lr: 2e-4
 
 randomness: low
 task: factory_peg_hole
+
+data:
+  data_paths_override:
+    - diffik/sim/factory_peg_hole/teleop/low/success.zarr
 
 wandb:
   project: fph-scaling-low-1

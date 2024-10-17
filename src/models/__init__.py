@@ -5,6 +5,8 @@ from src.models.unet import ConditionalUnet1D
 from src.models.transformer import DiffusionTransformer
 from src.models.vision import VisionEncoder
 
+from ipdb import set_trace as bp
+
 
 def get_encoder(
     encoder_name,
