@@ -1,14 +1,12 @@
 from git import Union
-import furniture_bench
 from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
 from typing import Optional
 from src.behavior.base import Actor
-from src.common.context import suppress_stdout
 from src.eval.eval_utils import get_model_from_api_or_cached
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+from gymnasium import Env
 from src.train.residual_ppo_w_bc import to_native
 
 import numpy as np
@@ -103,7 +101,7 @@ def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
     print(OmegaConf.to_yaml(cfg))
-    env: Optional[FurnitureRLSimEnv] = None
+    env: Optional[Env] = None
     device = torch.device(
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
