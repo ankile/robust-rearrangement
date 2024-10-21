@@ -1,11 +1,5 @@
 from pathlib import Path
-import furniture_bench  # noqa: F401
-from furniture_bench.envs.observation import (
-    DEFAULT_VISUAL_OBS,
-    DEFAULT_STATE_OBS,
-    FULL_OBS,
-)
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+
 
 from src.common.context import suppress_all_output
 
@@ -35,7 +29,15 @@ def get_env(
     verbose=False,
     headless=True,
     **kwargs,
-) -> FurnitureSimEnv:
+):
+    import furniture_bench  # noqa: F401
+    from furniture_bench.envs.observation import (
+        DEFAULT_VISUAL_OBS,
+        DEFAULT_STATE_OBS,
+        FULL_OBS,
+    )
+    from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+
     if not april_tags:
         from furniture_bench.envs import furniture_sim_env
 
@@ -78,9 +80,6 @@ def get_env(
     return env
 
 
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
-
-
 def get_rl_env(
     gpu_id,
     task="one_leg",
@@ -96,7 +95,9 @@ def get_rl_env(
     headless=True,
     record=False,
     **kwargs,
-) -> FurnitureRLSimEnv:
+):
+    from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
+
     if not april_tags:
         from furniture_bench.envs import furniture_sim_env
 

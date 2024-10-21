@@ -1,19 +1,112 @@
 import numpy as np
 import torch
-import pytorch3d.transforms as pt
+
+# import pytorch3d.transforms as pt
 from ipdb import set_trace as bp
 from scipy.spatial.transform import Rotation as R
-import furniture_bench.controllers.control_utils as C
+import torch.nn.functional as F
+
+
+# import furniture_bench.controllers.control_utils as C
+
+
+def standardize_quaternion(quaternions: torch.Tensor) -> torch.Tensor:
+    """
+    Convert a unit quaternion to a standard form: one in which the real
+    part is non negative.
+
+    Args:
+        quaternions: Quaternions with real part last,
+            as tensor of shape (..., 4).
+
+    Returns:
+        Standardized quaternions as tensor of shape (..., 4).
+    """
+    return torch.where(quaternions[..., -1:] < 0, -quaternions, quaternions)
+
+
+def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Multiply two quaternions.
+    Usual torch rules for broadcasting apply.
+
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part last.
+        b: Quaternions as tensor of shape (..., 4), real part last.
+
+    Returns:
+        The product of a and b, a tensor of quaternions shape (..., 4).
+    """
+    ax, ay, az, aw = torch.unbind(a, -1)
+    bx, by, bz, bw = torch.unbind(b, -1)
+    ox = aw * bx + ax * bw + ay * bz - az * by
+    oy = aw * by - ax * bz + ay * bw + az * bx
+    oz = aw * bz + ax * by - ay * bx + az * bw
+    ow = aw * bw - ax * bx - ay * by - az * bz
+    return torch.stack((ox, oy, oz, ow), -1)
+
+
+def quaternion_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Multiply two quaternions representing rotations, returning the quaternion
+    representing their composition, i.e. the versor with nonnegative real part.
+    Usual torch rules for broadcasting apply.
+
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part last.
+        b: Quaternions as tensor of shape (..., 4), real part last.
+
+    Returns:
+        The product of a and b, a tensor of quaternions of shape (..., 4).
+    """
+    ab = quaternion_raw_multiply(a, b)
+    return standardize_quaternion(ab)
+
+
+def quaternion_invert(quaternion: torch.Tensor) -> torch.Tensor:
+    """
+    Given a quaternion representing rotation, get the quaternion representing
+    its inverse.
+
+    Args:
+        quaternion: Quaternions as tensor of shape (..., 4), with real part
+            last, which must be versors (unit quaternions).
+
+    Returns:
+        The inverse, a tensor of quaternions of shape (..., 4).
+    """
+
+    scaling = torch.tensor([-1, -1, -1, 1], device=quaternion.device)
+    return quaternion * scaling
+
+
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+    using Gram--Schmidt orthogonalization per Section B of [1].
+    Args:
+        d6: 6D rotation representation, of size (*, 6)
+
+    Returns:
+        batch of rotation matrices of size (*, 3, 3)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+    """
+
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
 
 
 def quat_xyzw_error(from_quat_xyzw, to_quat_xyzw):
     """Computes the quaternion error between two quaternions."""
-    from_quat_wxyz = C.quat_xyzw_to_wxyz(from_quat_xyzw)
-    to_quat_wxyz = C.quat_xyzw_to_wxyz(to_quat_xyzw)
-    rel_quat_wxyz = pt.quaternion_multiply(
-        pt.quaternion_invert(from_quat_wxyz), to_quat_wxyz
-    )
-    rel_quat_xyzw = C.quat_wxyz_to_xyzw(rel_quat_wxyz)
+    rel_quat_xyzw = quaternion_multiply(quaternion_invert(from_quat_xyzw), to_quat_xyzw)
     return rel_quat_xyzw
 
 
@@ -54,10 +147,10 @@ def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
-    rot_mats = pt.quaternion_to_matrix(quat_wxyz)
+    rot_mats = quaternion_to_matrix(quat_wxyz)
 
     # Extract the first two columns of each rotation matrix
-    rot_6d = pt.matrix_to_rotation_6d(rot_mats)
+    rot_6d = matrix_to_rotation_6d(rot_mats)
 
     return rot_6d
 
@@ -68,10 +161,10 @@ def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
-    rot_mats = pt.quaternion_to_matrix(quat_wxyz)
+    rot_mats = quaternion_to_matrix(quat_wxyz)
 
     # Extract the first two columns of each rotation matrix
-    rot_6d = pt.matrix_to_rotation_6d(rot_mats)
+    rot_6d = matrix_to_rotation_6d(rot_mats)
 
     return rot_6d
 
@@ -85,10 +178,10 @@ def np_isaac_quat_to_rot_6d(quat: np.ndarray) -> np.ndarray:
 
 def rot_6d_to_isaac_quat(rot_6d: torch.Tensor) -> torch.Tensor:
     # Convert 6D rotation back to a full rotation matrix
-    rot_mats = pt.rotation_6d_to_matrix(rot_6d)
+    rot_mats = rotation_6d_to_matrix(rot_6d)
 
     # Convert rotation matrix to quaternion
-    quat = pt.matrix_to_quaternion(rot_mats)
+    quat = matrix_to_quaternion(rot_mats)
 
     # Convert quaternion from PyTorch3D format to IsaacGym format
     quat = pytorch3d_quat_to_isaac_quat(quat)
@@ -285,6 +378,22 @@ def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     Retrieved from http://arxiv.org/abs/1812.07035
     """
     return matrix[..., :2, :].clone().reshape(*matrix.size()[:-2], 6)
+
+
+def np_matrix_to_rotation_6d(matrix: np.ndarray) -> np.ndarray:
+    """
+    Numpy version of matrix_to_rotation_6d function.
+    Converts rotation matrices to 6D rotation representation.
+
+    Args:
+        matrix: batch of rotation matrices of size (*, 3, 3)
+
+    Returns:
+        6D rotation representation, of size (*, 6)
+    """
+    matrix_tensor = torch.from_numpy(matrix)
+    rotation_6d_tensor = matrix_to_rotation_6d(matrix_tensor)
+    return rotation_6d_tensor.numpy()
 
 
 def matrix_to_axis_angle(matrix):
