@@ -1,6 +1,5 @@
-import furniture_bench
+from gymnasium import Env
 from omegaconf import DictConfig  # noqa: F401
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 import torch
 
 import collections
@@ -8,7 +7,6 @@ import collections
 import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from typing import Dict, Optional, Union
 from pathlib import Path
@@ -141,7 +139,7 @@ class SuccessTqdm(tqdm):
 
 
 def rollout(
-    env: FurnitureRLSimEnv,
+    env: Env,
     actor: Actor,
     rollout_max_steps: int,
     pbar: SuccessTqdm = None,
@@ -238,7 +236,7 @@ def rollout(
 
 @torch.no_grad()
 def calculate_success_rate(
-    env: FurnitureSimEnv,
+    env: Env,
     actor: Actor,
     n_rollouts: int,
     rollout_max_steps: int,
@@ -259,7 +257,7 @@ def calculate_success_rate(
     pbar = SuccessTqdm(
         num_envs=env.num_envs,
         n_rollouts=n_rollouts,
-        task_name=env.furniture_name,
+        task_name=env.task_name,
         total=rollout_max_steps * (n_rollouts // env.num_envs),
         desc="Performing rollouts",
         leave=True,
@@ -267,7 +265,7 @@ def calculate_success_rate(
     )
 
     if n_parts_assemble is None:
-        n_parts_assemble = len(env.furniture.should_be_assembled)
+        n_parts_assemble = env.n_parts_assemble
 
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -462,7 +460,7 @@ def calculate_success_rate(
 
 def do_rollout_evaluation(
     config: DictConfig,
-    env: FurnitureSimEnv,
+    env: Env,
     save_rollouts_to_file: bool,
     save_rollouts_to_wandb: bool,
     actor: Actor,

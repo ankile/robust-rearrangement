@@ -16,6 +16,5 @@ python -m src.train.bc +experiment=state/diff_unet \
     randomness=low \
     task=bimanual_insertion \
     control.controller=dexhub \
-    rollout.rollouts=false \
     wandb.project=bi-state-dr-low-1 \
-    dryrun=false
+    dryrun=true

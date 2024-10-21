@@ -1,10 +1,14 @@
+from dart_physics.runs import load_robot_cfg
+from dart_physics.utils.scene_gen import construct_scene
 import mujoco
 import dexhub
+from src.common import geometry as C
 
-# from loop_rate_limiters import RateLimiter
 import mink
 import numpy as np
 from ipdb import set_trace as bp
+
+from dart_physics.cfgs.bimanual_insertion import task_cfg, reset_function
 
 
 class InverseKinematicsSolver:
@@ -84,13 +88,21 @@ class InverseKinematicsSolver:
 
 class DualFrankaEnv:
 
-    def __init__(self, path, visualize=False):
+    def __init__(self, path=None, visualize=False):
+
+        path = "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/dexhub/sim/bimanual_insertion"
+        path += "/2024-10-09-22-03-25.dex"
 
         self.traj = dexhub.load(path)
-
-        bp()
-
         self.model = dexhub.get_sim(self.traj)
+
+        self.robot = "dual_panda"
+        # self.robot_cfg = load_robot_cfg(self.robot)
+        self.robot_cfg = {"name": "DualPanda", "obj_startidx": (7 + 2) * 2}
+        self.task_cfg = task_cfg
+
+        # self.model = construct_scene(self.task_cfg, self.robot_cfg)
+
         self.data = mujoco.MjData(self.model)
 
         if visualize:
@@ -99,8 +111,6 @@ class DualFrankaEnv:
             )
         else:
             self.viewer = None
-
-        # rate = RateLimiter(500)
 
         self.data.qpos = self.traj.data[0].obs.mj_qpos
         self.data.qvel = self.traj.data[0].obs.mj_qvel
@@ -114,7 +124,18 @@ class DualFrankaEnv:
         # Create IK solver
         self.ik_solver = InverseKinematicsSolver(self.model)
 
-    def step(self, l_ee, l_gripper, r_ee, r_gripper):
+        self.num_envs = 1
+        self.task_name = "bimanual_insertion"
+        self.n_parts_assemble = 1
+
+    def step(self, action):
+
+        l_ee, l_gripper, r_ee, r_gripper = (
+            action[:9],
+            action[9],
+            action[10:19],
+            action[19],
+        )
 
         # Solve inverse kinematics
         q_new = self.ik_solver.solve(self.data.qpos, l_ee, r_ee)
@@ -154,6 +175,66 @@ class DualFrankaEnv:
         ).as_matrix()
 
         return l_ee, r_ee
+
+    def get_robot_state(self):
+        qpos = self.data.qpos
+
+        l_ee, r_ee, l_vel, r_vel = self.fk(qpos)
+
+        l_pos_state, r_pos_state = l_ee[:3, 3], r_ee[:3, 3]
+
+        l_mat, r_mat = l_ee[:3, :3], r_ee[:3, :3]
+
+        l_rot_6d, r_rot_6d = C.np_matrix_to_rotation_6d(
+            l_mat
+        ), C.np_matrix_to_rotation_6d(r_mat)
+
+        l_gripper_width = qpos[8] - qpos[7]
+        r_gripper_width = qpos[16] - qpos[15]
+
+        # Combine all states
+        robot_state = np.concatenate(
+            [
+                l_pos_state,
+                l_rot_6d,
+                l_vel,
+                [l_gripper_width],
+                r_pos_state,
+                r_rot_6d,
+                r_vel,
+                [r_gripper_width],
+            ]
+        )
+
+        return robot_state
+
+    def get_parts_poses(self):
+        # Get the parts poses
+        peg_pos, peg_quat_xyzw = self.data.body(self.pegname).xpos, C.quat_wxyz_to_xyzw(
+            self.data.body(self.pegname).xquat
+        )
+        hole_pos, hole_quat_xyzw = self.data.body(
+            self.holename
+        ).xpos, C.quat_wxyz_to_xyzw(self.data.body(self.holename).xquat)
+
+        peg_pose = np.concatenate([peg_pos, peg_quat_xyzw])
+        hole_pose = np.concatenate([hole_pos, hole_quat_xyzw])
+
+        parts_poses = np.concatenate([peg_pose, hole_pose], axis=-1)
+
+        return parts_poses
+
+    def get_observation(self):
+        obs = {
+            "robot_state": self.get_robot_state(),
+            "parts_poses": self.get_parts_poses(),
+        }
+        return obs
+
+    def reset(self):
+        reset_function(self.model, self.data, self.robot_cfg, self.task_cfg)
+
+        return self.get_observation()
 
 
 if __name__ == "__main__":

@@ -3,8 +3,7 @@ import os
 from pathlib import Path
 import time
 
-import furniture_bench
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
+from gymnasium import Env
 import torch  # needs to be after isaac gym imports
 from omegaconf import DictConfig, OmegaConf
 from src.behavior.base import Actor  # noqa
@@ -22,7 +21,7 @@ import wandb
 from wandb import Api
 from wandb.sdk.wandb_run import Run
 
-api = Api(overrides=dict(entity=os.environ.get("WANDB_ENTITY")))
+api = Api()
 
 
 class LocalCheckpointWrapper:
@@ -193,6 +192,7 @@ if __name__ == "__main__":
             "cabinet",
             "mug_rack",
             "factory_peg_hole",
+            "bimanual_insertion",
         ],
         required=True,
     )
@@ -280,7 +280,7 @@ if __name__ == "__main__":
     print(
         f"Creating the environment with action_type {args.action_type} (this needs to be changed to enable recreation the env for each run)"
     )
-    env: Optional[FurnitureSimEnv] = None
+    env: Optional[Env] = None
 
     f: str = args.task
 

@@ -46,6 +46,20 @@ def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return torch.stack((ox, oy, oz, ow), -1)
 
 
+def quaternion_xyzw_to_rotation_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
+    """
+    Converts quaternions to 6D rotation representation by Zhou et al. [1]
+    by converting the quaternion to a rotation matrix and then to 6D.
+    Args:
+        quat: batch of quaternions of size (*, 4)
+
+    Returns:
+        6D rotation representation, of size (*, 6)
+    """
+    rot_mats = quaternion_xyzw_to_matrix(quat_xyzw)
+    return matrix_to_rotation_6d(rot_mats)
+
+
 def quaternion_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     """
     Multiply two quaternions representing rotations, returning the quaternion
@@ -110,6 +124,213 @@ def quat_xyzw_error(from_quat_xyzw, to_quat_xyzw):
     return rel_quat_xyzw
 
 
+@torch.jit.script
+def quat_xyzw_to_wxyz(quat_xyzw):
+    """
+    Convert quaternions from (x, y, z, w) order to (w, x, y, z) order.
+
+    Args:
+        quat_xyzw (torch.Tensor): Quaternions in (x, y, z, w) order, shape (..., 4).
+
+    Returns:
+        torch.Tensor: Quaternions in (w, x, y, z) order, shape (..., 4).
+    """
+    inds = torch.tensor([3, 0, 1, 2], dtype=torch.long, device=quat_xyzw.device)
+    return torch.index_select(quat_xyzw, dim=-1, index=inds)
+
+
+@torch.jit.script
+def quat_wxyz_to_xyzw(quat_wxyz):
+    """
+    Convert quaternions from (w, x, y, z) order to (x, y, z, w) order.
+
+    Args:
+        quat_wxyz (torch.Tensor): Quaternions in (w, x, y, z) order, shape (..., 4).
+
+    Returns:
+        torch.Tensor: Quaternions in (x, y, z, w) order, shape (..., 4).
+    """
+    inds = torch.tensor([1, 2, 3, 0], dtype=torch.long, device=quat_wxyz.device)
+    return torch.index_select(quat_wxyz, dim=-1, index=inds)
+
+
+def _angle_from_tan(
+    axis: str, other_axis: str, data, horizontal: bool, tait_bryan: bool
+):
+    """
+    Extract the first or third Euler angle from the two members of
+    the matrix which are positive constant times its sine and cosine.
+
+    Args:
+        axis: Axis label "X" or "Y or "Z" for the angle we are finding.
+        other_axis: Axis label "X" or "Y or "Z" for the middle axis in the
+            convention.
+        data: Rotation matrices as tensor of shape (..., 3, 3).
+        horizontal: Whether we are looking for the angle for the third axis,
+            which means the relevant entries are in the same row of the
+            rotation matrix. If not, they are in the same column.
+        tait_bryan: Whether the first and third axes in the convention differ.
+
+    Returns:
+        Euler Angles in radians for each matrix in data as a tensor
+        of shape (...).
+    """
+
+    i1, i2 = {"X": (2, 1), "Y": (0, 2), "Z": (1, 0)}[axis]
+    if horizontal:
+        i2, i1 = i1, i2
+    even = (axis + other_axis) in ["XY", "YZ", "ZX"]
+    if horizontal == even:
+        return torch.atan2(data[..., i1], data[..., i2])
+    if tait_bryan:
+        return torch.atan2(-data[..., i2], data[..., i1])
+    return torch.atan2(data[..., i2], -data[..., i1])
+
+
+def _index_from_letter(letter: str):
+    if letter == "X":
+        return 0
+    if letter == "Y":
+        return 1
+    if letter == "Z":
+        return 2
+
+
+def matrix_to_euler_angles(matrix, convention: str):
+    """
+    Convert rotations given as rotation matrices to Euler angles in radians.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+        convention: Convention string of three uppercase letters.
+
+    Returns:
+        Euler angles in radians as tensor of shape (..., 3).
+    """
+    if len(convention) != 3:
+        raise ValueError("Convention must have 3 letters.")
+    if convention[1] in (convention[0], convention[2]):
+        raise ValueError(f"Invalid convention {convention}.")
+    for letter in convention:
+        if letter not in ("X", "Y", "Z"):
+            raise ValueError(f"Invalid letter {letter} in convention string.")
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix  shape f{matrix.shape}.")
+    i0 = _index_from_letter(convention[0])
+    i2 = _index_from_letter(convention[2])
+    tait_bryan = i0 != i2
+    if tait_bryan:
+        central_angle = torch.asin(
+            matrix[..., i0, i2] * (-1.0 if i0 - i2 in [-1, 2] else 1.0)
+        )
+    else:
+        central_angle = torch.acos(matrix[..., i0, i0])
+
+    o = (
+        _angle_from_tan(
+            convention[0], convention[1], matrix[..., i2], False, tait_bryan
+        ),
+        central_angle,
+        _angle_from_tan(
+            convention[2], convention[1], matrix[..., i0, :], True, tait_bryan
+        ),
+    )
+    return torch.stack(o, -1)
+
+
+def _axis_angle_rotation(axis: str, angle):
+    """
+    Return the rotation matrices for one of the rotations about an axis
+    of which Euler angles describe, for each value of the angle given.
+
+    Args:
+        axis: Axis label "X" or "Y or "Z".
+        angle: any shape tensor of Euler angles in radians
+
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+
+    cos = torch.cos(angle)
+    sin = torch.sin(angle)
+    one = torch.ones_like(angle)
+    zero = torch.zeros_like(angle)
+
+    if axis == "X":
+        R_flat = (one, zero, zero, zero, cos, -sin, zero, sin, cos)
+    if axis == "Y":
+        R_flat = (cos, zero, sin, zero, one, zero, -sin, zero, cos)
+    if axis == "Z":
+        R_flat = (cos, -sin, zero, sin, cos, zero, zero, zero, one)
+
+    return torch.stack(R_flat, -1).reshape(angle.shape + (3, 3))
+
+
+def euler_angles_to_matrix(euler_angles, convention: str):
+    """
+    Convert rotations given as Euler angles in radians to rotation matrices.
+
+    Args:
+        euler_angles: Euler angles in radians as tensor of shape (..., 3).
+        convention: Convention string of three uppercase letters from
+            {"X", "Y", and "Z"}.
+
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+    if euler_angles.dim() == 0 or euler_angles.shape[-1] != 3:
+        raise ValueError("Invalid input euler angles.")
+    if len(convention) != 3:
+        raise ValueError("Convention must have 3 letters.")
+    if convention[1] in (convention[0], convention[2]):
+        raise ValueError(f"Invalid convention {convention}.")
+    for letter in convention:
+        if letter not in ("X", "Y", "Z"):
+            raise ValueError(f"Invalid letter {letter} in convention string.")
+    matrices = map(_axis_angle_rotation, convention, torch.unbind(euler_angles, -1))
+    return functools.reduce(torch.matmul, matrices)
+
+
+def matrix_to_quaternion_xyzw(matrix):
+    """
+    Convert rotations given as rotation matrices to quaternions.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        quaternions with real part last, as tensor of shape (..., 4).
+    """
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix  shape f{matrix.shape}.")
+
+    m00 = matrix[..., 0, 0]
+    m11 = matrix[..., 1, 1]
+    m22 = matrix[..., 2, 2]
+    o0 = 0.5 * _sqrt_positive_part(1 + m00 + m11 + m22)
+    x = 0.5 * _sqrt_positive_part(1 + m00 - m11 - m22)
+    y = 0.5 * _sqrt_positive_part(1 - m00 + m11 - m22)
+    z = 0.5 * _sqrt_positive_part(1 - m00 - m11 + m22)
+    o1 = _copysign(x, matrix[..., 2, 1] - matrix[..., 1, 2])
+    o2 = _copysign(y, matrix[..., 0, 2] - matrix[..., 2, 0])
+    o3 = _copysign(z, matrix[..., 1, 0] - matrix[..., 0, 1])
+
+    return torch.stack((o1, o2, o3, o0), -1)
+
+
+def rotation_6d_to_quaternion_xyzw(rot_6d: torch.Tensor) -> torch.Tensor:
+    """
+    Converts 6D rotation representation by Zhou et al. [1] to quaternions.
+    Args:
+        rot_6d: 6D rotation representation, of size (*, 6)
+
+    Returns:
+        batch of quaternions of size (*, 4) with real part last
+    """
+    rot_mats = rotation_6d_to_matrix(rot_6d)
+    return matrix_to_quaternion_xyzw(rot_mats)
+
+
 def pose_error(from_pose, to_pose):
     """
     Computes the pose error between two poses.
@@ -143,11 +364,9 @@ def pytorch3d_quat_to_isaac_quat(quat):
 
 def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     """Converts IsaacGym quaternion to rotation 6D."""
-    # Move the real part from the back to the front
-    quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
-    rot_mats = quaternion_to_matrix(quat_wxyz)
+    rot_mats = quaternion_xyzw_to_matrix(quat_xyzw)
 
     # Extract the first two columns of each rotation matrix
     rot_6d = matrix_to_rotation_6d(rot_mats)
@@ -157,11 +376,8 @@ def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
 
 def quat_xyzw_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     """Converts IsaacGym quaternion to rotation 6D."""
-    # Move the real part from the back to the front
-    quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
-
     # Convert each quaternion to a rotation matrix
-    rot_mats = quaternion_to_matrix(quat_wxyz)
+    rot_mats = quaternion_xyzw_to_matrix(quat_xyzw)
 
     # Extract the first two columns of each rotation matrix
     rot_6d = matrix_to_rotation_6d(rot_mats)
@@ -323,7 +539,7 @@ def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     # quat_wxyz = isaac_quat_to_pytorch3d_quat(quat_xyzw)
 
     # Convert each quaternion to a rotation matrix
-    rot_mats = quaternion_to_matrix(quat_xyzw)
+    rot_mats = quaternion_xyzw_to_matrix(quat_xyzw)
 
     # Extract the first two columns of each rotation matrix
     rot_6d = matrix_to_rotation_6d(rot_mats)
@@ -331,7 +547,7 @@ def isaac_quat_to_rot_6d(quat_xyzw: torch.Tensor) -> torch.Tensor:
     return rot_6d
 
 
-def quaternion_to_matrix(quaternions):
+def quaternion_xyzw_to_matrix(quaternions):
     """
     Convert rotations given as quaternions to rotation matrices.
 

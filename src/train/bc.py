@@ -1,13 +1,12 @@
-from git import Union
 from collections import defaultdict
 from datetime import datetime
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from src.behavior.base import Actor
 from src.eval.eval_utils import get_model_from_api_or_cached
 from gymnasium import Env
-from src.train.residual_ppo_w_bc import to_native
+from src.common.hydra import to_native
 
 import numpy as np
 import torch
@@ -29,8 +28,6 @@ from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths, path_override
 from src.models.ema import SwitchEMA
 
-from gym import logger
-
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
@@ -43,9 +40,6 @@ from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 trigger_sync = TriggerWandbSyncHook(
     communication_dir=os.environ.get("WANDB_OSH_COMM_DIR", _comm_default_dir),
 )
-
-logger.set_level(logger.DISABLED)
-# OmegaConf.register_new_resolver("eval", eval)
 
 
 print("=== Activate TF32 training? Deactivated for now...")
