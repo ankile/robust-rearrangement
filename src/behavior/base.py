@@ -78,7 +78,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         actor_cfg = cfg.actor
         self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = 10 if cfg.control.act_rot_repr == RotationMode.rot_6d else 8
+        self.action_dim = cfg.action_dim
         self.pred_horizon = actor_cfg.pred_horizon
         self.action_horizon = actor_cfg.action_horizon
         self.predict_past_actions = actor_cfg.predict_past_actions

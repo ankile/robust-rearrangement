@@ -226,6 +226,7 @@ def main(cfg: DictConfig):
         cfg.slurm_job_id = job_id
 
     cfg.robot_state_dim = dataset.robot_state_dim
+    cfg.action_dim = dataset.action_dim
 
     if cfg.observation_type == "state":
         cfg.parts_poses_dim = dataset.parts_poses_dim
@@ -242,7 +243,6 @@ def main(cfg: DictConfig):
     cfg.data_path = [str(f) for f in data_path]
 
     # Update the cfg object with the action dimension
-    cfg.action_dim = dataset.action_dim
     cfg.n_episodes = len(dataset.episode_ends)
     cfg.n_samples = dataset.n_samples
 
