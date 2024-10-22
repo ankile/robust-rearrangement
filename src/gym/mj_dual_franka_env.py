@@ -155,6 +155,9 @@ class DualFrankaEnv(gym.Env):
 
         action = action.squeeze().cpu().numpy()
 
+        print(action)
+        raise
+
         l_ee, l_gripper, r_ee, r_gripper = (
             action[:9],
             action[9],
@@ -334,7 +337,8 @@ class DualFrankaEnv(gym.Env):
             "/data/scratch/ankile/robust-rearrangement/notebooks/init_poses.npy"
         )
 
-        self.data.qpos[:18] = init_poses[np.random.randint(len(init_poses))]
+        # self.data.qpos[:18] = init_poses[np.random.randint(len(init_poses))]
+        self.data.qpos[:18] = init_poses[1]
 
         self.data.qvel = np.zeros_like(self.data.qvel)
 
