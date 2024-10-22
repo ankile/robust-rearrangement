@@ -1,18 +1,32 @@
+from collections import OrderedDict
 from typing import Dict
 import gymnasium as gym
+import mujoco._callbacks
 import torch
 from dart_physics.runs import load_robot_cfg
 from dart_physics.utils.scene_gen import construct_scene
 import mujoco
 from mujoco import viewer
-import dexhub
 from src.common import geometry as C
+
 
 import mink
 import numpy as np
 from ipdb import set_trace as bp
 
 from dart_physics.cfgs.bimanual_insertion import task_cfg, reset_function
+
+
+def custom_warning_callback(message, *args):
+    pass
+
+
+# Disable logging warnings
+import logging
+
+logging.getLogger().setLevel(logging.CRITICAL)
+
+# mujoco.set_mju_user_warning(custom_warning_callback)
 
 
 class InverseKinematicsSolver:
@@ -132,32 +146,34 @@ class DualFrankaEnv(gym.Env):
             )
         else:
             robot_state_space = gym.spaces.Dict(
-                {
-                    "l_pos_state": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
-                    ),
-                    "l_rot_6d": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
-                    ),
-                    "l_vel": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
-                    ),
-                    "l_gripper_width": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
-                    ),
-                    "r_pos_state": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
-                    ),
-                    "r_rot_6d": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
-                    ),
-                    "r_vel": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
-                    ),
-                    "r_gripper_width": gym.spaces.Box(
-                        low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
-                    ),
-                }
+                OrderedDict(
+                    {
+                        "l_pos_state": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
+                        ),
+                        "l_rot_6d": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
+                        ),
+                        "l_vel": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
+                        ),
+                        "l_gripper_width": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
+                        ),
+                        "r_pos_state": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
+                        ),
+                        "r_rot_6d": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
+                        ),
+                        "r_vel": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
+                        ),
+                        "r_gripper_width": gym.spaces.Box(
+                            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
+                        ),
+                    }
+                )
             )
 
         self.observation_space = gym.spaces.Dict(
@@ -329,8 +345,6 @@ class DualFrankaEnv(gym.Env):
             "robot_state": self.get_robot_state(),
             "parts_poses": self.get_parts_poses(),
         }
-        # print(obs)
-        # obs = self.torchify(obs)
         return obs
 
     def compute_reward(self):
@@ -354,7 +368,6 @@ class DualFrankaEnv(gym.Env):
         return success
 
     def reset(self):
-        print("In reset")
         reset_function(self.model, self.data, self.robot_cfg, self.task_cfg)
 
         init_poses = np.load(
@@ -398,10 +411,12 @@ class DualFrankaVecEnv(gym.Env):
             visualize=visualize,
         )
 
-        self.envs = SyncVectorEnv([env_func for _ in range(num_envs)])
+        self.envs = AsyncVectorEnv([env_func for _ in range(num_envs)])
 
-        self.task_name = self.envs.envs[0].task_name
-        self.n_parts_assemble = self.envs.envs[0].n_parts_assemble
+        dummy_env = self.envs.env_fns[0]()
+
+        self.task_name = dummy_env.task_name
+        self.n_parts_assemble = dummy_env.n_parts_assemble
 
         self.observation_space = self.envs.observation_space
         self.action_space = self.envs.action_space
@@ -412,53 +427,28 @@ class DualFrankaVecEnv(gym.Env):
     def step(self, actions: torch.Tensor, sample_perturbations=False):
         assert sample_perturbations is False
 
-        actions = actions.cpu().numpy()[0]
-        # bp()
-        obs, rewards, dones, truncations, infos = self.envs.envs[0].step(actions)
+        actions = actions.cpu().numpy()
+        obs, rewards, dones, truncations, infos = self.envs.step(actions)
 
         # Convert to torch tensors
-        # obs = self.torchify(obs)
-        # rewards = torch.from_numpy(rewards).float().to(self.device)
-        # dones = torch.from_numpy(dones).bool().to(self.device)
-        obs = self.torchify_unsqueeze(obs)
-        # bp()
-        rewards = torch.tensor([rewards]).float().to(self.device)
-        dones = torch.tensor([dones]).bool().to(self.device)
+        obs = self.torchify(obs)
+        rewards = torch.from_numpy(rewards).float().to(self.device)
+        dones = torch.from_numpy(dones).bool().to(self.device)
 
         return obs, rewards, dones, infos
 
     def reset(self):
-        # bp()
-        # obs, infos = self.envs.reset()
-
-        # # Convert to torch tensors
-        # obs = self.torchify(obs)
-
-        obs, infos = self.envs.envs[0].reset()
-
-        # # Convert to torch tensors
-        obs = self.torchify_unsqueeze(obs)
+        obs, infos = self.envs.reset()
+        obs = self.torchify(obs)
 
         return obs
 
     def torchify(self, data):
-        print("In torchify")
         for key, val in data.items():
             if isinstance(val, np.ndarray):
                 data[key] = torch.from_numpy(val).float().to(self.device)
             elif isinstance(val, dict):
                 data[key] = self.torchify(val)
-            else:
-                raise ValueError(f"Unsupported data type: {type(val)}")
-
-        return data
-
-    def torchify_unsqueeze(self, data: dict):
-        for key, val in data.items():
-            if isinstance(val, np.ndarray):
-                data[key] = torch.from_numpy(val).float().to(self.device)[None, ...]
-            elif isinstance(val, dict):
-                data[key] = self.torchify_unsqueeze(val)
             else:
                 raise ValueError(f"Unsupported data type: {type(val)}")
 

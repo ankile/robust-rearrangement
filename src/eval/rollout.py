@@ -178,20 +178,6 @@ def rollout(
     actor.normalizer = actor.normalizer.to(actor.device)
     actor.model = actor.model.to(actor.device)
 
-    # # === NOTE FOR DEBUGGING ===
-    # path = get_processed_path(
-    #     domain="sim",
-    #     controller="dexhub",
-    #     task="bimanual_insertion",
-    #     demo_outcome="success",
-    #     demo_source="teleop",
-    #     randomness="low",
-    # )
-
-    # z = zarr.open(path, mode="r")
-
-    # actions = z["action/pos"][:]
-
     while not done.all():
         # Convert from robot state dict to robot state tensor
         obs["robot_state"] = env.filter_and_concat_robot_state(obs["robot_state"])
