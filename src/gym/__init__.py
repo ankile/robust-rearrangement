@@ -114,6 +114,8 @@ def get_rl_env(
         from src.gym.mj_dual_franka_env import DualFrankaEnv
 
         env = DualFrankaEnv(
+            concat_robot_state=False,
+            device=f"cuda:{gpu_id}",
             visualize=not headless,
         )
 

@@ -15,7 +15,7 @@ from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
 from src.common.tasks import task2idx
-from src.common.files import trajectory_save_dir
+from src.common.files import get_processed_path, trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
 from src.data_processing.utils import filter_and_concat_robot_state
 from src.data_processing.utils import resize, resize_crop
@@ -24,6 +24,7 @@ from tensordict import TensorDict
 from copy import deepcopy
 
 import wandb
+import zarr
 
 
 RolloutStats = collections.namedtuple(
@@ -172,15 +173,33 @@ def rollout(
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     step_idx = 0
+
     # TODO - figure out how to fix this
     actor.normalizer = actor.normalizer.to(actor.device)
     actor.model = actor.model.to(actor.device)
+
+    # # === NOTE FOR DEBUGGING ===
+    # path = get_processed_path(
+    #     domain="sim",
+    #     controller="dexhub",
+    #     task="bimanual_insertion",
+    #     demo_outcome="success",
+    #     demo_source="teleop",
+    #     randomness="low",
+    # )
+
+    # z = zarr.open(path, mode="r")
+
+    # actions = z["action/pos"][:]
+
     while not done.all():
         # Convert from robot state dict to robot state tensor
-        obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
+        obs["robot_state"] = env.filter_and_concat_robot_state(obs["robot_state"])
 
         # Get the next actions from the actor
         action_pred = actor.action(obs)
+        # action_pred = torch.tensor(actions[step_idx], device="cuda").unsqueeze(0)
+        # action_pred = actor.normalizer(action_pred, "action", forward=False)
 
         obs, reward, done, _ = env.step(action_pred, sample_perturbations=False)
 

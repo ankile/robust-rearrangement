@@ -248,7 +248,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
         # Convert the robot_state to use rot_6d instead of quaternion
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        # TODO: Change this so the environment outputs 6D rotation instead when that's the chosen control mode
+        if robot_state.shape[-1] == 14:
+            robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
         robot_state[..., :3] *= int(self.include_proprioceptive_pos)
         robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 

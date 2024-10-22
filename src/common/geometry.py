@@ -118,6 +118,12 @@ def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
     return torch.stack((b1, b2, b3), dim=-2)
 
 
+def np_rotation_6d_to_matrix(d6: np.ndarray) -> np.ndarray:
+    d6 = torch.from_numpy(d6)
+    rot_mats = rotation_6d_to_matrix(d6)
+    return rot_mats.numpy()
+
+
 def quat_xyzw_error(from_quat_xyzw, to_quat_xyzw):
     """Computes the quaternion error between two quaternions."""
     rel_quat_xyzw = quaternion_multiply(quaternion_invert(from_quat_xyzw), to_quat_xyzw)
@@ -152,6 +158,10 @@ def quat_wxyz_to_xyzw(quat_wxyz):
     """
     inds = torch.tensor([1, 2, 3, 0], dtype=torch.long, device=quat_wxyz.device)
     return torch.index_select(quat_wxyz, dim=-1, index=inds)
+
+
+def np_quat_wxyz_to_xyzw(quat):
+    return np.roll(quat, -1)
 
 
 def _angle_from_tan(
