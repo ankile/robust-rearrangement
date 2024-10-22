@@ -155,9 +155,6 @@ class DualFrankaEnv(gym.Env):
 
         action = action.squeeze().cpu().numpy()
 
-        print(action)
-        raise
-
         l_ee, l_gripper, r_ee, r_gripper = (
             action[:9],
             action[9],
@@ -198,6 +195,7 @@ class DualFrankaEnv(gym.Env):
             # rate.sleep()
 
         obs = self.get_observation()
+
         reward = self.compute_reward()
         done = self.is_success()
 
@@ -254,8 +252,8 @@ class DualFrankaEnv(gym.Env):
             l_mat
         ), C.np_matrix_to_rotation_6d(r_mat)
 
-        l_gripper_width = qpos[8] - qpos[7]
-        r_gripper_width = qpos[16] - qpos[15]
+        l_gripper_width = qpos[7] + qpos[8]
+        r_gripper_width = qpos[16] + qpos[17]
 
         robot_state = {
             "l_pos_state": l_pos_state,
@@ -307,6 +305,7 @@ class DualFrankaEnv(gym.Env):
             "robot_state": self.get_robot_state(),
             "parts_poses": self.get_parts_poses(),
         }
+        print(obs)
         obs = self.torchify(obs)
         return obs
 
