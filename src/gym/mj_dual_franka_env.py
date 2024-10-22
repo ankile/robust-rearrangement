@@ -99,15 +99,8 @@ class DualFrankaEnv(gym.Env):
         visualize=False,
     ):
 
-        # path = "/data/scratch-oc40/pulkitag/ankile/furniture-data/raw/dexhub/sim/bimanual_insertion"
-        # path += "/2024-10-09-22-03-25.dex"
-
-        # self.traj = dexhub.load(path)
-        # self.model = dexhub.get_sim(self.traj)
-
         self.robot = "dual_panda"
         self.robot_cfg = load_robot_cfg(self.robot)
-        # self.robot_cfg = {"name": "DualPanda", "obj_startidx": (7 + 2) * 2}
         self.task_cfg = task_cfg
 
         # TODO: Check if this is correct
@@ -163,8 +156,8 @@ class DualFrankaEnv(gym.Env):
         )
 
         # Map gripper action values from [-1, 1] to [0.04, 0.0]
-        l_gripper = 0.0 if l_gripper > 0.5 else 0.04
-        r_gripper = 0.0 if r_gripper > 0.5 else 0.04
+        # l_gripper = 0.0 if l_gripper > 0.5 else 0.04
+        # r_gripper = 0.0 if r_gripper > 0.5 else 0.04
 
         # Convert the action to 4x4 matrices
         l_mat, r_mat = np.eye(4), np.eye(4)
@@ -329,33 +322,6 @@ class DualFrankaEnv(gym.Env):
 
     def reset(self):
         reset_function(self.model, self.data, self.robot_cfg, self.task_cfg)
-
-        # self.data.qpos[:9] = np.array(
-        #     [
-        #         0,
-        #         0,
-        #         0,
-        #         -1.5707899999999999,
-        #         0,
-        #         1.5707899999999999,
-        #         -0.7853,
-        #         0.040000000000000001,
-        #         0.040000000000000001,
-        #     ],
-        # )
-        # self.data.qpos[9:18] = np.array(
-        #     [
-        #         0,
-        #         0,
-        #         0,
-        #         -1.5707899999999999,
-        #         0,
-        #         1.5707899999999999,
-        #         -0.7853,
-        #         0.040000000000000001,
-        #         0.040000000000000001,
-        #     ],
-        # )
 
         init_poses = np.load(
             "/data/scratch/ankile/robust-rearrangement/notebooks/init_poses.npy"
