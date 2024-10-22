@@ -61,9 +61,14 @@ class InverseKinematicsSolver:
         )
         self.posture_task.set_target(target)
         self.tasks.append(self.posture_task)
+        self.limits = [
+            # mink.ConfigurationLimit(
+            #     model=model, gain=0.99, min_distance_from_limits=0.01
+            # )
+        ]
 
         # Add DampingTask
-        self.tasks.append(mink.tasks.DampingTask(model, cost=0.1))
+        # self.tasks.append(mink.tasks.DampingTask(model, cost=0.1))
 
     def solve(self, current_qpos, l_ee_target, r_ee_target):
         """
@@ -83,7 +88,9 @@ class InverseKinematicsSolver:
 
         # Solve IK
         dt = 0.002  # Integration timestep
-        q_vel = mink.solve_ik(self.config, self.tasks, dt, solver="quadprog")
+        q_vel = mink.solve_ik(
+            self.config, self.tasks, dt, solver="quadprog", limits=self.limits
+        )
 
         q_target = self.config.integrate(q_vel, dt)
 
