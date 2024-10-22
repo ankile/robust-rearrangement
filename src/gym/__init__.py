@@ -111,9 +111,10 @@ def get_rl_env(
 ):
 
     if task == "bimanual_insertion":
-        from src.gym.mj_dual_franka_env import DualFrankaEnv
+        from src.gym.mj_dual_franka_env import DualFrankaVecEnv
 
-        env = DualFrankaEnv(
+        env = DualFrankaVecEnv(
+            num_envs=num_envs,
             concat_robot_state=False,
             device=f"cuda:{gpu_id}",
             visualize=not headless,
