@@ -208,6 +208,10 @@ class DualFrankaEnv(gym.Env):
             ]
         )
 
+        self.init_poses = np.load(
+            "/data/scratch/ankile/robust-rearrangement/notebooks/init_poses.npy"
+        )
+
     def step(self, action: np.ndarray, sample_perturbations=False):
         assert sample_perturbations is False
 
@@ -369,12 +373,8 @@ class DualFrankaEnv(gym.Env):
     def reset(self):
         reset_function(self.model, self.data, self.robot_cfg, self.task_cfg)
 
-        init_poses = np.load(
-            "/data/scratch/ankile/robust-rearrangement/notebooks/init_poses.npy"
-        )
-
-        # self.data.qpos[:18] = init_poses[np.random.randint(len(init_poses))]
-        self.data.qpos[:18] = init_poses[1]
+        self.data.qpos[:18] = self.init_poses[np.random.randint(len(self.init_poses))]
+        # self.data.qpos[:18] = self.init_poses[1]
 
         self.data.qvel = np.zeros_like(self.data.qvel)
 
