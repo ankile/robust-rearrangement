@@ -1,3 +1,4 @@
+import random
 from git import Union
 import furniture_bench
 from collections import defaultdict
@@ -102,7 +103,19 @@ def now():
 def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
+
+    # Set the random seed
+    if cfg.get("seed") is None:
+        OmegaConf.set_struct(cfg, False)
+        cfg.seed = np.random.randint(0, 2**32 - 1)
+        OmegaConf.set_struct(cfg, True)
+
+    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    random.seed(cfg.seed)
+
     print(OmegaConf.to_yaml(cfg))
+
     env: Optional[FurnitureRLSimEnv] = None
     device = torch.device(
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
