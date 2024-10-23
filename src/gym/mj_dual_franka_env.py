@@ -1,7 +1,6 @@
 from collections import OrderedDict
 from typing import Dict
 import gymnasium as gym
-import mujoco._callbacks
 import torch
 from dart_physics.runs import load_robot_cfg
 from dart_physics.utils.scene_gen import construct_scene
@@ -413,7 +412,9 @@ class DualFrankaVecEnv(gym.Env):
         VectorEnv = SyncVectorEnv if num_envs == 1 else AsyncVectorEnv
         self.envs = VectorEnv([env_func for _ in range(num_envs)])
 
-        dummy_env = self.envs.env_fns[0]()
+        dummy_env = DualFrankaEnv(
+            concat_robot_state=concat_robot_state, device=device, visualize=False
+        )
 
         self.task_name = dummy_env.task_name
         self.n_parts_assemble = dummy_env.n_parts_assemble

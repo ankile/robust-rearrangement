@@ -1,4 +1,4 @@
-<mujoco model="unnamed_model">
+<mujoco model="bimanual_insertion">
   <compiler autolimits="true" angle="radian"/>
   <option timestep="0.002" impratio="100" o_solref="1.0000000000000001e-09 1" o_solimp="0.001 1" integrator="implicitfast" cone="pyramidal" solver="Newton">
     <flag override="enable" multiccd="enable"/>

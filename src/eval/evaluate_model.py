@@ -374,6 +374,10 @@ if __name__ == "__main__":
 
                 print(OmegaConf.to_yaml(cfg))
 
+                # Temporary fix for residual missing field
+                print("Applying residual field hotfix")
+                cfg.action_dim = cfg.base_policy.action_dim
+
                 # Make the actor
                 actor: Actor = get_actor(cfg=cfg, device=device)
 
