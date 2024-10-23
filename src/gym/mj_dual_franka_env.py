@@ -382,8 +382,6 @@ class DualFrankaEnv(gym.Env):
         self.data.ctrl[:7] = self.data.qpos[:7]
         self.data.ctrl[8:15] = self.data.qpos[9:16]
 
-        # mujoco.mj_resetDataKeyframe(self.model, self.data, self.model.key("home").id)
-
         # Make sure the changes are reflected in the simulation
         mujoco.mj_forward(self.model, self.data)
 
@@ -403,6 +401,8 @@ class DualFrankaVecEnv(gym.Env):
     ) -> None:
         super().__init__()
 
+        assert not visualize or num_envs == 1
+
         from gymnasium.vector import AsyncVectorEnv, SyncVectorEnv
 
         env_func = lambda: DualFrankaEnv(
@@ -410,19 +410,20 @@ class DualFrankaVecEnv(gym.Env):
             device=device,
             visualize=visualize,
         )
-
-        self.envs = AsyncVectorEnv([env_func for _ in range(num_envs)])
+        VectorEnv = SyncVectorEnv if num_envs == 1 else AsyncVectorEnv
+        self.envs = VectorEnv([env_func for _ in range(num_envs)])
 
         dummy_env = self.envs.env_fns[0]()
 
         self.task_name = dummy_env.task_name
         self.n_parts_assemble = dummy_env.n_parts_assemble
 
-        self.observation_space = self.envs.observation_space
-        self.action_space = self.envs.action_space
+        self.observation_space = dummy_env.observation_space
+        self.action_space = dummy_env.action_space
 
         self.num_envs = num_envs
         self.device = device
+        self.env_steps = torch.zeros(num_envs, device=device, dtype=torch.int32)
 
     def step(self, actions: torch.Tensor, sample_perturbations=False):
         assert sample_perturbations is False
@@ -435,11 +436,15 @@ class DualFrankaVecEnv(gym.Env):
         rewards = torch.from_numpy(rewards).float().to(self.device)
         dones = torch.from_numpy(dones).bool().to(self.device)
 
+        self.env_steps += 1
+
         return obs, rewards, dones, infos
 
     def reset(self):
         obs, infos = self.envs.reset()
         obs = self.torchify(obs)
+
+        self.env_steps[:] = 0
 
         return obs
 

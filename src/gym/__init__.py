@@ -107,6 +107,7 @@ def get_rl_env(
     verbose=False,
     headless=True,
     record=False,
+    concat_robot_state=False,
     **kwargs,
 ):
 
@@ -115,7 +116,7 @@ def get_rl_env(
 
         env = DualFrankaVecEnv(
             num_envs=num_envs,
-            concat_robot_state=False,
+            concat_robot_state=concat_robot_state,
             device=f"cuda:{gpu_id}",
             visualize=not headless,
         )
