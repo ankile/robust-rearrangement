@@ -1,40 +1,37 @@
+import os
+import random
 from collections import defaultdict
 from datetime import datetime
-import os
 from pathlib import Path
 from typing import Optional, Union
-from src.behavior.base import Actor
-from src.eval.eval_utils import get_model_from_api_or_cached
-from gymnasium import Env
-from src.common.hydra import to_native
 
+import hydra
 import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
-from src.dataset.dataset import (
-    ImageDataset,
-    StateDataset,
-)
-from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_rl_env
-from tqdm import tqdm, trange
+from gymnasium import Env
 from ipdb import set_trace as bp
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, random_split
+from tqdm import tqdm, trange
+
 from src.behavior import get_actor
-from src.dataset.dataloader import FixedStepsDataloader
-from src.common.pytorch_util import dict_to_device
-from torch.utils.data import random_split, DataLoader
+from src.behavior.base import Actor
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths, path_override
+from src.common.hydra import to_native
+from src.common.pytorch_util import dict_to_device
+from src.dataset.dataloader import FixedStepsDataloader
+from src.dataset.dataset import ImageDataset, StateDataset
+from src.eval.eval_utils import get_model_from_api_or_cached
+from src.eval.rollout import do_rollout_evaluation
+from src.gym import get_rl_env
 from src.models.ema import SwitchEMA
-
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
 # Import the wandb Run type for type hinting
 from wandb.apis.public.runs import Run
 from wandb.errors.util import CommError
-
 from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 
 trigger_sync = TriggerWandbSyncHook(
@@ -94,6 +91,17 @@ def now():
 def main(cfg: DictConfig):
     set_dryrun_params(cfg)
     OmegaConf.resolve(cfg)
+
+    # Set the random seed
+    if cfg.get("seed") is None:
+        OmegaConf.set_struct(cfg, False)
+        cfg.seed = np.random.randint(0, 2**32 - 1)
+        OmegaConf.set_struct(cfg, True)
+
+    torch.manual_seed(cfg.seed)
+    np.random.seed(cfg.seed)
+    random.seed(cfg.seed)
+
     print(OmegaConf.to_yaml(cfg))
     env: Optional[Env] = None
     device = torch.device(

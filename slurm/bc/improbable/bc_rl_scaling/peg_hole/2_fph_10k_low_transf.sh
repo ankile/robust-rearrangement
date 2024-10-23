@@ -13,5 +13,5 @@
 python -m src.train.bc +experiment=state/scaling/peg_hole/10k \
     actor/diffusion_model=transformer \
     wandb.name=fph-10k-transf-h16-21 \
-    wandb.continue_run_id=null \
+    wandb.continue_run_id=k6v8d2ct \
     dryrun=false
