@@ -116,3 +116,5 @@ tmp
 *.out
 
 *.csv
+
+logs/
