@@ -8,6 +8,7 @@ import mujoco
 from mujoco import viewer
 from src.common import geometry as C
 
+from loop_rate_limiters import RateLimiter
 
 import mink
 import numpy as np
@@ -85,6 +86,9 @@ class InverseKinematicsSolver:
 
 class DualFrankaEnv(gym.Env):
 
+    viewer = None
+    rate_limiter = None
+
     def __init__(
         self,
         concat_robot_state=True,
@@ -106,8 +110,7 @@ class DualFrankaEnv(gym.Env):
             self.viewer = viewer.launch_passive(
                 model=self.model, data=self.data, show_left_ui=True, show_right_ui=True
             )
-        else:
-            self.viewer = None
+            self.rate_limiter = RateLimiter(50)
 
         mujoco.mj_forward(self.model, self.data)
 
@@ -222,9 +225,9 @@ class DualFrankaEnv(gym.Env):
 
             mujoco.mj_step(self.model, self.data)
 
-            if self.viewer is not None:
-                self.viewer.sync()
-            # rate.sleep()
+        if self.viewer is not None:
+            self.viewer.sync()
+            self.rate_limiter.sleep()
 
         obs = self.get_observation()
 
