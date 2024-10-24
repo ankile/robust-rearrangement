@@ -46,32 +46,8 @@ class InverseKinematicsSolver:
         self.posture_task = mink.tasks.PostureTask(model, cost=0.01)
 
         target = self.config.q.copy()
-        target[:9] = np.array(
-            [
-                0,
-                0,
-                0,
-                -1.5707899999999999,
-                0,
-                1.5707899999999999,
-                -0.7853,
-                0.040000000000000001,
-                0.040000000000000001,
-            ]
-        )
-        target[9:18] = np.array(
-            [
-                0,
-                0,
-                0,
-                -1.5707899999999999,
-                0,
-                1.5707899999999999,
-                -0.7853,
-                0.040000000000000001,
-                0.040000000000000001,
-            ]
-        )
+        target[:9] = np.array([0, 0, 0, -1.57, 0, 1.57, -0.7853, 0.04, 0.04])
+        target[9:18] = np.array([0, 0, 0, -1.57, 0, 1.57, -0.7853, 0.04, 0.04])
         self.posture_task.set_target(target)
         self.tasks.append(self.posture_task)
         self.limits = [
