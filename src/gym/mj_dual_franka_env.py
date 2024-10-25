@@ -15,6 +15,7 @@ import numpy as np
 from ipdb import set_trace as bp
 
 from dart_physics.cfgs.bimanual_insertion import task_cfg, reset_function
+from src.common.files import get_processed_path
 
 
 def custom_warning_callback(message, *args):
@@ -25,8 +26,6 @@ def custom_warning_callback(message, *args):
 import logging
 
 logging.getLogger().setLevel(logging.CRITICAL)
-
-# mujoco.set_mju_user_warning(custom_warning_callback)
 
 
 class InverseKinematicsSolver:
@@ -186,10 +185,15 @@ class DualFrankaEnv(gym.Env):
                 [0.00000000e00, 0.00000000e00, 0.00000000e00, 1.00000000e00],
             ]
         )
-
-        self.init_poses = np.load(
-            "/data/scratch/ankile/robust-rearrangement/notebooks/init_poses.npy"
-        )
+        init_poses_path = get_processed_path(
+            domain="sim",
+            controller="dexhub",
+            task="bimanual_insertion",
+            demo_outcome="success",
+            demo_source="teleop",
+            randomness="low",
+        ).parent
+        self.init_poses = np.load(init_poses_path / "init_poses.npy")
 
     def step(self, action: np.ndarray, sample_perturbations=False):
         assert sample_perturbations is False
