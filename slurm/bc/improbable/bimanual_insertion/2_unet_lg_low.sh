@@ -21,4 +21,5 @@ python -m src.train.bc +experiment=state/diff_unet \
     action_horizon=8 \
     control.controller=dexhub \
     wandb.project=bi-state-dr-low-1 \
+    wandb.continue_run_id=51a5a61d \
     dryrun=false

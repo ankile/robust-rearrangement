@@ -379,6 +379,11 @@ if __name__ == "__main__":
                     print("Applying residual field hotfix")
                     cfg.action_dim = cfg.base_policy.action_dim
 
+                # Temporary fix for dagger missing field
+                if "student_policy" in cfg:
+                    print("Applying dagger field hotfix")
+                    cfg.action_dim = cfg.student_policy.action_dim
+
                 # Make the actor
                 actor: Actor = get_actor(cfg=cfg, device=device)
 

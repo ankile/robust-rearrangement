@@ -1,5 +1,6 @@
 from collections import OrderedDict
-from typing import Dict
+import time
+from typing import Dict, Tuple
 import gymnasium as gym
 import torch
 from dart_physics.runs import load_robot_cfg
@@ -10,7 +11,7 @@ from src.common import geometry as C
 
 from loop_rate_limiters import RateLimiter
 
-import mink
+from dart_physics import mink
 import numpy as np
 from ipdb import set_trace as bp
 
@@ -18,14 +19,14 @@ from dart_physics.cfgs.bimanual_insertion import task_cfg, reset_function
 from src.common.files import get_processed_path
 
 
-def custom_warning_callback(message, *args):
-    pass
+# def custom_warning_callback(message, *args):
+#     pass
 
 
 # Disable logging warnings
-import logging
+# import logging
 
-logging.getLogger().setLevel(logging.CRITICAL)
+# logging.getLogger().setLevel(logging.CRITICAL)
 
 
 class InverseKinematicsSolver:
@@ -109,7 +110,7 @@ class DualFrankaEnv(gym.Env):
             self.viewer = viewer.launch_passive(
                 model=self.model, data=self.data, show_left_ui=True, show_right_ui=True
             )
-            self.rate_limiter = RateLimiter(50)
+            self.rate_limiter = RateLimiter(50, warn=False)
 
         mujoco.mj_forward(self.model, self.data)
 
@@ -125,10 +126,10 @@ class DualFrankaEnv(gym.Env):
             robot_state_space = gym.spaces.Dict(
                 OrderedDict(
                     {
-                        "l_pos_state": gym.spaces.Box(
+                        "l_pos": gym.spaces.Box(
                             low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
                         ),
-                        "l_rot_6d": gym.spaces.Box(
+                        "l_rot": gym.spaces.Box(
                             low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
                         ),
                         "l_vel": gym.spaces.Box(
@@ -137,10 +138,10 @@ class DualFrankaEnv(gym.Env):
                         "l_gripper_width": gym.spaces.Box(
                             low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
                         ),
-                        "r_pos_state": gym.spaces.Box(
+                        "r_pos": gym.spaces.Box(
                             low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32
                         ),
-                        "r_rot_6d": gym.spaces.Box(
+                        "r_rot": gym.spaces.Box(
                             low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
                         ),
                         "r_vel": gym.spaces.Box(
@@ -198,23 +199,8 @@ class DualFrankaEnv(gym.Env):
     def step(self, action: np.ndarray, sample_perturbations=False):
         assert sample_perturbations is False
 
-        l_ee, l_gripper, r_ee, r_gripper = (
-            action[:9],
-            action[9],
-            action[10:19],
-            action[19],
-        )
-
-        # Convert the action to 4x4 matrices
-        l_mat, r_mat = np.eye(4), np.eye(4)
-
-        # Add the translation
-        l_mat[:3, 3], r_mat[:3, 3] = l_ee[:3], r_ee[:3]
-
-        # Add the rotation
-        l_mat[:3, :3], r_mat[:3, :3] = C.np_rotation_6d_to_matrix(
-            l_ee[3:9]
-        ), C.np_rotation_6d_to_matrix(r_ee[3:9])
+        l_mat = self.learnable_to_mat(action[0:9])
+        r_mat = self.learnable_to_mat(action[10:19])
 
         # Solve inverse kinematics
         q_new = self.ik_solver.solve(self.data.qpos, l_mat, r_mat)
@@ -222,87 +208,51 @@ class DualFrankaEnv(gym.Env):
         self.data.ctrl[:7] = q_new[:7]
         self.data.ctrl[8:15] = q_new[9:16]
 
-        self.data.ctrl[7] = l_gripper
-        self.data.ctrl[15] = r_gripper
+        self.data.ctrl[7] = action[9]
+        self.data.ctrl[15] = action[19]
 
-        for _ in range(10):
-
-            mujoco.mj_step(self.model, self.data)
+        mujoco.mj_step(self.model, self.data, nstep=10)
 
         if self.viewer is not None:
             self.viewer.sync()
             self.rate_limiter.sleep()
 
         obs = self.get_observation()
-
         reward = self.compute_reward()
         done = self.is_success()
 
         return obs, reward, done, False, {}
 
-    def fk(self, ctrl):
-        """
-        Compute forward kinematics for the robot.
-        """
+    def learnable_to_mat(self, learnable: np.ndarray) -> np.ndarray:
+        # Convert the action to 4x4 matrices
+        mat = np.eye(4)
 
-        self.fk_data.qpos[:7] = ctrl[:7]
-        self.fk_data.qpos[9:16] = ctrl[8:15]
+        # Add the translation
+        mat[:3, 3] = learnable[:3]
 
-        mujoco.mj_kinematics(self.fk_model, self.fk_data)
+        # Add the rotation
+        mat[:3, :3] = C.np_rotation_6d_to_matrix(learnable[3:9])
 
-        l_frame = self.fk_data.body("l_robot/attachment")
-        r_frame = self.fk_data.body("r_robot/attachment")
-
-        l_ee = mink.SE3.from_rotation_and_translation(
-            rotation=mink.SO3(l_frame.xquat), translation=l_frame.xpos
-        ).as_matrix()
-        r_ee = mink.SE3.from_rotation_and_translation(
-            rotation=mink.SO3(r_frame.xquat), translation=r_frame.xpos
-        ).as_matrix()
-
-        # Get the velocities
-        l_vel = self.fk_data.body("l_robot/attachment").cvel
-        r_vel = self.fk_data.body("r_robot/attachment").cvel
-
-        return l_ee, r_ee, l_vel, r_vel
+        return mat
 
     def get_robot_state(self):
         qpos = self.data.qpos
 
-        l_frame = self.data.body("l_robot/attachment")
-        r_frame = self.data.body("r_robot/attachment")
+        l_pos, l_rot, l_vel = self.body_to_learnable("l_robot/attachment")
+        r_pos, r_rot, r_vel = self.body_to_learnable("r_robot/attachment")
 
-        l_ee = mink.SE3.from_rotation_and_translation(
-            rotation=mink.SO3(l_frame.xquat), translation=l_frame.xpos
-        ).as_matrix()
-        r_ee = mink.SE3.from_rotation_and_translation(
-            rotation=mink.SO3(r_frame.xquat), translation=r_frame.xpos
-        ).as_matrix()
-
-        # Get the velocities
-        l_vel = l_frame.cvel
-        r_vel = r_frame.cvel
-
-        l_pos_state, r_pos_state = l_ee[:3, 3], r_ee[:3, 3]
-
-        l_mat, r_mat = l_ee[:3, :3], r_ee[:3, :3]
-
-        l_rot_6d, r_rot_6d = C.np_matrix_to_rotation_6d(
-            l_mat
-        ), C.np_matrix_to_rotation_6d(r_mat)
-
-        l_gripper_width = qpos[7] + qpos[8]
-        r_gripper_width = qpos[16] + qpos[17]
+        l_gripper_width = np.array([sum(qpos[7:9])])
+        r_gripper_width = np.array([sum(qpos[16:18])])
 
         robot_state = {
-            "l_pos_state": l_pos_state,
-            "l_rot_6d": l_rot_6d,
+            "l_pos": l_pos,
+            "l_rot": l_rot,
             "l_vel": l_vel,
-            "l_gripper_width": np.array([l_gripper_width]),
-            "r_pos_state": r_pos_state,
-            "r_rot_6d": r_rot_6d,
+            "l_gripper_width": l_gripper_width,
+            "r_pos": r_pos,
+            "r_rot": r_rot,
             "r_vel": r_vel,
-            "r_gripper_width": np.array([r_gripper_width]),
+            "r_gripper_width": r_gripper_width,
         }
 
         # Combine all states
@@ -310,6 +260,34 @@ class DualFrankaEnv(gym.Env):
             robot_state = np.concatenate(list(robot_state.values()), axis=-1)
 
         return robot_state
+
+    def body_to_pose_and_vel(self, body_name: str) -> Tuple[np.ndarray, np.ndarray]:
+        frame = self.data.body(body_name)
+        pose_matrix = mink.SE3.from_rotation_and_translation(
+            rotation=mink.SO3(frame.xquat), translation=frame.xpos
+        ).as_matrix()
+
+        return pose_matrix, frame.cvel
+
+    def mat_to_learnable(self, mat: np.ndarray) -> Tuple[np.ndarray]:
+        """
+        Convert a 4x4 matrix to a learnable representation.
+        """
+        pos = mat[:3, 3]
+        rot = C.np_matrix_to_rotation_6d(mat[:3, :3])
+
+        return pos, rot
+
+    def body_to_learnable(
+        self, body_name: str
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Convert a body's pose and velocity to a learnable representation.
+        """
+        pose_matrix, vel = self.body_to_pose_and_vel(body_name)
+        pos, rot = self.mat_to_learnable(pose_matrix)
+
+        return pos, rot, vel
 
     def get_parts_poses(self):
         # Get the parts poses
@@ -336,7 +314,19 @@ class DualFrankaEnv(gym.Env):
     def compute_reward(self):
         return float(self.is_success())
 
-    def is_success(self):
+    def is_success(self, pos_tolerance=0.005, rot_tolerance_rad=0.05):
+        """
+        Check if the relative pose between peg and hole is close enough to goal pose.
+
+        Args:
+            pos_tolerance: Maximum allowed positional error in meters
+            rot_tolerance_rad: Maximum allowed rotational error in radians
+
+        Returns:
+            success: Boolean indicating if pose is within tolerances
+            metrics: Dict with detailed error metrics
+        """
+        # Get current transforms
         peg_mat = mink.SE3.from_rotation_and_translation(
             rotation=mink.SO3(self.data.body(self.pegname).xquat),
             translation=self.data.body(self.pegname).xpos,
@@ -346,26 +336,59 @@ class DualFrankaEnv(gym.Env):
             translation=self.data.body(self.holename).xpos,
         ).as_matrix()
 
+        # Current relative pose
         curr_pose = peg_mat @ np.linalg.inv(hole_mat)
 
-        # Check if curr pose is close to goal pose
-        success = np.allclose(curr_pose, self.goal_pose, atol=0.01)
+        # Compute relative error transform
+        error_transform = np.linalg.inv(self.goal_pose) @ curr_pose
+
+        # Extract position error
+        pos_error = np.linalg.norm(error_transform[:3, 3])
+
+        # Extract rotation error using matrix logarithm
+        rot_mat_error = error_transform[:3, :3]
+        rot_error_rad = np.arccos((np.trace(rot_mat_error) - 1) / 2)
+
+        # Check if within tolerances
+        pos_success = pos_error < pos_tolerance
+        rot_success = rot_error_rad < rot_tolerance_rad
+        success = pos_success and rot_success
 
         return success
 
+    def exploding(self, threshold=5):
+
+        # print max data.qvel
+        if np.any(np.abs(self.data.qvel) > threshold):
+            print("Max qvel", np.max(np.abs(self.data.qvel)))
+
+            return True
+
+        return False
+
     def reset(self):
-        reset_function(self.model, self.data, self.robot_cfg, self.task_cfg)
 
-        self.data.qpos[:18] = self.init_poses[np.random.randint(len(self.init_poses))]
-        # self.data.qpos[:18] = self.init_poses[1]
+        max_retries = 100
 
-        self.data.qvel = np.zeros_like(self.data.qvel)
+        for _ in range(max_retries):
+            init_pose = self.init_poses[np.random.randint(len(self.init_poses))]
 
-        self.data.ctrl[:7] = self.data.qpos[:7]
-        self.data.ctrl[8:15] = self.data.qpos[9:16]
+            self.data = reset_function(
+                self.model, self.data, self.robot_cfg, self.task_cfg
+            )
 
-        # Make sure the changes are reflected in the simulation
-        mujoco.mj_forward(self.model, self.data)
+            self.data.qpos[:18] = init_pose
+            self.data.qvel[:16] = 0.0
+            mujoco.mj_step(self.model, self.data)
+
+            if self.viewer is not None:
+                self.viewer.sync()
+
+            if not self.exploding():
+                break
+
+        else:
+            raise ValueError("Failed to reset the environment")
 
         if self.viewer is not None:
             self.viewer.sync()
@@ -425,7 +448,7 @@ class DualFrankaVecEnv(gym.Env):
         return obs, rewards, dones, infos
 
     def reset(self):
-        obs, infos = self.envs.reset()
+        obs, _ = self.envs.reset()
         obs = self.torchify(obs)
 
         self.env_steps[:] = 0
