@@ -1,6 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from pathlib import Path
-import furniture_bench  # noqa
 
 import random
 import time

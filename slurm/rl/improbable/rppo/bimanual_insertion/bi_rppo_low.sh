@@ -8,10 +8,11 @@
 #SBATCH --mem=128GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
+#SBATCH --requeue
 #SBATCH --job-name=bi_rppo_low
 
 python -m src.train.residual_ppo \
-    base_policy.wandb_id=bi-state-dr-low-1/7dzshb88 \
+    base_policy.wandb_id=bi-state-dr-low-1/p1dj22xx \
     base_policy.wt_type=best_success_rate \
     env.task=bimanual_insertion \
     env.randomness=low \

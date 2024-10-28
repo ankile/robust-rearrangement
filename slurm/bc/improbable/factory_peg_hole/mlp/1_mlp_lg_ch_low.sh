@@ -12,10 +12,9 @@
 #SBATCH --job-name=1_fph_mlp_low
 
 python -m src.train.bc +experiment=state/mlp_lg_ch \
-    randomness='[low]' \
-    rollout.randomness=low \
+    randomness=low \
+    wandb.name=mlp-lg-ch-1 \
     rollout.max_steps=200 \
     task=factory_peg_hole \
-    wandb.name=mlp-lg-ch-1 \
     wandb.project=fph-state-dr-low-1 \
     dryrun=false
