@@ -118,3 +118,4 @@ tmp
 *.csv
 
 logs/
+scene.xml
