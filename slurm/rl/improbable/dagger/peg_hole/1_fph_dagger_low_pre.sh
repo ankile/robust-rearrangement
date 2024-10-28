@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH -p vision-pulkitag-a100,vision-pulkitag-a6000,vision-pulkitag-3090,vision-pulkitag-v100
-#SBATCH -q vision-pulkitag-main
+#SBATCH -q vision-pulkitag-free-cycles
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
@@ -16,12 +16,12 @@ python -m src.train.dagger \
     teacher_policy.wandb_id=fph-rppo-dr-low-1/2kd9vgx9 \
     env.randomness=low env.task=factory_peg_hole \
     num_env_steps=200 \
-    student_policy.wt_type=null \
+    student_policy.wt_type=best_success_rate \
     beta=0.95 \
     teacher_only_iters=2 \
     correct_student_action_only=false \
     eval_interval=5 \
-    num_envs=16 \
+    num_envs=64 \
     num_epochs=100 \
     eval_first=false \
     num_iterations=500 \
@@ -33,5 +33,5 @@ python -m src.train.dagger \
     learning_rate_student=1e-4 \
     replay_buffer_size=10000000 \
     wandb.project=fph-dagger-low-1 \
-    wandb.continue_run_id=null \
+    wandb.continue_run_id=3863e58b \
     debug=false
