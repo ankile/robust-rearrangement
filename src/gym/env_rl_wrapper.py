@@ -32,15 +32,24 @@ class FurnitureEnvRLWrapper:
         self.device = device
         self.normalizer = LinearNormalizer()
 
-        # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
+        # Define a new action space
+        self.action_space = gym.spaces.Box(
+            -1, 1, shape=(chunk_size, self.env.action_space.shape[-1])
+        )
 
-        # Define a new observation space of dim 16 + 35 for 6D proprioception
+        robot_state_dim = self.env.observation_space["robot_state"].shape[-1]
+
+        if robot_state_dim == 14:
+            robot_state_dim = 16
+
+        parts_poses_dim = self.env.observation_space["parts_poses"].shape[-1]
+
         self.observation_space = gym.spaces.Box(
             -float("inf"),
             float("inf"),
-            shape=(16 + env.get_parts_poses().shape[-1] + 7,),
+            shape=(robot_state_dim + parts_poses_dim,),
         )
+
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs

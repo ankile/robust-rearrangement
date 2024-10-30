@@ -9,6 +9,7 @@ reset_on_failure: false
 reset_every_iteration: true
 reset_on_success: true
 eval_interval: 5
+gpu_id: 0
 eval_first: true
 checkpoint_interval: 10
 truncation_as_done: true

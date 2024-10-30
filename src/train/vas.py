@@ -1,6 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
 from pathlib import Path
-import furniture_bench  # noqa
 
 import random
 import time
@@ -11,8 +10,7 @@ from omegaconf import DictConfig, OmegaConf
 from src.common.config_util import merge_base_bc_config_with_root_config
 from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
-from furniture_bench.envs.observation import DEFAULT_STATE_OBS
+from src.gym.observation import DEFAULT_STATE_OBS
 import numpy as np
 import torch
 import torch.nn as nn
@@ -25,13 +23,15 @@ from src.dataset.normalizer import LinearNormalizer
 from ipdb import set_trace as bp
 
 # Set the gym logger to not print to console
-import gym
+import gymnasium as gym
 
 gym.logger.set_level(40)
+
 import wandb
+
 from src.behavior.diffusion import DiffusionPolicy
 
-from src.gym import turn_off_april_tags
+from src.gym import get_rl_env
 
 
 # Register the eval resolver for omegaconf
@@ -174,18 +174,21 @@ def main(cfg: DictConfig):
     Q_estimator.to(device)
     Q_estimator.train()
 
-    turn_off_april_tags()
+    gpu_id = cfg.gpu_id
+    device = torch.device(f"cuda:{gpu_id}")
 
     # env setup
-    env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+    env: gym.Env = get_rl_env(
+        gpu_id=gpu_id,
         act_rot_repr=cfg.control.act_rot_repr,
         action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture=cfg.env.task,
-        gpu_id=0,
+        task=cfg.env.task,
+        compute_device_id=gpu_id,
+        graphics_device_id=gpu_id,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
         observation_space="state",

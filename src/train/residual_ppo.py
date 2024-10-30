@@ -31,8 +31,7 @@ import wandb
 from wandb.apis.public.runs import Run
 from wandb.errors.util import CommError
 
-from src.gym import get_rl_env, turn_off_april_tags
-
+from src.gym import get_rl_env
 import gymnasium as gym
 
 # Register the eval resolver for omegaconf

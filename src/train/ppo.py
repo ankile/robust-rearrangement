@@ -11,8 +11,6 @@ from src.common.config_util import merge_base_bc_config_with_root_config
 from src.common.files import get_processed_paths
 from src.eval.eval_utils import get_model_from_api_or_cached
 from src.gym.env_rl_wrapper import FurnitureEnvRLWrapper
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
-from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 from src.common.pytorch_util import dict_to_device
 from src.dataset.dataset import StateDataset
@@ -24,6 +22,8 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 from src.dataset.normalizer import LinearNormalizer
+from src.gym.observation import DEFAULT_STATE_OBS
+
 
 from src.behavior.mlp import MLPActor
 
@@ -37,8 +37,9 @@ import wandb
 import copy
 from torch.distributions.normal import Normal
 
-from src.gym import turn_off_april_tags
 
+from src.gym import get_rl_env
+import gymnasium as gym
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
@@ -68,14 +69,15 @@ def get_demo_data_loader(
     add_relative_pose=False,
     normalizer=None,
     task="one_leg",
+    controller="diffik",
 ) -> DataLoader:
 
     paths = get_processed_paths(
-        controller="diffik",
+        controller=controller,
         domain="sim",
         task=task,
         demo_source="teleop",
-        randomness=["low", "low_perturb"],
+        randomness="low",
         demo_outcome="success",
     )
 
@@ -154,7 +156,8 @@ def main(cfg: DictConfig):
     torch.manual_seed(cfg.seed)
     torch.backends.cudnn.deterministic = cfg.torch_deterministic
 
-    device = torch.device("cuda")
+    gpu_id = cfg.gpu_id
+    device = torch.device(f"cuda:{gpu_id}")
 
     # Load the behavior cloning actor
     base_cfg, base_wts = get_model_from_api_or_cached(
@@ -171,18 +174,18 @@ def main(cfg: DictConfig):
     agent.to(device)
     agent.eval()
 
-    turn_off_april_tags()
-
     # env setup
-    env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+    env: gym.Env = get_rl_env(
+        gpu_id=gpu_id,
         act_rot_repr=cfg.control.act_rot_repr,
         action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture=cfg.env.task,
-        gpu_id=0,
+        task=cfg.env.task,
+        compute_device_id=gpu_id,
+        graphics_device_id=gpu_id,
         headless=cfg.headless,
         num_envs=cfg.num_envs,
         observation_space="state",
@@ -190,7 +193,7 @@ def main(cfg: DictConfig):
         max_env_steps=100_000_000,
     )
 
-    n_parts_to_assemble = len(env.pairs_to_assemble)
+    n_parts_to_assemble = env.n_parts_assemble
 
     env: FurnitureEnvRLWrapper = FurnitureEnvRLWrapper(
         env,
@@ -257,6 +260,7 @@ def main(cfg: DictConfig):
         action_horizon=agent.action_horizon,
         num_workers=4 if not cfg.debug else 0,
         task=cfg.env.task,
+        controller=cfg.control.controller,
     )
 
     # Print the number of batches in the dataloader

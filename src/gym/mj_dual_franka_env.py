@@ -19,16 +19,6 @@ from dart_physics.cfgs.bimanual_insertion import task_cfg, reset_function
 from src.common.files import get_processed_path
 
 
-# def custom_warning_callback(message, *args):
-#     pass
-
-
-# Disable logging warnings
-# import logging
-
-# logging.getLogger().setLevel(logging.CRITICAL)
-
-
 class InverseKinematicsSolver:
     def __init__(self, model):
         self.config = mink.Configuration(model)
@@ -92,6 +82,7 @@ class DualFrankaEnv(gym.Env):
     def __init__(
         self,
         concat_robot_state=True,
+        observation_type="state",
         device="cpu",
         visualize=False,
     ):
@@ -100,6 +91,7 @@ class DualFrankaEnv(gym.Env):
         self.robot = "dual_panda"
         self.robot_cfg = load_robot_cfg(self.robot)
         self.task_cfg = task_cfg
+        self.observation_type = observation_type
 
         # TODO: Check if this is correct
         self.model = construct_scene(self.task_cfg, self.robot_cfg)[0]
@@ -196,6 +188,11 @@ class DualFrankaEnv(gym.Env):
         ).parent
         self.init_poses = np.load(init_poses_path / "init_poses.npy")
 
+        self.success = False
+
+        self.camera_height = 720
+        self.camera_width = 1280
+
     def step(self, action: np.ndarray, sample_perturbations=False):
         assert sample_perturbations is False
 
@@ -219,9 +216,9 @@ class DualFrankaEnv(gym.Env):
 
         obs = self.get_observation()
         reward = self.compute_reward()
-        done = self.is_success()
+        self.success |= self.is_success()
 
-        return obs, reward, done, False, {}
+        return obs, reward, self.success, False, {}
 
     def learnable_to_mat(self, learnable: np.ndarray) -> np.ndarray:
         # Convert the action to 4x4 matrices
@@ -314,7 +311,7 @@ class DualFrankaEnv(gym.Env):
     def compute_reward(self):
         return float(self.is_success())
 
-    def is_success(self, pos_tolerance=0.005, rot_tolerance_rad=0.05):
+    def is_success(self, pos_tolerance=0.0025, rot_tolerance_rad=0.05):
         """
         Check if the relative pose between peg and hole is close enough to goal pose.
 
@@ -366,7 +363,22 @@ class DualFrankaEnv(gym.Env):
 
         return False
 
+    def render_camera(self):
+        """Render the main_front camera view."""
+        camera = self.model.camera("main_front")
+
+        # Initialize camera configuration
+        renderer = mujoco.Renderer(self.model, self.camera_height, self.camera_width)
+
+        # Update scene and render
+        renderer.update_scene(self.data, camera=camera.id)
+        img = renderer.render()
+
+        return img
+
     def reset(self):
+
+        self.success = False
 
         max_retries = 100
 
