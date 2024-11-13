@@ -216,7 +216,7 @@ def main(cfg: DictConfig):
         agent.parameters(),
         lr=cfg.learning_rate,
         eps=1e-5,
-        weight_decay=1e-5,
+        # weight_decay=1e-5,
     )
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
@@ -267,6 +267,8 @@ def main(cfg: DictConfig):
     print(f"Number of batches in the dataloader: {len(demo_data_loader)}")
 
     agent = agent.to(device)
+
+    # Number of environment steps
     global_step = 0
     training_cum_time = 0
 
@@ -303,7 +305,7 @@ def main(cfg: DictConfig):
         for step in range(0, num_steps):
             if not eval_mode:
                 # Only count environment steps during training
-                global_step += cfg.num_envs
+                global_step += cfg.num_envs * agent.action_horizon
 
             obs[step] = next_obs
             dones[step] = next_done

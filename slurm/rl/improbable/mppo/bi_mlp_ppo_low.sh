@@ -19,9 +19,8 @@ python -m src.train.ppo \
     num_env_steps=500 \
     num_envs=256 \
     kl_coef=0.5 \
-    gae_lambda=1.0 \
-    gamma=1.0 \
     init_logstd=-4.0 \
     vf_coef=1.0 \
+    learning_rate=5e-5 \
     wandb.project=bi-rppo-dr-low-1 \
     debug=false

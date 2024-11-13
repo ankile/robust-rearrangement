@@ -146,7 +146,7 @@ class DualFrankaEnv(gym.Env):
                 )
             )
 
-        self.observation_space = gym.spaces.Dict(
+        observation_space_dict = OrderedDict(
             {
                 "robot_state": robot_state_space,
                 "parts_poses": gym.spaces.Box(
@@ -154,6 +154,17 @@ class DualFrankaEnv(gym.Env):
                 ),
             }
         )
+
+        if self.observation_type == "image":
+            observation_space_dict["color_image1"] = gym.spaces.Box(
+                low=0, high=255, shape=(1,), dtype=np.uint8
+            )
+            observation_space_dict["color_image2"] = gym.spaces.Box(
+                low=0, high=255, shape=(720, 1280, 3), dtype=np.uint8
+            )
+
+        self.observation_space = gym.spaces.Dict(observation_space_dict)
+
         self.action_space = gym.spaces.Box(
             low=-1, high=1, shape=(20,), dtype=np.float32
         )
@@ -178,6 +189,14 @@ class DualFrankaEnv(gym.Env):
                 [0.00000000e00, 0.00000000e00, 0.00000000e00, 1.00000000e00],
             ]
         )
+        # self.goal_pose = np.array(
+        #     [
+        #         [9.99942791e-01, 2.77529438e-04, 1.06928881e-02, 0],
+        #         [-1.94699848e-04, 9.99969977e-01, -7.74649435e-03, 0],
+        #         [-1.06947169e-02, 7.74396927e-03, 9.99912823e-01, -1.5e-02],
+        #         [0.00000000e00, 0.00000000e00, 0.00000000e00, 1.00000000e00],
+        #     ]
+        # )
         init_poses_path = get_processed_path(
             domain="sim",
             controller="dexhub",
@@ -192,6 +211,8 @@ class DualFrankaEnv(gym.Env):
 
         self.camera_height = 720
         self.camera_width = 1280
+
+        self.success_steps = 0
 
     def step(self, action: np.ndarray, sample_perturbations=False):
         assert sample_perturbations is False
@@ -215,8 +236,8 @@ class DualFrankaEnv(gym.Env):
             self.rate_limiter.sleep()
 
         obs = self.get_observation()
-        reward = self.compute_reward()
         self.success |= self.is_success()
+        reward = self.success
 
         return obs, reward, self.success, False, {}
 
@@ -306,12 +327,17 @@ class DualFrankaEnv(gym.Env):
             "robot_state": self.get_robot_state(),
             "parts_poses": self.get_parts_poses(),
         }
+
+        if self.observation_type == "image":
+            obs["color_image1"] = np.array([0], dtype=np.uint8)
+            obs["color_image2"] = self.render_camera()
+
         return obs
 
     def compute_reward(self):
         return float(self.is_success())
 
-    def is_success(self, pos_tolerance=0.0025, rot_tolerance_rad=0.05):
+    def is_success(self, pos_tolerance=0.005, rot_tolerance_rad=0.05):
         """
         Check if the relative pose between peg and hole is close enough to goal pose.
 
@@ -351,14 +377,31 @@ class DualFrankaEnv(gym.Env):
         rot_success = rot_error_rad < rot_tolerance_rad
         success = pos_success and rot_success
 
-        return success
+        if self.success_steps < 1 and success:
+            self.success_steps = 1
+
+        if self.success_steps > 0:
+            self.success_steps += 1
+
+            if self.success_steps > 25:
+                return True
+
+        return False
 
     def exploding(self, threshold=5):
 
         # print max data.qvel
         if np.any(np.abs(self.data.qvel) > threshold):
             print("Max qvel", np.max(np.abs(self.data.qvel)))
+            return True
 
+        # Check if any nan or inf values in qpos or qvel
+        if np.any(np.isnan(self.data.qpos)) or np.any(np.isnan(self.data.qvel)):
+            print("Nan values in qpos or qvel")
+            return True
+
+        if np.any(np.isinf(self.data.qpos)) or np.any(np.isinf(self.data.qvel)):
+            print("Inf values in qpos or qvel")
             return True
 
         return False
@@ -379,6 +422,7 @@ class DualFrankaEnv(gym.Env):
     def reset(self):
 
         self.success = False
+        self.success_steps = 0
 
         max_retries = 100
 
@@ -391,12 +435,14 @@ class DualFrankaEnv(gym.Env):
 
             self.data.qpos[:18] = init_pose
             self.data.qvel[:16] = 0.0
-            mujoco.mj_step(self.model, self.data)
+
+            for _ in range(5):
+                mujoco.mj_step(self.model, self.data)
 
             if self.viewer is not None:
                 self.viewer.sync()
 
-            if not self.exploding():
+            if not self.exploding(threshold=2):
                 break
 
         else:
@@ -413,6 +459,7 @@ class DualFrankaVecEnv(gym.Env):
         self,
         num_envs=1,
         concat_robot_state=True,
+        observation_type="state",
         device="cpu",
         visualize=False,
     ) -> None:
@@ -424,6 +471,7 @@ class DualFrankaVecEnv(gym.Env):
 
         env_func = lambda: DualFrankaEnv(
             concat_robot_state=concat_robot_state,
+            observation_type=observation_type,
             device=device,
             visualize=visualize,
         )

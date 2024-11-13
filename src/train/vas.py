@@ -122,12 +122,12 @@ class Qfunction(nn.Module):
 
 @hydra.main(config_path="../config", config_name="base_vas", version_base="1.2")
 def main(cfg: DictConfig):
-    sigma = cfg.sigma
+    sigma = float(cfg.sigma)
 
     if cfg.seed is None:
         cfg.seed = random.randint(0, 2**32 - 1)
 
-    run_name = f"{int(time.time())}__mlp_vas__{cfg.seed}"
+    run_name = f"{int(time.time())}__{cfg.actor.name}_vas__{cfg.seed}"
 
     run_directory = f"runs/mlp-vas"
     run_directory += "-delete" if cfg.debug else ""
@@ -156,6 +156,8 @@ def main(cfg: DictConfig):
     # Set the inference steps of the actor
     if isinstance(agent, DiffusionPolicy):
         agent.inference_steps = 4
+
+    agent.eta = cfg.eta
 
     base_state_dict = torch.load(base_wts)
 
@@ -284,7 +286,7 @@ def main(cfg: DictConfig):
         for step in range(0, num_steps):
             if not eval_mode:
                 # Only count environment steps during training
-                global_step += cfg.num_envs
+                global_step += cfg.num_envs * agent.action_horizon
 
             obs[step] = next_obs
             dones[step] = next_done
@@ -301,6 +303,7 @@ def main(cfg: DictConfig):
                         [next_obs, naction.reshape(cfg.num_envs, -1)], dim=-1
                     )
                     values[step] = Q_estimator.get_value(critic_obs).squeeze()
+
             if eval_mode:
                 with torch.no_grad():
                     k = 20
@@ -322,10 +325,7 @@ def main(cfg: DictConfig):
                     Qvalues = Qvalues.reshape(cfg.num_envs, k, -1)
                     indices = torch.argmax(Qvalues, dim=1).squeeze()
                     naction = naction.reshape(cfg.num_envs, k, agent.action_horizon, -1)
-                    actions_list = []
-                    for env_num, idx in enumerate(indices):
-                        actions_list.append(naction[env_num, int(idx.item()), :, :])
-                    naction = torch.stack(actions_list)
+                    naction = naction[torch.arange(cfg.num_envs), indices, :, :]
 
             # Clamp action to be [-5, 5], arbitrary value
             naction = torch.clamp(naction, -5, 5)
@@ -424,11 +424,7 @@ def main(cfg: DictConfig):
             cfg.gamma,
             cfg.gae_lambda,
         )
-        mask = torch.logical_or(
-            torch.isclose(returns, torch.zeros_like(returns)),
-            torch.isclose(returns, torch.ones_like(returns)),
-        )
-
+        mask = torch.ones_like(returns)
         b_advantages = advantages.reshape(-1).cpu()
         b_returns = returns.reshape(-1).cpu()
         b_mask = mask.reshape(-1).cpu()
@@ -437,7 +433,6 @@ def main(cfg: DictConfig):
 
         # Optimizing the policy and value network
         b_inds = np.arange(cfg.batch_size)
-        clipfracs = []
         for epoch in trange(cfg.update_epochs, desc="Policy update"):
 
             np.random.shuffle(b_inds)
@@ -477,11 +472,13 @@ def main(cfg: DictConfig):
                     v_loss = (v_loss * mb_mask).sum() / mb_mask.sum()
 
                 # Total loss
-                loss = cfg.vf_coef * v_loss
+                loss: torch.Tensor = cfg.vf_coef * v_loss
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(agent.parameters(), cfg.max_grad_norm)
+                grad_norm = nn.utils.clip_grad_norm_(
+                    Q_estimator.parameters(), cfg.max_grad_norm
+                )
                 optimizer.step()
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
@@ -490,6 +487,15 @@ def main(cfg: DictConfig):
 
         training_cum_time += time.time() - iteration_start_time
         sps = int(global_step / training_cum_time) if training_cum_time > 0 else 0
+
+        # bp()
+
+        # Check if any of the variables passed to the histograms are NaN
+        if any(
+            torch.isnan(x).any() for x in [b_values, b_returns, b_advantages, rewards]
+        ):
+            print("NaN detected in the variables passed to the histograms")
+            # bp()
 
         wandb.log(
             {
@@ -502,17 +508,15 @@ def main(cfg: DictConfig):
                 "values/values": b_values.mean().item(),
                 "losses/value_loss": v_loss.item(),
                 "losses/total_loss": loss.item(),
-                "losses/clipfrac": np.mean(clipfracs),
                 "losses/explained_variance": explained_var,
-                "histograms/values": wandb.Histogram(values),
+                "losses/grad_norm": grad_norm,
+                "histograms/values": wandb.Histogram(b_values),
                 "histograms/returns": wandb.Histogram(b_returns),
                 "histograms/advantages": wandb.Histogram(b_advantages),
                 "histograms/rewards": wandb.Histogram(rewards),
             },
             step=global_step,
         )
-
-        # Step the learning rate scheduler
 
         # Checkpoint every cfg.checkpoint_interval steps
         if iteration % cfg.checkpoint_interval == 0:

@@ -8,7 +8,7 @@
 #SBATCH --mem=128GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=fph_vas_low
+#SBATCH --job-name=bi_vas_low
 
 python -m src.train.vas \
     base_policy.wandb_id=bi-state-dr-low-1/p1dj22xx \
@@ -18,7 +18,7 @@ python -m src.train.vas \
     control.controller=dexhub \
     num_env_steps=500 \
     num_envs=256 \
-    n_iterations_train_only_value=0 \
+    n_iterations_train_only_value=5 \
     eval_interval=20 \
     checkpoint_interval=100 \
     total_timesteps=1_000_000_000 \

@@ -16,7 +16,7 @@ FULL_OBS = [
     # "color_image3",
     # "depth_image3",
     "parts_poses",
-    "obstacle_pose",
+    # "obstacle_pose",
 ]
 
 DEFAULT_VISUAL_OBS = [

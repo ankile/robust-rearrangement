@@ -108,6 +108,8 @@ def get_rl_env(
     headless=True,
     record=False,
     concat_robot_state=False,
+    ctrl_mode="diffik",
+    obs_keys=None,
     **kwargs,
 ):
 
@@ -117,6 +119,7 @@ def get_rl_env(
         env = DualFrankaVecEnv(
             num_envs=num_envs,
             concat_robot_state=concat_robot_state,
+            observation_type=observation_space,
             device=f"cuda:{gpu_id}",
             visualize=not headless,
         )
@@ -135,10 +138,12 @@ def get_rl_env(
 
         # To ensure we can replay the rollouts, we need to (1) include all robot states in the observation space
         # and (2) ensure that the robot state is stored as a dict for compatibility with the teleop data
-        obs_keys = FULL_OBS
-        if observation_space == "state":
-            # Filter out keys with `image` in them
-            obs_keys = [key for key in obs_keys if "image" not in key]
+        
+        if obs_keys is None:
+            obs_keys = FULL_OBS
+            if observation_space == "state":
+                # Filter out keys with `image` in them
+                obs_keys = [key for key in obs_keys if "image" not in key]
 
         if action_type == "relative":
             print(
@@ -151,7 +156,7 @@ def get_rl_env(
                 furniture=task,  # Specifies the type of furniture [lamp | square_table | desk | drawer | cabinet | round_table | stool | chair | one_leg].
                 num_envs=num_envs,  # Number of parallel environments.
                 resize_img=resize_img,  # If true, images are resized to 224 x 224.
-                concat_robot_state=False,  # If true, robot state is concatenated to the observation.
+                concat_robot_state=concat_robot_state,  # If true, robot state is concatenated to the observation.
                 headless=headless,  # If true, simulation runs without GUI.
                 obs_keys=obs_keys,
                 compute_device_id=gpu_id,
@@ -168,7 +173,7 @@ def get_rl_env(
                 ctrl_mode="diffik",  # Control mode for the robot. Options are 'osc' and 'diffik'.
                 action_type=action_type,  # Action type for the robot. Options are 'delta' and 'pos'.
                 verbose=verbose,  # If true, prints debug information.
-                **kwargs,
+                # **kwargs,
             )
 
         return env

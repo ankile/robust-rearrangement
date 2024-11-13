@@ -115,11 +115,6 @@ def extract_numpy_frames(pickle_path: Union[str, Path], cameras=[1, 2]) -> np.nd
 
 
 def data_to_video(data: dict, cameras=[1, 2]) -> np.ndarray:
-    # Old code
-    # ims1 = np.array([o["color_image1"] for o in data["observations"]])
-    # ims2 = np.array([o["color_image2"] for o in data["observations"]])
-    # ims = np.concatenate([ims1, ims2], axis=2)
-
     ims = []
 
     for camera in cameras:

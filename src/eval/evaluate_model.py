@@ -384,6 +384,13 @@ if __name__ == "__main__":
                     print("Applying dagger field hotfix")
                     cfg.action_dim = cfg.student_policy.action_dim
 
+                # Temporary fix for critic missing field in actor config
+                if "critic" in cfg:
+                    print("Applying critic field hotfix")
+                    cfg.actor.critic = cfg.critic
+                    cfg.actor.init_logstd = cfg.init_logstd
+                    cfg.discount = cfg.base_policy.discount
+
                 # Make the actor
                 actor: Actor = get_actor(cfg=cfg, device=device)
 

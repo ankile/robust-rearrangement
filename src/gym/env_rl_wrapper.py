@@ -1,5 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
-from typing import Dict
+from typing import Dict, Tuple
 from src.dataset.normalizer import LinearNormalizer
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 import torch
@@ -18,7 +18,6 @@ class FurnitureEnvRLWrapper:
         self,
         env: Env,
         max_env_steps=300,
-        ee_dof=10,
         chunk_size=1,
         reset_on_success=False,
         normalize_reward=False,
@@ -125,7 +124,9 @@ class FurnitureEnvRLWrapper:
 
         return obs, total_reward, dones, info
 
-    def step(self, naction_chunk: torch.Tensor):
+    def step(
+        self, naction_chunk: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict]:
         assert naction_chunk.shape[-2:] == self.action_space.shape
 
         # First denormalize the action
@@ -144,11 +145,6 @@ class FurnitureEnvRLWrapper:
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
-
-        # NOTE: We take this out to be safe as it's not currently compatible with the lamp task
-        # Reset the envs that have reached the max number of steps or got reward
-        # if self.reset_on_success and torch.any(done):
-        #     obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 
@@ -207,7 +203,6 @@ class RLPolicyEnvWrapper:
         sample_perturbations=False,
         device="cuda",
     ):
-        # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure

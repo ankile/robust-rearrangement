@@ -12,20 +12,19 @@
 
 
 # Array of IDs
-ids=("m96s3a3j")
-project="lp-dagger-low-1"
-task="lamp"
-# ids=("9577df03")
-# project="rt-dagger-low-1"
-# task="round_table"
+# ids=("m96s3a3j")
+# project="lp-dagger-low-1"
+# task="lamp"
+ids=("c92783d5")
+project="rt-dagger-low-1"
+task="round_table"
 max_steps=1000
 
-# ids=("4zd2su1k")
+# ids=("3863e58b")
 # project="fph-dagger-low-1"
 # task="factory_peg_hole"
 # max_steps=200
 
-randomness="low"
 
 # Output CSV file
 
@@ -41,7 +40,7 @@ echo "id,idx,success_rate" > "$output_file"
 for id in "${ids[@]}"; do
     echo "Processing ID: $id"
     
-    for idx in {0..10..1}; do
+    for idx in {90..400..10}; do
         echo "Processing idx: $idx"
         
         # Run the command and capture its output
