@@ -1,54 +1,42 @@
+import os
 import random
-from git import Union
-import furniture_bench
 from collections import defaultdict
 from datetime import datetime
-import os
 from pathlib import Path
-from typing import Optional
-from src.behavior.base import Actor
-from src.common.context import suppress_stdout
-from src.eval.eval_utils import get_model_from_api_or_cached
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
-from src.train.residual_ppo_w_bc import to_native
+from typing import Optional, Union
 
+import hydra
 import numpy as np
 import torch
 import wandb
 from diffusers.optimization import get_scheduler
-from src.dataset.dataset import (
-    ImageDataset,
-    StateDataset,
-)
-from src.eval.rollout import do_rollout_evaluation
-from src.gym import get_rl_env
-from tqdm import tqdm, trange
+from gymnasium import Env
 from ipdb import set_trace as bp
+from omegaconf import DictConfig, OmegaConf
+from torch.utils.data import DataLoader, random_split
+from tqdm import tqdm, trange
+
 from src.behavior import get_actor
-from src.dataset.dataloader import FixedStepsDataloader
-from src.common.pytorch_util import dict_to_device
-from torch.utils.data import random_split, DataLoader
+from src.behavior.base import Actor
 from src.common.earlystop import EarlyStopper
 from src.common.files import get_processed_paths, path_override
+from src.common.hydra import to_native
+from src.common.pytorch_util import dict_to_device
+from src.dataset.dataloader import FixedStepsDataloader
+from src.dataset.dataset import ImageDataset, StateDataset
+from src.eval.eval_utils import get_model_from_api_or_cached
+from src.eval.rollout import do_rollout_evaluation
+from src.gym import get_rl_env
 from src.models.ema import SwitchEMA
-
-from gym import logger
-
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
 # Import the wandb Run type for type hinting
 from wandb.apis.public.runs import Run
 from wandb.errors.util import CommError
-
 from wandb_osh.hooks import TriggerWandbSyncHook, _comm_default_dir
 
 trigger_sync = TriggerWandbSyncHook(
     communication_dir=os.environ.get("WANDB_OSH_COMM_DIR", _comm_default_dir),
 )
-
-logger.set_level(logger.DISABLED)
-# OmegaConf.register_new_resolver("eval", eval)
 
 
 print("=== Activate TF32 training? Deactivated for now...")
@@ -115,8 +103,7 @@ def main(cfg: DictConfig):
     random.seed(cfg.seed)
 
     print(OmegaConf.to_yaml(cfg))
-
-    env: Optional[FurnitureRLSimEnv] = None
+    env: Optional[Env] = None
     device = torch.device(
         f"cuda:{cfg.training.gpu_id}" if torch.cuda.is_available() else "cpu"
     )
@@ -241,6 +228,7 @@ def main(cfg: DictConfig):
         cfg.slurm_job_id = job_id
 
     cfg.robot_state_dim = dataset.robot_state_dim
+    cfg.action_dim = dataset.action_dim
 
     if cfg.observation_type == "state":
         cfg.parts_poses_dim = dataset.parts_poses_dim
@@ -257,7 +245,6 @@ def main(cfg: DictConfig):
     cfg.data_path = [str(f) for f in data_path]
 
     # Update the cfg object with the action dimension
-    cfg.action_dim = dataset.action_dim
     cfg.n_episodes = len(dataset.episode_ends)
     cfg.n_samples = dataset.n_samples
 

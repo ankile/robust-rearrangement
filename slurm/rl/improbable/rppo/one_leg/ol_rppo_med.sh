@@ -20,5 +20,5 @@ python -m src.train.residual_ppo +experiment=rl/residual_ppo \
     actor.residual_policy.init_logstd=-1.0 \
     actor.residual_policy.learn_std=false \
     total_timesteps=1000000000 \
-    sample_perturbations=true \
+    sample_perturbations=false \
     debug=false

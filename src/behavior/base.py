@@ -2,7 +2,6 @@ import random
 from typing import Dict, Tuple, Union
 from collections import deque
 from omegaconf import DictConfig, OmegaConf
-from src.common.control import RotationMode
 from src.models.utils import PrintParamCountMixin
 from src.models.vib import VIB
 from src.models.vision import VisionEncoder
@@ -15,13 +14,7 @@ from ipdb import set_trace as bp  # noqa
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from src.common.vision import FrontCameraTransform, WristCameraTransform
 
-from pytorch3d.transforms import (
-    rotation_6d_to_matrix,
-    matrix_to_euler_angles,
-    matrix_to_rotation_6d,
-    euler_angles_to_matrix,
-)
-import furniture_bench.controllers.control_utils as C
+import src.common.geometry as C
 
 
 # Update the PostInitCaller to be compatible
@@ -78,7 +71,7 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
 
         actor_cfg = cfg.actor
         self.obs_horizon = actor_cfg.obs_horizon
-        self.action_dim = 10 if cfg.control.act_rot_repr == RotationMode.rot_6d else 8
+        self.action_dim = cfg.action_dim
         self.pred_horizon = actor_cfg.pred_horizon
         self.action_horizon = actor_cfg.action_horizon
         self.predict_past_actions = actor_cfg.predict_past_actions
@@ -255,7 +248,10 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
         robot_state = torch.cat([o["robot_state"].unsqueeze(1) for o in obs], dim=1)
 
         # Convert the robot_state to use rot_6d instead of quaternion
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        # TODO: Change this so the environment outputs 6D rotation instead when that's the chosen control mode
+        if robot_state.shape[-1] == 14:
+            robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+
         robot_state[..., :3] *= int(self.include_proprioceptive_pos)
         robot_state[..., 3:9] *= int(self.include_proprioceptive_ori)
 
@@ -358,16 +354,18 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             action_pred[:, :, :3] += curr_pos[:, None, :]
 
             # Each action in the chunk will be relative to the current EE pose
-            curr_ori_quat = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
+            curr_ori_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(curr_ori_6d)
 
             # Calculate the relative rot action
-            action_quat = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
+            action_quat_xyzw = C.rotation_6d_to_quaternion_xyzw(action_pred[:, :, 3:9])
 
             # Apply the relative quat on top of the current quat to get the absolute quat
-            action_quat = C.quaternion_multiply(curr_ori_quat[:, None], action_quat)
+            action_quat_xyzw = C.quaternion_multiply(
+                curr_ori_quat_xyzw[:, None], action_quat_xyzw
+            )
 
             # Convert the absolute quat to 6D rotation
-            action_pred[:, :, 3:9] = C.quaternion_to_rotation_6d(action_quat)
+            action_pred[:, :, 3:9] = C.quaternion_xyzw_to_rotation_6d(action_quat_xyzw)
 
         # Add the actions to the queue
         # only take action_horizon number of actions
@@ -437,8 +435,8 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             # Add noise to the robot state akin to Ke et al., “Grasping with Chopsticks.”
             # Extract only the current position and orientation (x, y, x and 6D rotation)
             pos = nrobot_state[:, :, :3]
-            rot_mat = rotation_6d_to_matrix(nrobot_state[:, :, 3:9])
-            rot = matrix_to_euler_angles(rot_mat, "XYZ")
+            rot_mat = C.rotation_6d_to_matrix(nrobot_state[:, :, 3:9])
+            rot = C.matrix_to_euler_angles(rot_mat, "XYZ")
 
             # Add noise to the position with variance of of 1 cm
             pos = pos + torch.randn_like(pos) * 0.01
@@ -447,7 +445,9 @@ class Actor(torch.nn.Module, PrintParamCountMixin, metaclass=PostInitCaller):
             d_rot = torch.randn_like(rot) * 0.1
 
             # Apply the noise rotation to the current rotation
-            rot = matrix_to_rotation_6d(rot_mat @ euler_angles_to_matrix(d_rot, "XYZ"))
+            rot = C.matrix_to_rotation_6d(
+                rot_mat @ C.euler_angles_to_matrix(d_rot, "XYZ")
+            )
 
             # In 20% of observations, we now the noised position and rotation to the robot state
             mask = torch.rand(B) < 0.2

@@ -1,7 +1,7 @@
 import pickle
 import tarfile
 from typing import Dict, Union
-from furniture_bench.robot.robot_state import ROBOT_STATES
+from src.common.robot_state import ROBOT_STATES
 import numpy as np
 import torch
 from torchvision.transforms import functional as F, InterpolationMode

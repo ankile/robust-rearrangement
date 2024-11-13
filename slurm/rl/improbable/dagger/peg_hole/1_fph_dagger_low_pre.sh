@@ -8,8 +8,8 @@
 #SBATCH --mem=64GB
 #SBATCH --time=2-00:00
 #SBATCH --gres=gpu:1
-#SBATCH --requeue
 #SBATCH --job-name=1_fph_dagger_low_pre
+#SBATCH --requeue
 
 python -m src.train.dagger \
     student_policy.wandb_id=fph-state-dr-low-1/4vwizwue \
@@ -18,12 +18,12 @@ python -m src.train.dagger \
     num_env_steps=200 \
     student_policy.wt_type=best_success_rate \
     beta=0.95 \
-    teacher_only_iters=2 \
+    teacher_only_iters=0 \
     correct_student_action_only=false \
     eval_interval=5 \
-    num_envs=64 \
+    num_envs=16 \
     num_epochs=100 \
-    eval_first=false \
+    eval_first=true \
     num_iterations=500 \
     beta_min=0.5 \
     beta_decay_ref_sr_ratio=0.8 \
@@ -33,5 +33,5 @@ python -m src.train.dagger \
     learning_rate_student=1e-4 \
     replay_buffer_size=10000000 \
     wandb.project=fph-dagger-low-1 \
-    wandb.continue_run_id=3863e58b \
+    wandb.continue_run_id=2d2f9107 \
     debug=false

@@ -36,6 +36,7 @@ def merge_base_bc_config_with_root_config(cfg: DictConfig, base_cfg: DictConfig)
 
     # expected in Actor
     OmegaConf.update(cfg, "robot_state_dim", base_cfg.robot_state_dim)
+    OmegaConf.update(cfg, "action_dim", base_cfg.action_dim)
 
     if cfg.observation_type == "image":
         # expected in Actor

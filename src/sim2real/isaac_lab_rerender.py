@@ -16,6 +16,8 @@ from scipy.spatial.transform import Rotation as R
 # from omni.isaac.kit import SimulationApp
 from omni.isaac.lab.app import AppLauncher
 
+from src.visualization.render_mp4 import unpickle_data
+from ipdb import set_trace as bp
 
 # from furniture_bench.utils.pose import get_mat, rot_mat
 
@@ -107,9 +109,16 @@ from src.sim2real.part_config_render import part_config_dict
 from typing import Dict, Union, Tuple
 
 # folder to load from
-DEMO_DIR = args_cli.load_dir
-FILES = [os.path.join(DEMO_DIR, f) for f in os.listdir(DEMO_DIR)]
-FILE = FILES[args_cli.demo_index]
+DEMO_DIR = Path(args_cli.load_dir)
+
+# Catch all files in all subfolder that end with .pkl or .pkl.xz
+FILES = sorted(list(DEMO_DIR.rglob("*.pkl")) + list(DEMO_DIR.rglob("*.pkl.xz")))
+
+# Set the random seed then shuffle the files
+np.random.seed(0)
+np.random.shuffle(FILES)
+
+FILE = str(FILES[args_cli.demo_index])
 
 PART_COLOR_BASE = (
     "white" if "PART_COLOR_BASE" not in os.environ else os.environ["PART_COLOR_BASE"]
@@ -327,8 +336,9 @@ def np2Vec3f(arr):
 
 def resize(img: Union[np.ndarray, torch.Tensor]):
     """Resizes `img` into ..."""
-    th, tw = 240, 320
+    # th, tw = 240, 320
     # th, tw = 480, 640
+    th, tw = 720, 960
     was_numpy = False
 
     if isinstance(img, np.ndarray):
@@ -582,8 +592,8 @@ class RandomizationHelper:
 def main():
 
     s = time.time()
-    with open(FILE, "rb") as f:
-        data = pickle.load(f)
+
+    data = unpickle_data(FILE)
     """Spawns a single arm manipulator and applies random joint commands."""
 
     # Load kit helper
@@ -599,6 +609,8 @@ def main():
         width=640,
         # width=1440,
         # height=1080,
+        # height=720,
+        # width=1280,
         prim_path="/World/CameraSensor",
         data_types=["rgb"],
         spawn=sim_utils.PinholeCameraCfg(
@@ -791,7 +803,8 @@ def main():
 
     parts_prev_goal_pos = []
     parts_prev_goal_ori = []
-    part_idx_offset = 1
+    # part_idx_offset = 1
+    part_idx_offset = 0
 
     fj1 = data["observations"][0]["robot_state"]["gripper_finger_1_pos"]
     fj2 = data["observations"][0]["robot_state"]["gripper_finger_2_pos"]
@@ -877,7 +890,7 @@ def main():
     episode_data = {}
     episode_data["observations"] = []
     episode_data["actions"] = data["actions"]
-    episode_data["furniture"] = data["furniture"]
+    episode_data["task"] = data.get("task", data.get("furniture"))
     # assume all real world demos that we actually save are success
     episode_data["success"] = True
     # episode_data["args"] = data["args"]
@@ -924,11 +937,11 @@ def main():
 
     for obs_idx, obs in enumerate(data["observations"]):
 
-        # if args_cli.domain_rand:
-        #     if obs_idx % dr_config.random_frame_freq == 0:
+        if args_cli.domain_rand:
+            #     if obs_idx % dr_config.random_frame_freq == 0:
 
-        # if False:
-        if True:
+            # if False:
+            # if True:
             dr_helper.toggle_lights()
             dr_helper.random_light_colors()
             dr_helper.random_light_intensity()
@@ -1110,9 +1123,18 @@ def main():
             )
             front_image = resize(camera.data.output["rgb"][0, :, :, :3]).cpu().numpy()
 
+            # print(f"front_image shape: {front_image.shape}")
+
+            # log the new observation
+            wrist_image = wrist_camera.data.output["rgb"][0, :, :, :3].cpu().numpy()
+            front_image2 = camera.data.output["rgb"][0, :, :, :3].cpu().numpy()
+
+            # print(f"front_image shape: {front_image.shape}")
+
             new_obs = dict(
                 color_image1=wrist_image,
                 color_image2=front_image,
+                color_image3=front_image2,
                 robot_state=obs["robot_state"],
             )
             episode_data["observations"].append(new_obs)

@@ -166,7 +166,8 @@ class ResidualDiffusionPolicy(DiffusionPolicy):
         parts_poses = obs["parts_poses"]
 
         # Make the robot state have 6D proprioception
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        if robot_state.shape[-1] == 14:
+            robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
         robot_state = self.normalizer(robot_state, "robot_state", forward=True)
         parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)

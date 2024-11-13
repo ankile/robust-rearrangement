@@ -12,6 +12,7 @@ task2idx = {
     "mug_rack": 10,
     "factory_peg_hole": 11,
     "factory_nut_bolt": 12,
+    "bimanual_insertion": 13,
 }
 
 

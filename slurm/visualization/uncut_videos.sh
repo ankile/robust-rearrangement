@@ -15,11 +15,11 @@
 # === One Leg ===
 
 # Low BC run
-# task="one_leg"
-# run_id="ol-state-dr-1/e3d4a367"
-# rollout_suffix="bc"
-# randomness="low"
-# rollout_steps=700
+task="one_leg"
+run_id="ol-state-dr-1/e3d4a367"
+rollout_suffix="bc"
+randomness="low"
+rollout_steps=700
 
 # Low RL run
 # run_id="ol-rppo-dr-low-1/k8tg86rc"
@@ -28,22 +28,24 @@
 # rollout_steps=700
 # task="one_leg"
 
+wt_type="best_success_rate"
+
 
 # === Round Table ===
 
 # Med BC run
-run_id="rt-state-dr-med-1/pb4urpt5"
-rollout_suffix="bc"
-wt_type="best_success_rate"
+# run_id="rt-state-dr-med-1/pb4urpt5"
+# rollout_suffix="bc"
+# wt_type="best_success_rate"
 
 # Med RL run
 # run_id="rt-rppo-dr-med-1/k737s8lj"
 # rollout_suffix="rppo"
 # wt_type="latest"
 
-randomness="med"
-task="round_table"
-rollout_steps=1000
+# randomness="med"
+# task="round_table"
+# rollout_steps=1000
 
 while true; do
     DATA_DIR_RAW=/data/scratch/ankile/robust-assembly-video-data python -m src.eval.evaluate_model \
