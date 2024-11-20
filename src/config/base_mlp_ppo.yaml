@@ -28,7 +28,8 @@ critic:
   last_layer_std: 0.25
   last_layer_activation: null
 
-init_logstd: -5.0
+  init_logstd: -5.0
+  learn_std: true
 
 total_timesteps: 500_000_000
 num_envs: 1024
