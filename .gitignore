@@ -116,3 +116,6 @@ tmp
 *.out
 
 *.csv
+
+logs/
+scene.xml

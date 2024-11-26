@@ -9,8 +9,7 @@ from src.dataset.zarr import combine_zarr_datasets
 from src.common.control import ControlMode
 
 # from src.common.tasks import furniture2idx
-import src.common.geometry as G
-import furniture_bench.controllers.control_utils as C
+import src.common.geometry as C
 
 from ipdb import set_trace as bp
 
@@ -472,14 +471,14 @@ class StateDataset(torch.utils.data.Dataset):
 
             # Get the robot state
             ee_pos = robot_state[:, None, :3]
-            ee_quat_xyzw = G.rot_6d_to_isaac_quat(robot_state[:, 3:9]).view(N, 1, 4)
+            ee_quat_xyzw = C.rot_6d_to_isaac_quat(robot_state[:, 3:9]).view(N, 1, 4)
             ee_pose = torch.cat([ee_pos, ee_quat_xyzw], dim=-1)
 
             # Reshape the parts poses into (N, P, 7)
             parts_pose = parts_poses.view(N, n_parts, 7)
 
             # Concatenate the relative pose into a single tensor
-            rel_pose = G.pose_error(ee_pose, parts_pose)
+            rel_pose = C.pose_error(ee_pose, parts_pose)
 
             # Flatten the relative pose tensor and add it to the train_data
             self.train_data["rel_poses"] = rel_pose.view(N, -1)

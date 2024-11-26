@@ -1,6 +1,5 @@
 from typing import Tuple
 
-from furniture_bench.controllers.control_utils import proprioceptive_quat_to_6d_rotation
 import numpy as np
 
 from src.dataset.normalizer import LinearNormalizer

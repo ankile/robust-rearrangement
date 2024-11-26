@@ -1,25 +1,23 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
-from typing import Dict
+from typing import Dict, Tuple
 from src.dataset.normalizer import LinearNormalizer
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 from src.common.geometry import proprioceptive_quat_to_6d_rotation
 import torch
-import src.common.geometry as G
 
 
 from ipdb import set_trace as bp
 
 # Set the gym logger to not print to console
-import gym
+from gymnasium import Env
+import gymnasium as gym
 
 
 class FurnitureEnvRLWrapper:
 
     def __init__(
         self,
-        env: FurnitureRLSimEnv,
+        env: Env,
         max_env_steps=300,
-        ee_dof=10,
         chunk_size=1,
         reset_on_success=False,
         normalize_reward=False,
@@ -33,15 +31,24 @@ class FurnitureEnvRLWrapper:
         self.device = device
         self.normalizer = LinearNormalizer()
 
-        # Define a new action space of dim 3 (x, y, z)
-        self.action_space = gym.spaces.Box(-1, 1, shape=(chunk_size, ee_dof))
+        # Define a new action space
+        self.action_space = gym.spaces.Box(
+            -1, 1, shape=(chunk_size, self.env.action_space.shape[-1])
+        )
 
-        # Define a new observation space of dim 16 + 35 for 6D proprioception
+        robot_state_dim = self.env.observation_space["robot_state"].shape[-1]
+
+        if robot_state_dim == 14:
+            robot_state_dim = 16
+
+        parts_poses_dim = self.env.observation_space["parts_poses"].shape[-1]
+
         self.observation_space = gym.spaces.Box(
             -float("inf"),
             float("inf"),
-            shape=(16 + env.get_parts_poses().shape[-1] + 7,),
+            shape=(robot_state_dim + parts_poses_dim,),
         )
+
         # Define the maximum number of steps in the environment
         self.max_env_steps = max_env_steps
         self.num_envs = self.env.num_envs
@@ -67,7 +74,8 @@ class FurnitureEnvRLWrapper:
         parts_poses = obs["parts_poses"]
 
         # Make the robot state have 6D proprioception
-        robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
+        if robot_state.shape[-1] == 14:
+            robot_state = proprioceptive_quat_to_6d_rotation(robot_state)
 
         robot_state = self.normalizer(robot_state, "robot_state", forward=True)
         parts_poses = self.normalizer(parts_poses, "parts_poses", forward=True)
@@ -116,7 +124,9 @@ class FurnitureEnvRLWrapper:
 
         return obs, total_reward, dones, info
 
-    def step(self, naction_chunk: torch.Tensor):
+    def step(
+        self, naction_chunk: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict]:
         assert naction_chunk.shape[-2:] == self.action_space.shape
 
         # First denormalize the action
@@ -135,11 +145,6 @@ class FurnitureEnvRLWrapper:
 
         if self.reward_normalizer is not None:
             reward = self.reward_normalizer(reward)
-
-        # NOTE: We take this out to be safe as it's not currently compatible with the lamp task
-        # Reset the envs that have reached the max number of steps or got reward
-        # if self.reset_on_success and torch.any(done):
-        #     obs = self.env.reset(torch.nonzero(done).view(-1))
 
         obs = self.process_obs(obs)
 
@@ -189,7 +194,7 @@ class RLPolicyEnvWrapper:
 
     def __init__(
         self,
-        env: FurnitureRLSimEnv,
+        env: Env,
         max_env_steps=300,
         normalize_reward=False,
         reset_on_success=True,
@@ -198,7 +203,6 @@ class RLPolicyEnvWrapper:
         sample_perturbations=False,
         device="cuda",
     ):
-        # super(FurnitureEnvWrapper, self).__init__(env)
         self.env = env
         self.reset_on_success = reset_on_success
         self.reset_on_failure = reset_on_failure
@@ -214,17 +218,22 @@ class RLPolicyEnvWrapper:
             self.env.num_envs, device=self.device, dtype=torch.bool
         )
 
-        # Define a new action space of dim 3 (x, y, z)
+        # Define a new action space
         self.action_space = gym.spaces.Box(
             -1, 1, shape=(self.env.action_space.shape[-1],)
         )
 
-        # Define a new observation space of dim 14 + 35 in range [-inf, inf] for quat proprioception
-        # and 16 + 35 for 6D proprioception
+        robot_state_dim = self.env.observation_space["robot_state"].shape[-1]
+
+        if robot_state_dim == 14:
+            robot_state_dim = 16
+
+        parts_poses_dim = self.env.observation_space["parts_poses"].shape[-1]
+
         self.observation_space = gym.spaces.Box(
             -float("inf"),
             float("inf"),
-            shape=(16 + env.get_parts_poses().shape[-1] + 7,),
+            shape=(robot_state_dim + parts_poses_dim,),
         )
 
         # Define the maximum number of steps in the environment

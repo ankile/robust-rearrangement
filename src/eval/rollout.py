@@ -1,6 +1,5 @@
-import furniture_bench
+from gymnasium import Env
 from omegaconf import DictConfig  # noqa: F401
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
 import torch
 
 import collections
@@ -8,7 +7,6 @@ import collections
 import numpy as np
 from tqdm import tqdm, trange
 from ipdb import set_trace as bp  # noqa: F401
-from furniture_bench.envs.furniture_sim_env import FurnitureSimEnv
 
 from typing import Dict, Optional, Union
 from pathlib import Path
@@ -17,7 +15,7 @@ from src.behavior.base import Actor
 from src.visualization.render_mp4 import create_in_memory_mp4
 from src.common.context import suppress_all_output
 from src.common.tasks import task2idx
-from src.common.files import trajectory_save_dir
+from src.common.files import get_processed_path, trajectory_save_dir
 from src.data_collection.io import save_raw_rollout
 from src.data_processing.utils import filter_and_concat_robot_state
 from src.data_processing.utils import resize, resize_crop
@@ -26,6 +24,7 @@ from tensordict import TensorDict
 from copy import deepcopy
 
 import wandb
+import zarr
 
 
 RolloutStats = collections.namedtuple(
@@ -141,7 +140,7 @@ class SuccessTqdm(tqdm):
 
 
 def rollout(
-    env: FurnitureRLSimEnv,
+    env: Env,
     actor: Actor,
     rollout_max_steps: int,
     pbar: SuccessTqdm = None,
@@ -174,15 +173,19 @@ def rollout(
     done = torch.zeros((env.num_envs, 1), dtype=torch.bool, device="cuda")
 
     step_idx = 0
+
     # TODO - figure out how to fix this
     actor.normalizer = actor.normalizer.to(actor.device)
     actor.model = actor.model.to(actor.device)
+
     while not done.all():
         # Convert from robot state dict to robot state tensor
-        obs["robot_state"] = filter_and_concat_robot_state(obs["robot_state"])
+        obs["robot_state"] = env.filter_and_concat_robot_state(obs["robot_state"])
 
         # Get the next actions from the actor
         action_pred = actor.action(obs)
+        # action_pred = torch.tensor(actions[step_idx], device="cuda").unsqueeze(0)
+        # action_pred = actor.normalizer(action_pred, "action", forward=False)
 
         obs, reward, done, _ = env.step(action_pred, sample_perturbations=False)
 
@@ -238,7 +241,7 @@ def rollout(
 
 @torch.no_grad()
 def calculate_success_rate(
-    env: FurnitureSimEnv,
+    env: Env,
     actor: Actor,
     n_rollouts: int,
     rollout_max_steps: int,
@@ -259,7 +262,7 @@ def calculate_success_rate(
     pbar = SuccessTqdm(
         num_envs=env.num_envs,
         n_rollouts=n_rollouts,
-        task_name=env.furniture_name,
+        task_name=env.task_name,
         total=rollout_max_steps * (n_rollouts // env.num_envs),
         desc="Performing rollouts",
         leave=True,
@@ -267,7 +270,7 @@ def calculate_success_rate(
     )
 
     if n_parts_assemble is None:
-        n_parts_assemble = len(env.furniture.should_be_assembled)
+        n_parts_assemble = env.n_parts_assemble
 
     tbl = wandb.Table(
         columns=["rollout", "success", "epoch", "reward", "return", "steps"]
@@ -462,7 +465,7 @@ def calculate_success_rate(
 
 def do_rollout_evaluation(
     config: DictConfig,
-    env: FurnitureSimEnv,
+    env: Env,
     save_rollouts_to_file: bool,
     save_rollouts_to_wandb: bool,
     actor: Actor,

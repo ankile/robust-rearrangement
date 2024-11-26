@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import furniture_bench  # noqa
 
 from ipdb import set_trace as bp
 
@@ -20,11 +19,8 @@ from diffusers.optimization import get_scheduler
 
 from src.gym.env_rl_wrapper import RLPolicyEnvWrapper
 from src.common.config_util import merge_base_bc_config_with_root_config
+from src.gym.observation import DEFAULT_STATE_OBS
 
-
-from furniture_bench.envs.furniture_rl_sim_env import FurnitureRLSimEnv
-
-from furniture_bench.envs.observation import DEFAULT_STATE_OBS
 import numpy as np
 import torch
 import torch.nn as nn
@@ -35,7 +31,8 @@ import wandb
 from wandb.apis.public.runs import Run
 from wandb.errors.util import CommError
 
-from src.gym import turn_off_april_tags
+from src.gym import get_rl_env
+import gymnasium as gym
 
 # Register the eval resolver for omegaconf
 OmegaConf.register_new_resolver("eval", eval)
@@ -177,17 +174,15 @@ def main(cfg: DictConfig):
     gpu_id = cfg.gpu_id
     device = torch.device(f"cuda:{gpu_id}")
 
-    turn_off_april_tags()
-
-    env: FurnitureRLSimEnv = FurnitureRLSimEnv(
+    env: gym.Env = get_rl_env(
+        gpu_id=gpu_id,
         act_rot_repr=cfg.control.act_rot_repr,
         action_type=cfg.control.control_mode,
         april_tags=False,
         concat_robot_state=True,
         ctrl_mode=cfg.control.controller,
         obs_keys=DEFAULT_STATE_OBS,
-        furniture=cfg.env.task,
-        # gpu_id=1,
+        task=cfg.env.task,
         compute_device_id=gpu_id,
         graphics_device_id=gpu_id,
         headless=cfg.headless,
@@ -197,7 +192,7 @@ def main(cfg: DictConfig):
         max_env_steps=100_000_000,
     )
 
-    n_parts_to_assemble = len(env.pairs_to_assemble)
+    n_parts_to_assemble = env.n_parts_assemble
 
     if cfg.base_policy.actor.name == "diffusion":
         agent = ResidualDiffusionPolicy(device, base_cfg)

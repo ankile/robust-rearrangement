@@ -1,5 +1,5 @@
 from collections import deque
-from furniture_bench.controllers.control_utils import proprioceptive_quat_to_6d_rotation
+from src.common.geometry import proprioceptive_quat_to_6d_rotation
 from omegaconf import DictConfig
 from src.models.vision import DualInputAttentionPool2d
 import torch

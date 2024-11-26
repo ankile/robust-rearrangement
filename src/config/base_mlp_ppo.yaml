@@ -4,6 +4,7 @@ defaults:
 
 seed: null
 torch_deterministic: false
+gpu_id: 0
 headless: true
 reset_on_failure: false
 reset_every_iteration: true
@@ -63,7 +64,6 @@ n_iterations_train_only_value: 0
 batch_size: ${eval:'${data_collection_steps} * ${num_envs}'}
 minibatch_size: ${eval:'${batch_size} // ${num_minibatches}'}
 num_iterations: ${eval:'${total_timesteps} // ${batch_size}'}
-
 
 control:
   controller: diffik  # diffik
